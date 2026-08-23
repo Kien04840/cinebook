@@ -79,6 +79,12 @@ public class User {
     @OneToMany(mappedBy = "cancelledByUser")
     private List<Booking> cancelledBookings = new ArrayList<>();
 
+    @OneToMany(mappedBy = "user")
+    private List<RefreshToken> refreshTokens = new ArrayList<>();
+
+    @OneToMany(mappedBy = "user")
+    private List<PasswordResetToken> passwordResetTokens = new ArrayList<>();
+
     @PrePersist
     protected void onCreate() {
         if (id == null) {
