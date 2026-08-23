@@ -8,6 +8,8 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -85,6 +87,12 @@ public class Showtime {
     @Version
     @Column(nullable = false)
     private Long version;
+
+    @OneToMany(mappedBy = "showtime")
+    private List<Booking> bookings = new ArrayList<>();
+
+    @OneToMany(mappedBy = "showtime")
+    private List<SeatHold> seatHolds = new ArrayList<>();
 
     @PrePersist
     protected void onCreate() {

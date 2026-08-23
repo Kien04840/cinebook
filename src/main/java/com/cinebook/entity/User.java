@@ -6,7 +6,9 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -70,6 +72,12 @@ public class User {
         orphanRemoval = true
     )
     private Set<UserRole> userRoles = new HashSet<>();
+
+    @OneToMany(mappedBy = "user")
+    private List<Booking> bookings = new ArrayList<>();
+
+    @OneToMany(mappedBy = "cancelledByUser")
+    private List<Booking> cancelledBookings = new ArrayList<>();
 
     @PrePersist
     protected void onCreate() {

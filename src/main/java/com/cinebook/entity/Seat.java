@@ -5,6 +5,8 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Getter
@@ -57,6 +59,12 @@ public class Seat {
     @Enumerated(EnumType.STRING)
     @Column(length = 20, nullable = false)
     private SeatStatus status;
+
+    @OneToMany(mappedBy = "seat")
+    private List<SeatHold> seatHolds = new ArrayList<>();
+
+    @OneToMany(mappedBy = "seat")
+    private List<Ticket> tickets = new ArrayList<>();
 
     @PrePersist
     protected void onCreate() {
