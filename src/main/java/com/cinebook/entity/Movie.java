@@ -94,6 +94,9 @@ public class Movie {
     )
     private Set<MovieGenre> movieGenres = new HashSet<>();
 
+    @OneToMany(mappedBy = "movie")
+    private Set<Showtime> showtimes = new HashSet<>();
+
     @PrePersist
     protected void onCreate() {
         if (id == null) {

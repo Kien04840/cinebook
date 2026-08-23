@@ -70,6 +70,9 @@ public class Auditorium {
     )
     private Set<Seat> seats = new HashSet<>();
 
+    @OneToMany(mappedBy = "auditorium")
+    private Set<Showtime> showtimes = new HashSet<>();
+
     @PrePersist
     protected void onCreate() {
         if (id == null) {
