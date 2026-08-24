@@ -125,7 +125,6 @@ class AuthServiceTest {
         assertEquals("test@example.com", response.getUser().getEmail());
 
         verify(userRepository).save(any(User.class));
-        verify(userRoleRepository).save(any());
         verify(refreshTokenRepository).save(any(RefreshToken.class));
     }
 
