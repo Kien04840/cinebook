@@ -35,7 +35,6 @@ public class Refund {
     @JoinColumn(
         name = "payment_id",
         nullable = false,
-        unique = true,
         foreignKey = @ForeignKey(name = "fk_refunds_payment")
     )
     private Payment payment;
