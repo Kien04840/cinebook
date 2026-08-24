@@ -1,9 +1,6 @@
 spring:
   application:
-    name: cinebook
-
-  profiles:
-    active: local
+    name: cinebook-test
 
   datasource:
     url: jdbc:mysql://localhost:3306/cinebook?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true
@@ -19,13 +16,11 @@ spring:
       hibernate:
         format_sql: true
 
-server:
-  port: 8080
-
 jwt:
-  secret: ${JWT_SECRET}
-  expiration: ${JWT_EXPIRATION:900000} # 15 minutes (ms)
+  secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+  expiration: 900000
   refresh-token:
-    expiration: ${JWT_REFRESH_EXPIRATION:604800000} # 7 days (ms)
+    expiration: 604800000
   reset-token:
-    expiration: ${JWT_RESET_EXPIRATION:900000} # 15 minutes (ms)
+    expiration: 900000
+

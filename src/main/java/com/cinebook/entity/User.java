@@ -110,4 +110,9 @@ public class User {
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
     }
+
+    public void addUserRole(UserRole userRole) {
+    userRoles.add(userRole);
+    userRole.setUser(this);
+}
 }

@@ -15,3 +15,7 @@ Hệ thống đặt vé xem phim trực tuyến.
 ## Architecture
 
 Monolithic Architecture
+
+## How to use
+Copy application-local.yml.example to application-local.yml
+and replace the local configuration values.
