@@ -68,7 +68,7 @@ public class Showtime {
 
     @Column(
         name = "base_price",
-        precision = 10,
+        precision = 12,
         scale = 2,
         nullable = false
     )
