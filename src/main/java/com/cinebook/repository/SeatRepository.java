@@ -7,36 +7,27 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 
-public interface SeatRepository
-        extends JpaRepository<Seat, String> {
+public interface SeatRepository extends JpaRepository<Seat, String> {
 
     List<Seat> findByAuditoriumId(String auditoriumId);
 
-    List<Seat> findByAuditoriumIdOrderByRowLabelAscSeatNumberAsc(
-            String auditoriumId
-    );
+    List<Seat> findByAuditoriumIdOrderByRowLabelAscSeatNumberAsc(String auditoriumId);
 
-    List<Seat> findByAuditoriumIdAndStatus(
-            String auditoriumId,
-            SeatStatus status
-    );
+    List<Seat> findByAuditoriumIdAndStatus(String auditoriumId, SeatStatus status);
 
     Optional<Seat> findByAuditoriumIdAndRowLabelAndSeatNumber(
             String auditoriumId,
             String rowLabel,
-            Integer seatNumber
+            Short seatNumber
     );
 
     boolean existsByAuditoriumIdAndRowLabelAndSeatNumber(
             String auditoriumId,
             String rowLabel,
-            Integer seatNumber
+            Short seatNumber
     );
 
     long countByAuditoriumId(String auditoriumId);
 
-    long countByAuditoriumIdAndStatus(
-            String auditoriumId,
-            SeatStatus status
-    );
+    long countByAuditoriumIdAndStatus(String auditoriumId, SeatStatus status);
 }

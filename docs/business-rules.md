@@ -62,15 +62,10 @@ If a rule is not finalized, it is marked as `TODO / DECISION REQUIRED`.
 - Refresh tokens are stored as hashes in `refresh_tokens`.
 - Password-reset tokens are stored as hashes in `password_reset_tokens`.
 - A token that is expired, revoked, or already used is invalid.
-- Exact token lifetimes (access / refresh / password-reset) are **not finalized**.
-
-```text
-TODO / DECISION REQUIRED:
-- Access token lifetime
-- Refresh token lifetime
-- Password-reset token lifetime
-- Whether refresh tokens are single-use or rotatable
-```
+- **Token lifetimes (Finalized)**:
+  - Access Token: 15 minutes (`900000` ms)
+  - Refresh Token: 7 days (`604800000` ms, SHA-256 hashed, rotated upon each use)
+  - Password Reset Token: 15 minutes (`900000` ms, SHA-256 hashed, single-use)
 
 ### 3.3 Roles
 
@@ -261,14 +256,11 @@ TODO / DECISION REQUIRED:
 - TMDB is an external data source, not the runtime source of truth.
 - Import/seed runs on the backend only.
 - Imported data must map into the existing schema.
-- Avoid creating unnecessary duplicates (`tmdb_id` uniqueness helps).
-- Do not unexpectedly overwrite manually curated data unless explicitly instructed.
-
-```text
-TODO / DECISION REQUIRED:
-- Conflict resolution policy when TMDB data differs from existing curated fields
-- Which fields are considered “curated” and protected
-```
+- Avoid creating unnecessary duplicates (`tmdb_id` uniqueness enforced).
+- **Re-import / Update Policy (Finalized)**:
+  - Re-importing a movie by `tmdbId` synchronizes and overwrites all TMDB-sourced metadata (`title`, `originalTitle`, `overview`, `durationMinutes`, `director`, `actors`, `country`, `language`, `releaseDate`, `posterUrl`, `backdropUrl`, `trailerUrl`, `genres`).
+  - Re-importing strictly **preserves** CineBook lifecycle and business fields: `id` (internal UUID), `tmdbId`, `status`, `deletedAt`, `createdAt`, `version`.
+  - Movies marked `HIDDEN` or soft-deleted are never automatically reverted or un-deleted by TMDB re-import.
 
 Detailed import workflow belongs in `docs/tmdb-import.md`.
 

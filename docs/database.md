@@ -149,6 +149,7 @@ Promotion
 | Column      | Type           | Notes            |
 |-------------|----------------|------------------|
 | id          | varchar(36) PK |                  |
+| tmdb_id     | bigint unsigned| UNIQUE (nullable)|
 | name        | varchar(100)   | UNIQUE, NOT NULL |
 | description | varchar(255)   |                  |
 

@@ -603,7 +603,7 @@ When an endpoint is implemented or its shape is finalized, update this file so i
 
 ---
 
-## 11. Admin TMDB Import API
+## 18. Admin TMDB Import API
 
 Admin-only endpoints for synchronizing data from TMDB into CineBook.
 
@@ -611,7 +611,7 @@ All endpoints require `ROLE_ADMIN`. Covered by `/api/v1/admin/**` rule in `Secur
 
 ---
 
-### 11.1 Sync Genres from TMDB
+### 18.1 Sync Genres from TMDB
 
 `POST /api/v1/admin/tmdb/genres/sync`
 
@@ -641,7 +641,7 @@ Fetches the official TMDB movie genre list and synchronizes with CineBook `genre
 
 ---
 
-### 11.2 Import Movie from TMDB
+### 18.2 Import Movie from TMDB
 
 `POST /api/v1/admin/tmdb/movies/{tmdbId}/import`
 
@@ -683,7 +683,7 @@ Imports or updates a movie by its TMDB movie ID.
 
 ---
 
-### 11.3 Environment Variables
+### 18.3 Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|

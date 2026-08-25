@@ -2,30 +2,26 @@
 
 ## 1. Purpose
 
-CineBook is a **monolithic graduation project** with a short delivery timeline.
+CineBook is a **monolithic graduation project** with a short delivery timeline (~1 month).
 
 The AI agent must optimize for:
-
 - Correct business functionality.
-- Fast, focused implementation.
-- Maintainable and understandable code.
-- Consistent architecture.
-- Low unnecessary context/token usage.
-- Safe changes that do not silently damage data or existing behavior.
+- Fast, focused implementation without unnecessary token/context overhead.
+- Maintainable, understandable, and consistent code.
+- Safe changes that preserve existing data and behavior.
 
-This file defines **how the AI should work**. Detailed project knowledge belongs in `docs/`.
+This file defines **how the AI works and global project rules**. Detailed domain and architectural knowledge lives in `docs/`.
 
 ---
 
 ## 2. Instruction Priority
 
 When rules conflict, use this order:
-
 1. Explicit developer instruction for the current task.
 2. Locked decisions in this file.
-3. Existing working architecture/conventions.
-4. Relevant `docs/` documentation.
-5. Framework/library best practices.
+3. Existing working code and conventions in the repository.
+4. Relevant `docs/` documentation (see `docs/documentation-map.md`).
+5. Framework / library best practices.
 6. General AI preference.
 
 Do not redesign working code merely because another approach is theoretically cleaner.
@@ -36,720 +32,177 @@ Do not redesign working code merely because another approach is theoretically cl
 
 | Area | Decision |
 |---|---|
-| Architecture | Monolith |
-| Backend architecture | Layered Architecture |
+| Architecture | Monolith (Single deployable Spring Boot unit) |
+| Backend architecture | Layered Architecture (Controller → Service → Repository → DB) |
 | Java | 21 |
-| Backend | Spring Boot + Spring MVC |
+| Backend framework | Spring Boot + Spring MVC |
 | Persistence | Spring Data JPA / Hibernate |
-| Build | Maven |
-| Database | MySQL |
+| Build tool | Maven |
+| Database | MySQL 8 (Single source of truth) |
 | Validation | Jakarta Bean Validation |
-| Security | Spring Security + existing JWT architecture |
-| Frontend | Vue 3 |
-| Frontend build | Vite |
-| Frontend language | TypeScript |
-| Frontend API | Axios |
-| Frontend routing | Vue Router |
-| Frontend state | Pinia |
-| Frontend styling | Tailwind CSS |
-| Payment | VNPay Sandbox |
-| Movie data source | TMDB API + import/seed workflow |
-| Redis | Optional |
+| Security | Spring Security + stateless JWT (15m access / 7d refresh) |
+| Frontend | Vue 3 (Composition API, `<script setup>`) |
+| Frontend build & lang | Vite + TypeScript |
+| Frontend routing & state | Vue Router + Pinia |
+| Frontend API & styling | Axios + Tailwind CSS |
+| Payment gateway | VNPay Sandbox |
+| Movie data source | TMDB API (Server-side import/seed workflow only) |
+| Redis | Optional (Cache only) |
 
-Use versions already established in the repository. Do not upgrade unrelated dependencies.
-
-The frontend stack above is the default for new frontend work. If the repository already has an established working alternative, **do not migrate it solely for preference**.
-
+Do not upgrade unrelated dependencies or introduce unapproved frameworks.
 
 ---
 
-## 4. Architecture Rules
+## 4. Core Architecture Rules
 
-CineBook is one Spring Boot application using layered architecture:
+CineBook uses classic **Layered Architecture** with strict dependency direction (Clean Architecture Dependency Rule):
 
 ```text
-Controller
-    ↓
-Service
-    ↓
-Repository
-    ↓
-Database
+Controller  →  Service  →  Repository  →  Database
 ```
 
-Supporting components may include:
+- High-level business policies (Services) must never depend on low-level presentation/HTTP concerns.
+- Controllers stay thin: HTTP handling, DTO validation, service delegation, status mapping.
+- Services own business logic, transaction boundaries (`@Transactional`), and invariant enforcement.
+- Repositories handle persistence only via Spring Data JPA.
 
-```text
-Entity / DTO / Mapper / Exception / Validation / Security / Configuration / Utility
-```
-
-Do not introduce or migrate to:
-
-- Microservices.
-- Eureka/service discovery.
-- Separate API Gateway service.
-- Config Server.
-- Inter-service REST architecture.
-- Distributed transactions.
-- Kafka/RabbitMQ business architecture.
-- Distributed locking infrastructure.
-
-Do not optimize for hypothetical enterprise-scale requirements.
+**Forbidden Architectural Patterns**:
+- Microservices, Eureka / Consul service discovery.
+- Separate API Gateway service or Spring Cloud Config Server.
+- Distributed transactions (2PC, Saga) or message brokers (Kafka, RabbitMQ).
+- Distributed locking infrastructure (Redis locks).
 
 ---
 
-## 5. Existing Code and Database Are Authoritative
+## 5. Existing Code & Database Are Authoritative
 
-The database design already exists. Entity and Repository layers are already implemented.
-
-Before implementing a feature:
-
-1. Inspect the relevant entity.
-2. Inspect its repository.
-3. Inspect related entities/repositories.
-4. Inspect a similar existing feature.
-5. Reuse established conventions.
-
-Do not duplicate entities, repositories, domain concepts, or representations of the same table.
-
-Do not rename existing entities, fields, tables, relationships, APIs, or domain terms merely for style.
-
-Do not redesign working architecture during feature work.
+The database schema and existing JPA entities are the primary truth.
+Before implementing any feature:
+1. Inspect the relevant entities and repository interfaces.
+2. Inspect analogous existing services, DTOs, mappers, and controllers.
+3. Reuse established conventions and exception classes (`AppException` hierarchy).
+4. Do not duplicate domain representations or rename working concepts for stylistic preference.
 
 ---
 
-## 6. Backend Rules
+## 6. Database Safety
 
-### Controller
+MySQL is a critical source of truth. Without explicit developer instruction, **NEVER**:
+- `DROP TABLE`, `TRUNCATE TABLE`, or perform bulk deletions.
+- Reset the database or execute destructive migrations.
+- Remove foreign keys, unique constraints (`uk_*`), or indexes.
+- Change primary key strategies (UUID for entities, `bigint` for `seat_holds`).
 
-Controllers:
-
-- Handle HTTP requests.
-- Validate request DTOs.
-- Delegate business logic to services.
-- Return response DTOs.
-- Use consistent HTTP status codes.
-
-Controllers must not contain substantial business logic or complex transaction workflows.
-
-### Service
-
-Services:
-
-- Contain business logic.
-- Enforce business rules.
-- Coordinate repositories/domain operations.
-- Define meaningful transaction boundaries.
-- Perform business validation.
-- Coordinate authorization constraints when appropriate.
-
-### Repository
-
-Repositories handle persistence.
-
-- Reuse Spring Data functionality first.
-- Add custom queries only when necessary.
-- Keep business rules out of repositories.
-- Reuse existing repositories before creating new ones.
-
-### Entity / DTO / Mapper
-
-- Existing JPA entities and mappings are authoritative.
-- Prefer DTOs at API boundaries.
-- Reuse existing DTOs and mapper conventions.
-- Do not introduce MapStruct or another mapping framework unless already used or explicitly approved.
-- Do not expose JPA entities directly when DTOs are appropriate.
+If schema expansion is required, follow `.agents/rules/database.md` and `.agents/skills/database-change/SKILL.md`.
 
 ---
 
-## 7. Frontend Rules
+## 7. Security & Secrets
 
-Use Vue 3 with Composition API and `<script setup>` for new code unless the existing project requires another convention.
-
-Default stack:
-
-```text
-Vue 3
-Vite
-TypeScript
-Vue Router
-Pinia
-Axios
-Tailwind CSS
-```
-
-### Frontend autonomy
-
-Frontend work is **MODERATELY AUTONOMOUS**.
-
-The agent may decide:
-
-- Component structure.
-- Layout.
-- Responsive behavior.
-- Loading/empty/error states.
-- Form UX.
-- Reusable UI components.
-- Minor accessibility and visual improvements.
-
-The agent must not silently change:
-
-- Backend API contracts.
-- Business rules.
-- Authentication semantics.
-- Database semantics.
-- Required user flows.
-
-### Penpot designs
-
-Some main screens have been designed in Penpot and will be added later.
-
-When a Penpot reference exists, treat it as the primary visual reference for that screen.
-
-The agent should:
-
-1. Inspect the reference before implementation.
-2. Reproduce important layout, hierarchy, spacing, components, and interaction intent.
-3. Reuse existing UI components/design conventions.
-4. Add responsive behavior without unnecessarily changing the intended design.
-
-When no design exists, the agent may make reasonable UI/UX decisions.
-
-### State
-
-Use local component state for local concerns.
-
-Use Pinia only for genuinely shared application state, such as authentication/session state or cross-route booking state.
-
-Do not put every piece of UI state into Pinia.
-
-### API
-
-The frontend communicates with the CineBook backend API.
-
-Never let the browser connect directly to MySQL or use server-side secrets.
-
-Do not put TMDB or VNPay secrets in frontend code.
+- **Zero hard-coded credentials**: `TMDB_API_KEY`, `JWT_SECRET`, database passwords, and VNPay merchant keys must remain in environment variables (`${VAR_NAME:default}`).
+- **Sensitive data protection**: Never log passwords, tokens, or payment hash secrets; never return password hashes.
+- **Authorization**: Enforce role-based access control (RBAC). Public endpoints allow anonymous access; `/api/v1/admin/**` strictly requires `ROLE_ADMIN`.
+- See `.agents/rules/security.md` for full security constraints.
 
 ---
 
-## 8. Frontend Browser Verification
+## 8. External Integrations (Summary)
 
-For meaningful frontend work, compilation alone is not enough.
-
-When browser tooling is available, verify the running application for relevant:
-
-- Route navigation.
-- Rendering.
-- Main interaction.
-- Form validation.
-- API integration.
-- Loading/error/empty states.
-- Runtime/console errors.
-- Responsive behavior when relevant.
-
-Do not claim UI work is verified when only the source code was inspected.
+- **TMDB**: External data source, not runtime source of truth. Runs server-side. Re-import updates movie metadata but strictly preserves internal UUID, status, soft-delete state, and timestamps. (Canonical guide: `docs/tmdb-import.md`).
+- **VNPay**: Sandbox mode only. Cryptographic signature and amount verification must happen on the backend via IPN callback. (Canonical guide: `docs/payment.md`).
+- **Redis**: Optional. MySQL remains source of truth; do not add Redis locking.
 
 ---
 
-## 9. Database Safety
+## 9. AI Autonomy Matrix
 
-MySQL is a critical source of truth.
-
-Without explicit instruction, never:
-
-- Drop tables.
-- Truncate tables.
-- Delete large amounts of data.
-- Reset the database.
-- Remove constraints/indexes.
-- Change primary keys.
-- Break foreign keys.
-- Change important relationships.
-- Perform irreversible data migrations.
-
-If the current schema is insufficient:
-
-1. Identify the requirement gap.
-2. Explain why the schema cannot support it.
-3. Propose the smallest safe change.
-4. Get explicit approval before destructive or difficult-to-reverse structural changes.
-
-Non-destructive changes explicitly required by the current feature may be implemented when consistent with the existing design.
+| Area | Autonomy Level | Guidelines |
+|---|---|---|
+| **Backend Architecture** | Conservative | Follow Layered Architecture, reuse existing classes, no unauthorized refactoring. |
+| **Frontend UI/UX** | Autonomous within boundaries | Decide layout, component hierarchy, responsive styling, loading/error states. Follow Penpot if present. |
+| **Database Schema** | Conservative | Minimal additive non-destructive changes only; requires approval for structural alterations. |
+| **Business Invariants** | Conservative | Enforce all rules from `docs/business-rules.md`; never invent missing rules. |
+| **Bug Fixing** | Autonomous for local bugs | Fix root cause directly without expanding scope into unrelated refactoring. |
+| **Dependencies** | Semi-conservative | Install only justified, necessary libraries; never add dependencies for preference. |
 
 ---
 
-## 10. Redis Policy
+## 10. AI Communication Rules
 
-Redis is **OPTIONAL**.
-
-Do not add Redis merely because caching sounds useful.
-
-When used:
-
-- MySQL remains the source of truth.
-- Redis is a cache/temporary acceleration layer unless explicitly designed otherwise.
-- Mutable cached data requires clear invalidation behavior.
-- Do not introduce Redis distributed locking unless explicitly required.
-
----
-
-## 11. Domain and Business Rules
-
-Reuse established domain concepts such as:
-
-```text
-User / Role / RefreshToken / PasswordResetToken
-Movie / Genre / MovieGenre
-Cinema / Auditorium / SeatType / Seat
-Showtime
-DayPricingRule / TimeSlotPricingRule
-SeatHold / Booking / Ticket / Payment
-Voucher / Promotion (when implemented)
-```
-
-Important invariants include:
-
-- A seat must not be sold more than once for the same showtime.
-- Booking must match the selected showtime.
-- Booking totals must be calculated consistently.
-- Authorization must respect user roles.
-- Payment and booking state must remain consistent.
-- Expired seat holds must not remain valid indefinitely.
-
-Do not invent missing business rules.
-
-When a requirement is materially ambiguous, inspect the repository/docs first. Ask the developer only when the remaining choice affects behavior, architecture, security, data integrity, or a significant user-visible result.
+- **Response Language**: Default user-facing responses to **Vietnamese**. Code, identifiers, and established technical domain terms remain in English.
+- **Output Style**: Concise, compact, structured:
+  ```text
+  Implemented:
+  - ...
+  Verified:
+  - ...
+  Files changed:
+  - ...
+  ```
+- Do not explain obvious implementation details unless an architectural decision, risk, or ambiguity is involved.
 
 ---
 
-## 12. Booking and Concurrency
+## 11. Testing Strategy
 
-Booking/seat-hold logic is concurrency-sensitive.
-
-Never rely only on frontend availability checks.
-
-When implementing booking behavior:
-
-- Keep availability validation inside the appropriate transaction.
-- Respect database constraints.
-- Prevent duplicate sale of the same seat/showtime.
-- Consider concurrent requests.
-- Use appropriate locking supported by the existing design.
-- Do not introduce distributed locking architecture.
-
-Do not add `@Transactional` blindly to every method. Use meaningful business transaction boundaries.
+CineBook uses **risk-based testing**:
+- Unit test Service logic with Mockito (`@ExtendWith(MockitoExtension.class)`).
+- Unit test Controllers with `MockMvc.standaloneSetup()`.
+- Integration test security filter chains with `@SpringBootTest`.
+- Prioritize: Auth/RBAC, seat hold/booking concurrency, payment transitions, and validation errors.
+- Always verify that `.\mvnw.cmd clean test` passes before declaring completion.
 
 ---
 
-## 13. API Rules
+## 12. Git & Version Control Rules
 
-Before creating or changing an endpoint, inspect similar endpoints.
-
-Follow existing conventions for:
-
-- URL naming.
-- HTTP methods.
-- Request/response DTOs.
-- Status codes.
-- Validation.
-- Error format.
-
-Do not silently break an existing frontend API contract.
-
-If frontend and backend requirements conflict, identify the mismatch before changing the contract.
+The developer controls Git. Unless explicitly requested, the AI must **NEVER**:
+- Create, switch, merge, rebase, reset, or delete branches.
+- Execute `git commit`, `git push`, or `git push --force`.
 
 ---
 
-## 14. Validation and Errors
+## 13. Documentation & Task Routing Guide
 
-Use Jakarta Bean Validation for request validation where appropriate.
+To maintain context efficiency, **do not load all documentation at once**. Load only what the current task requires:
 
-Business validation belongs in services.
-
-Use the existing exception-handling mechanism.
-
-Do not introduce a competing global exception system.
-
-Do not silently swallow exceptions or validation failures.
-
----
-
-## 15. Security
-
-Sensitive areas include:
-
-- Passwords.
-- JWTs.
-- Refresh tokens.
-- Password reset tokens.
-- User roles/authorization.
-- VNPay credentials.
-- TMDB credentials.
-- Database credentials.
-
-Never:
-
-- Log passwords.
-- Log tokens unnecessarily.
-- Return password hashes.
-- Hard-code secrets.
-- Commit credentials/private keys.
-- Disable security merely to make a test pass.
-
-Reuse the existing Spring Security design.
+| Task Type | Key Rules & Skills | Authoritative Docs |
+|---|---|---|
+| **Backend Feature** | `.agents/rules/backend.md`<br>`.agents/skills/implement-backend-feature/SKILL.md` | `docs/architecture.md`<br>`docs/database.md`<br>`docs/business-rules.md`<br>`docs/api.md` |
+| **Authentication & RBAC** | `.agents/rules/security.md`<br>`.agents/rules/authentication.md` | `docs/use-cases/authentication.md`<br>`docs/api.md` §4 |
+| **Movie & Genre / TMDB** | `.agents/rules/backend.md` | `docs/use-cases/movie.md`<br>`docs/tmdb-import.md`<br>`docs/api.md` §5, 18 |
+| **Seat Hold & Booking** | `.agents/rules/backend.md` | `docs/business-rules.md` §8<br>`docs/database.md` §3.6<br>`docs/api.md` §8 |
+| **Payment (VNPay)** | `.agents/rules/security.md` | `docs/payment.md`<br>`docs/business-rules.md` §9<br>`docs/api.md` §9 |
+| **Database Schema** | `.agents/rules/database.md`<br>`.agents/skills/database-change/SKILL.md` | `docs/database.md`<br>`docs/business-rules.md` |
+| **Frontend UI** | `.agents/rules/frontend.md` | `docs/api.md`<br>`docs/use-cases/{domain}.md` |
+| **Master Navigation** | `.agents/workflows/feature-development.md` | `docs/documentation-map.md` |
 
 ---
 
-## 16. VNPay Sandbox
+## 14. Forbidden Actions
 
-VNPay is used in **sandbox/test mode**.
-
-Rules:
-
-- Keep credentials outside source control.
-- Keep payment verification on the backend.
-- Do not trust frontend-provided payment success state.
-- Keep booking/payment state transitions consistent.
-- Never accidentally use production credentials/endpoints during development.
-
-Follow existing payment implementation/docs when available.
+Unless explicitly requested by the developer, never:
+1. Convert the system to microservices or introduce message brokers.
+2. Drop, truncate, or reset database tables or delete existing business logic.
+3. Disable security or bypass service validation.
+4. Hard-code credentials or API tokens in source files.
+5. Perform large-scale refactoring during a scoped feature task.
+6. Commit or push changes to Git.
 
 ---
 
-## 17. TMDB and Data Import
+## 15. Definition of Done
 
-TMDB is an **external data source**, not CineBook's source of truth.
-
-Preferred flow:
-
-```text
-TMDB API
-   ↓
-Import / Seed workflow
-   ↓
-CineBook MySQL
-   ↓
-CineBook Backend API
-   ↓
-Vue Frontend
-```
-
-Do not make the frontend depend directly on TMDB for normal application data.
-
-TMDB credentials must remain server-side.
-
-Import/seed logic should:
-
-- Map TMDB data into the existing schema.
-- Reuse existing entities/repositories.
-- Avoid unnecessary duplicates.
-- Respect database constraints.
-- Avoid unexpectedly overwriting manually curated data.
-
-Large or irreversible imports require explicit instruction/approval.
+A task is complete when:
+- Requested functionality is correctly implemented following existing conventions.
+- Domain invariants and security constraints are preserved.
+- Relevant unit and integration tests are written and pass (`.\mvnw.cmd clean test`).
+- No unnecessary dependencies or secrets are introduced.
+- Associated documentation is updated if contracts or schemas changed.
+- Final diff is reviewed and summarized in Vietnamese.
 
 ---
 
-## 18. Dependency Policy
-
-Before adding Maven/npm dependencies:
-
-1. Check existing dependencies.
-2. Check whether Java/Spring/Vue can solve the problem.
-3. Reuse existing libraries where practical.
-4. Add a dependency only when it provides meaningful value.
-
-Dependency installation is **SEMI-CONSERVATIVE**: the agent may install a clearly justified dependency needed for the current task, but should not add libraries for convenience or personal preference.
-
-Do not upgrade unrelated dependencies during feature work.
-
----
-
-## 19. AI Autonomy Matrix
-
-| Area | Autonomy |
-|---|---|
-| Backend | Conservative |
-| Frontend | Autonomous within project boundaries |
-| Database | Conservative |
-| UI/UX | Autonomous |
-| Business rules | Conservative |
-| Refactoring | Conservative |
-| Bug fixing | Autonomous for clear/local bugs |
-| Dependency installation | Semi-conservative |
-
-**Conservative:** inspect first, reuse existing code, minimize changes, avoid assumptions.
-
-**Autonomous:** make reasonable reversible decisions without unnecessary confirmation.
-
-For a clear local bug, fix it directly if the cause and solution are reasonably certain. Do not turn the bug fix into unrelated refactoring.
-
----
-
-## 20. AI Communication
-
-### Language
-
-Default user-facing responses to **Vietnamese**.
-
-Use English for code and established technical/domain identifiers.
-
-Do not translate code concepts inconsistently.
-
-### Response length
-
-Default to compact output.
-
-For normal implementation tasks:
-
-```text
-Implemented:
-- ...
-
-Verified:
-- ...
-
-Files changed:
-- ...
-
-Notes:
-- ...
-```
-
-Do not explain obvious implementation details unless asked.
-
-Give longer explanations when there is an important architectural decision, failure, risk, or ambiguity.
-
----
-
-## 21. Context Efficiency
-
-The developer has limited AI quota and a short deadline.
-
-For each task:
-
-1. Start with the relevant file/module.
-2. Inspect analogous implementations.
-3. Inspect related files only as needed.
-4. Read relevant docs only.
-5. Avoid repository-wide context for small tasks.
-6. Reuse existing project conventions instead of rediscovering them.
-
-Before asking a question, search the repository and docs first.
-
-Do not ask questions that can be answered from the codebase.
-
----
-
-## 22. Task Workflow
-
-For non-trivial tasks:
-
-### Inspect
-
-Read existing relevant code first.
-
-### Scope
-
-Identify required behavior, affected files, reusable code, and out-of-scope areas.
-
-### Plan
-
-Create a short actionable plan when the task is non-trivial.
-
-### Implement
-
-Implement the smallest complete solution. Do not modify unrelated files.
-
-### Verify
-
-Run relevant builds, tests, static checks, and browser verification when applicable.
-
-### Review
-
-Inspect the final diff for unintended changes, debug output, secrets, broken imports, duplicate logic, unnecessary dependencies, unrelated refactoring, and business-rule errors.
-
-### Report
-
-Return a concise Vietnamese summary.
-
----
-
-## 23. Scope and Refactoring
-
-Stay within the requested task.
-
-Do not use a feature task as an excuse to:
-
-- Redesign authentication.
-- Rewrite the database.
-- Change frontend framework.
-- Upgrade Spring Boot.
-- Introduce microservices.
-- Refactor unrelated services/components.
-- Rewrite the architecture.
-
-Refactoring is **CONSERVATIVE**.
-
-Refactor only when necessary for the current task, a real defect, directly relevant duplication, or a clear maintainability problem in the touched area.
-
-Report unrelated issues instead of silently fixing them unless they block the current task.
-
----
-
-## 24. Testing Strategy
-
-Use **risk-based testing**, not coverage-driven testing.
-
-Prioritize:
-
-- Authentication/authorization.
-- Booking.
-- Seat hold/availability.
-- Pricing.
-- Payment state transitions.
-- Validation.
-- Important concurrency behavior.
-- Critical edge cases.
-
-Do not create meaningless tests solely to increase coverage.
-
-A feature is not complete merely because it compiles.
-
-If verification cannot be performed, say so honestly.
-
----
-
-## 25. Code Quality
-
-### Comments
-
-Do not comment obvious code.
-
-Use comments for non-obvious business rules, concurrency decisions, security concerns, trade-offs, or unusual framework/database workarounds.
-
-### Naming
-
-Use clear English names and existing project terminology.
-
-Do not rename working concepts merely for stylistic preference.
-
----
-
-## 26. Documentation
-
-`AGENTS.md` = **AI behavior and engineering rules**.
-
-Use `docs/` for detailed project knowledge, for example:
-
-```text
-docs/
-├── architecture.md
-├── database.md
-├── business-rules.md
-├── api.md
-├── frontend.md
-├── payment.md
-├── tmdb-import.md
-└── use-cases/
-```
-
-Do not put every database field, use case, UI specification, or implementation detail into AGENTS.md.
-
----
-
-## 27. Git Rules
-
-The developer controls Git.
-
-Unless explicitly requested, the AI must not:
-
-- Create/switch/delete branches.
-- Commit.
-- Push.
-- Force-push.
-- Merge.
-- Rebase.
-- Reset.
-
-Normal flow:
-
-```text
-main
-  ↓
-dev
-  ↓
-Active development
-  ↓
-Final verification
-  ↓
-Developer merges dev → main
-```
-
-Treat `main` as stable/protected.
-
----
-
-## 28. Secrets
-
-Never commit or expose:
-
-- Passwords.
-- API keys.
-- JWT secrets.
-- Private keys.
-- Database credentials.
-- VNPay credentials.
-- TMDB credentials.
-- OAuth secrets.
-
-Use environment variables or local secure configuration.
-
-If a secret is discovered in tracked code: do not reproduce it in output; warn the developer and recommend moving it to secure configuration.
-
----
-
-## 29. Forbidden Actions
-
-Unless explicitly requested, never:
-
-- Convert CineBook to microservices.
-- Add Eureka, Config Server, or a separate API Gateway.
-- Introduce distributed transactions or unnecessary message brokers.
-- Drop/truncate/reset important database data.
-- Remove important constraints/indexes.
-- Silently change the database schema.
-- Delete existing business logic.
-- Disable security.
-- Hard-code credentials.
-- Upgrade unrelated dependencies.
-- Perform large-scale refactoring during a feature task.
-- Automatically commit/push/merge/rebase/reset Git.
-
----
-
-## 30. Definition of Done
-
-A task is complete when applicable:
-
-- Requested functionality is implemented.
-- Existing architecture/conventions are respected.
-- Existing behavior is not unnecessarily broken.
-- Validation and error handling are appropriate.
-- Relevant tests pass.
-- Backend builds successfully when applicable.
-- Frontend builds/types-checks when applicable.
-- Meaningful frontend work is browser-verified when tooling allows.
-- No unnecessary dependency was introduced.
-- No unrelated files were modified.
-- No secrets were introduced.
-- Final diff was reviewed.
-
----
-
-## 31. Final Principle
+## 16. Final Principle
 
 **Explicit developer instruction > locked decisions > existing working code > project docs > simplicity > convention > cleverness.**
-
-The goal is not the most sophisticated architecture. The goal is a **correct, maintainable, understandable, testable, visually usable, and complete CineBook graduation project delivered within the available time**.

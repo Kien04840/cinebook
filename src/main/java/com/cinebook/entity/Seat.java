@@ -50,7 +50,7 @@ public class Seat {
     )
     private SeatType seatType;
 
-    @Column(name = "row_label", length = 1, nullable = false)
+    @Column(name = "row_label", length = 5, nullable = false)
     private String rowLabel;
 
     @Column(name = "seat_number", nullable = false)

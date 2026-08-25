@@ -54,36 +54,22 @@ Vue Frontend
 | `poster_path` | `poster_url` | must be composed with the TMDB image base URL |
 | `backdrop_path` | `backdrop_url` | must be composed with the TMDB image base URL |
 | `genre_ids` / `genres` | `movies_genres` (via `genres`) | mapping table, see §5 |
-| — | `director` | from `/movie/{id}/credits` (crew, job = Director) — not on the base movie object |
-| — | `actors` | from `/movie/{id}/credits` (cast) — not on the base movie object |
-| — | `trailer_url` | from `/movie/{id}/videos` — not on the base movie object |
-| — | `country` | TMDB `production_countries` |
+| — | `director` | from `/movie/{id}` with `append_to_response=credits` (crew, job = Director) |
+| — | `actors` | from `/movie/{id}` with `append_to_response=credits` (top 10 cast by order) |
+| — | `trailer_url` | from `/movie/{id}` with `append_to_response=videos` (YouTube Trailer, official preferred) |
+| — | `country` | TMDB `production_countries` (primary country name) |
 | — | `language` | TMDB `original_language` |
-| — | `age_rating` | TMDB has no single field equivalent to CineBook's `age_rating` |
-| — | `status` | CineBook-only field, not sourced from TMDB |
-
-```text
-TODO / DECISION REQUIRED:
-- Exact TMDB endpoints used (search/discover for listing vs /movie/{id} + /credits + /videos
-  for detail) and how many extra calls per movie are acceptable.
-- How age_rating is derived (TMDB's release_dates endpoint has per-country certification data,
-  or this field may be manually curated instead of imported).
-- Image base URL / size variant used for poster_url / backdrop_url.
-- trailer_url selection rule when multiple videos exist (e.g. first YouTube "Trailer" type).
-```
+| — | `age_rating` | from `/movie/{id}` with `append_to_response=release_dates` (US certification, fallback `"NR"`) |
+| — | `status` | CineBook-only field: new movies set based on release date (<= today: `NOW_SHOWING`, > today: `COMING_SOON`) |
 
 ---
 
 ## 5. Genre Mapping
 
 - TMDB genres use TMDB's own fixed genre IDs, separate from CineBook's `genres.id` (UUID).
-- Import must map TMDB `genre_ids` to existing CineBook `genres` rows (by name, or a maintained TMDB-id → CineBook-id lookup) — it must not create duplicate genre rows for the same concept.
-- If a TMDB genre has no corresponding CineBook `genres` row yet, a decision is needed on whether to auto-create it.
-
-```text
-TODO / DECISION REQUIRED:
-- Auto-create missing genres during import, or require them to be pre-seeded/curated manually?
-```
+- Import maps TMDB `genres` to existing CineBook `genres` rows using `genres.tmdb_id`.
+- If a TMDB genre has no corresponding CineBook `genres` row yet, it is auto-created during movie import.
+- Admin can also trigger full genre sync via `POST /api/v1/admin/tmdb/genres/sync`.
 
 ---
 
@@ -94,43 +80,42 @@ TODO / DECISION REQUIRED:
 For each TMDB movie, the import workflow should:
 
 1. Look up an existing CineBook movie by `tmdb_id`.
-2. If not found → create a new `movies` row + `movies_genres` links.
-3. If found → update per the curated-field policy (§7). Never create a duplicate row.
+2. If not found → create a new `movies` row (fresh internal UUID) + `movies_genres` links.
+3. If found → update per the re-import policy (§7). Never create a duplicate row.
 
 Movies with `tmdb_id IS NULL` (manually created, not linked to TMDB) must never be matched or overwritten by import.
 
 ---
 
-## 7. Curated Data Protection
+## 7. Re-import & Curated Data Policy (Finalized)
 
-Per `business-rules.md` §11: **do not unexpectedly overwrite manually curated data.**
+Per developer instruction:
 
-```text
-TODO / DECISION REQUIRED (tracked in business-rules.md §11 — do not resolve independently here):
-- Which fields are considered "curated" and protected from re-import overwrite
-  (e.g. a poster_url or description manually replaced by an admin).
-- Conflict resolution policy: skip existing non-null curated fields vs always overwrite vs
-  require admin confirmation.
-```
+- **Overwritten / Synchronized on re-import**:
+  - `title`, `original_title`, `overview`, `duration_minutes`
+  - `director`, `actors`, `country`, `language`
+  - `release_date`, `poster_url`, `backdrop_url`, `trailer_url`
+  - `movies_genres` relationships (synced in a Hibernate-safe manner)
+  - `age_rating` (from TMDB certification or `"NR"`)
 
-Until this is decided, import logic must default to the **safest** option: do not overwrite an existing non-null field on update; only fill nulls / add new movies. This default may be revised once the developer confirms the policy — do not silently change it without approval (`AGENTS.md` §9).
+- **Strictly Preserved (NEVER overwritten by TMDB re-import)**:
+  - `id` (internal UUID)
+  - `tmdb_id`
+  - `status` (admin-set status such as `HIDDEN` or `ENDED` is preserved)
+  - `deleted_at` (soft-deleted movie remains soft-deleted, not automatically restored)
+  - `created_at`
+  - `version` / `updated_at` (managed automatically by JPA/Hibernate lifecycle)
 
 ---
 
 ## 8. Import Trigger
 
-```text
-TODO / DECISION REQUIRED:
-- Is import triggered manually by an admin action (e.g. POST /api/v1/admin/movies/import),
-  a one-off seed script, or a scheduled job?
-- Is it single-movie import (by TMDB id) or bulk import (by a discover/search query)?
-```
+Import is triggered server-side by administrators via REST API endpoints:
 
-Whichever mechanism is chosen, it must:
+- `POST /api/v1/admin/tmdb/genres/sync` — Synchronizes all official TMDB genres.
+- `POST /api/v1/admin/tmdb/movies/{tmdbId}/import` — Imports or updates a specific movie by its TMDB ID.
 
-- Run entirely server-side.
-- Respect existing database constraints (`uk_movies_tmdb_id`, `NOT NULL` columns).
-- Be safe to re-run (idempotent), per the dedup strategy in §6.
+Both endpoints are idempotent, run entirely on the backend, and require `ROLE_ADMIN`.
 
 ---
 

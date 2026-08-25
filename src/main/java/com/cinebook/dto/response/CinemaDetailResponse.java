@@ -1,0 +1,28 @@
+package com.cinebook.dto.response;
+
+import com.cinebook.enums.CinemaStatus;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Getter
+@Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class CinemaDetailResponse {
+
+    private String id;
+    private String name;
+    private String address;
+    private String city;
+    private CinemaStatus status;
+    private List<AuditoriumResponse> auditoriums;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}

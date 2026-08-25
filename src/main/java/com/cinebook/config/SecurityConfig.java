@@ -78,6 +78,8 @@ public class SecurityConfig {
                         // Public movie/cinema/showtime read endpoints
                         .requestMatchers(HttpMethod.GET, "/api/v1/movies/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/cinemas/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auditoriums/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/seat-types/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/showtimes/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/genres/**").permitAll()
 

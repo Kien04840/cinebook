@@ -313,6 +313,7 @@ Do **not** introduce: microservices, Eureka, Config Server, separate API Gateway
 | File                    | Responsibility                                      |
 |-------------------------|-----------------------------------------------------|
 | `AGENTS.md`             | How the AI must work (rules, autonomy, forbidden actions) |
+| `docs/documentation-map.md` | Master navigation, canonical source index & task matrix |
 | `docs/architecture.md`  | How the system is structured (this file)            |
 | `docs/database.md`      | How data is organized (tables, constraints, relations) |
 | `docs/business-rules.md`| How the system must behave (invariants, rules)      |
