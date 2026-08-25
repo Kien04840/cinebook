@@ -1,10 +1,9 @@
-﻿package com.cinebook.exception;
+package com.cinebook.exception;
 
 import org.springframework.http.HttpStatus;
 
 /**
  * Base exception for all TMDB API integration errors.
- * Subclasses map specific TMDB failure modes to appropriate HTTP responses.
  */
 public class TmdbApiException extends AppException {
 

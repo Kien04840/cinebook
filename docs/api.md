@@ -593,9 +593,107 @@ TODO / DECISION REQUIRED:
 | `database.md`           | Data model behind the API        |
 | `business-rules.md`     | Rules the API must enforce       |
 | `payment.md`            | VNPay field mapping & callbacks  |
+| `tmdb-import.md`        | TMDB import workflow & mapping   |
 | `use-cases/*.md`        | End-to-end scenarios             |
 
 ---
 
 *This is the living API contract for CineBook v1.  
 When an endpoint is implemented or its shape is finalized, update this file so it remains the single source of truth for frontend and backend.*
+
+---
+
+## 11. Admin TMDB Import API
+
+Admin-only endpoints for synchronizing data from TMDB into CineBook.
+
+All endpoints require `ROLE_ADMIN`. Covered by `/api/v1/admin/**` rule in `SecurityConfig`.
+
+---
+
+### 11.1 Sync Genres from TMDB
+
+`POST /api/v1/admin/tmdb/genres/sync`
+
+Fetches the official TMDB movie genre list and synchronizes with CineBook `genres` table.
+
+- Creates new genres if TMDB genre ID is not found in CineBook.
+- Updates genre name if it has changed on TMDB.
+- Does **not** delete existing CineBook genres that are not in TMDB.
+- Safe to re-run (idempotent).
+
+**Response `200 OK`:**
+```json
+{
+  "created": 5,
+  "updated": 2,
+  "unchanged": 11,
+  "total": 18
+}
+```
+
+**Error responses:**
+| Status | Cause |
+|--------|-------|
+| 401 | No/invalid JWT |
+| 403 | Not an ADMIN |
+| 503 | TMDB API key invalid or TMDB unreachable |
+
+---
+
+### 11.2 Import Movie from TMDB
+
+`POST /api/v1/admin/tmdb/movies/{tmdbId}/import`
+
+Imports or updates a movie by its TMDB movie ID.
+
+- If no movie with that `tmdbId` exists → creates a new Movie (fresh UUID, status derived from release date).
+- If a movie with that `tmdbId` exists → updates TMDB-sourced fields only; **preserves** `status`, `deletedAt`, `createdAt`, `id`.
+- Idempotent: safe to call multiple times.
+
+**Path parameter:** `tmdbId` — the TMDB movie ID (e.g., `550` for Fight Club).
+
+**Response `200 OK`:**
+```json
+{
+  "movieId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "tmdbId": 550,
+  "title": "Fight Club",
+  "originalTitle": "Fight Club",
+  "action": "CREATED",
+  "status": "NOW_SHOWING",
+  "releaseDate": "1999-10-15",
+  "ageRating": "R",
+  "genres": ["Drama", "Thriller"],
+  "posterUrl": "https://image.tmdb.org/t/p/w500/poster.jpg",
+  "trailerUrl": "https://www.youtube.com/watch?v=SUXWAEX2jlg"
+}
+```
+
+`action` is `"CREATED"` or `"UPDATED"`.
+
+**Error responses:**
+| Status | Cause |
+|--------|-------|
+| 400 | Movie data missing required fields (title, overview, release_date) |
+| 401 | No/invalid JWT |
+| 403 | Not an ADMIN |
+| 404 | Movie does not exist on TMDB |
+| 503 | TMDB API key invalid or TMDB unreachable |
+
+---
+
+### 11.3 Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `TMDB_API_KEY` | **Yes** | (empty) | TMDB API Read Access Token (Bearer) |
+| `TMDB_BASE_URL` | No | `https://api.themoviedb.org/3` | TMDB API base URL |
+| `TMDB_IMAGE_BASE_URL` | No | `https://image.tmdb.org/t/p` | TMDB image CDN base URL |
+| `TMDB_LANGUAGE` | No | `en-US` | Default language for API calls |
+| `TMDB_POSTER_SIZE` | No | `w500` | TMDB image size for poster URLs |
+| `TMDB_BACKDROP_SIZE` | No | `original` | TMDB image size for backdrop URLs |
+| `TMDB_CONNECT_TIMEOUT` | No | `5000` | HTTP connect timeout (ms) |
+| `TMDB_READ_TIMEOUT` | No | `10000` | HTTP read timeout (ms) |
+
+> ⚠️ `TMDB_API_KEY` must **never** be committed to source control. Set via environment variable or CI/CD secret.

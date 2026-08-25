@@ -1,10 +1,10 @@
-﻿package com.cinebook.exception;
+package com.cinebook.exception;
 
 import org.springframework.http.HttpStatus;
 
 /**
- * Thrown when TMDB returns 401 or 403 — API key is invalid or missing.
- * Maps to 503 (Service Unavailable) since this is a configuration issue, not a client error.
+ * Thrown when TMDB returns 401 or 403.
+ * Maps to 503 since this is a configuration issue.
  */
 public class TmdbAuthException extends TmdbApiException {
 

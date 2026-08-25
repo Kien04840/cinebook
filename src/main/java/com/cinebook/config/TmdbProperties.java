@@ -1,4 +1,4 @@
-﻿package com.cinebook.config;
+package com.cinebook.config;
 
 import lombok.Getter;
 import lombok.Setter;

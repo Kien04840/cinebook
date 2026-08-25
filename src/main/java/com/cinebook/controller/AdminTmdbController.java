@@ -1,4 +1,4 @@
-﻿package com.cinebook.controller;
+package com.cinebook.controller;
 
 import com.cinebook.dto.response.TmdbGenreSyncResponse;
 import com.cinebook.dto.response.TmdbMovieImportResponse;

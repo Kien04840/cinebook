@@ -1,4 +1,4 @@
-﻿package com.cinebook.tmdb.impl;
+package com.cinebook.tmdb.impl;
 
 import com.cinebook.config.TmdbProperties;
 import com.cinebook.dto.tmdb.TmdbGenreListResponse;
@@ -13,8 +13,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
-import java.time.Duration;
-
 /**
  * Spring RestClient-based implementation of TmdbClient.
  *
@@ -28,9 +26,9 @@ public class TmdbApiClient implements TmdbClient {
     private final TmdbProperties tmdbProperties;
     private final RestClient restClient;
 
-    public TmdbApiClient(TmdbProperties tmdbProperties, RestClient.Builder restClientBuilder) {
+    public TmdbApiClient(TmdbProperties tmdbProperties) {
         this.tmdbProperties = tmdbProperties;
-        this.restClient = restClientBuilder
+        this.restClient = RestClient.builder()
                 .baseUrl(tmdbProperties.getBaseUrl())
                 .defaultHeader("Authorization", "Bearer " + tmdbProperties.getApiKey())
                 .defaultHeader("Accept", "application/json")
@@ -61,7 +59,6 @@ public class TmdbApiClient implements TmdbClient {
         } catch (TmdbAuthException | TmdbServiceException e) {
             throw e;
         } catch (ResourceAccessException e) {
-            // Network timeout or connection refused
             throw new TmdbServiceException("Network error calling TMDB genre list: " + e.getMessage(), e);
         } catch (Exception e) {
             throw new TmdbServiceException("Unexpected error calling TMDB genre list: " + e.getMessage(), e);

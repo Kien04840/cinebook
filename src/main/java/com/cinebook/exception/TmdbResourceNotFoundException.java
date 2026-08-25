@@ -1,9 +1,9 @@
-﻿package com.cinebook.exception;
+package com.cinebook.exception;
 
 import org.springframework.http.HttpStatus;
 
 /**
- * Thrown when TMDB returns 404 — the requested resource does not exist on TMDB.
+ * Thrown when TMDB returns 404.
  */
 public class TmdbResourceNotFoundException extends TmdbApiException {
 

@@ -1,4 +1,4 @@
-﻿package com.cinebook.dto.response;
+package com.cinebook.dto.response;
 
 import com.cinebook.enums.MovieStatus;
 import lombok.AllArgsConstructor;
@@ -17,16 +17,11 @@ import java.util.List;
 @AllArgsConstructor
 public class TmdbMovieImportResponse {
 
-    /** CineBook internal UUID */
     private String movieId;
-
     private Long tmdbId;
     private String title;
     private String originalTitle;
-
-    /** "CREATED" or "UPDATED" */
     private String action;
-
     private MovieStatus status;
     private LocalDate releaseDate;
     private String ageRating;

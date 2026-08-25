@@ -24,3 +24,12 @@ jwt:
   reset-token:
     expiration: 900000
 
+tmdb:
+  api-key: ${TMDB_BEARER_TOKEN:}
+  base-url: https://api.themoviedb.org/3
+  image-base-url: https://image.tmdb.org/t/p
+  language: en-US
+  poster-size: w500
+  backdrop-size: original
+  connect-timeout-ms: 5000
+  read-timeout-ms: 10000

@@ -1,4 +1,4 @@
-﻿package com.cinebook.service.impl;
+package com.cinebook.service.impl;
 
 import com.cinebook.config.TmdbProperties;
 import com.cinebook.dto.response.TmdbGenreSyncResponse;

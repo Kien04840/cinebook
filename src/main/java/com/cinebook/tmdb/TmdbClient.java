@@ -1,4 +1,4 @@
-﻿package com.cinebook.tmdb;
+package com.cinebook.tmdb;
 
 import com.cinebook.dto.tmdb.TmdbGenreListResponse;
 import com.cinebook.dto.tmdb.TmdbMovieDetailDto;

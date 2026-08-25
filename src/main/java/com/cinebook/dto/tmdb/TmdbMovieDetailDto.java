@@ -1,4 +1,4 @@
-﻿package com.cinebook.dto.tmdb;
+package com.cinebook.dto.tmdb;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;

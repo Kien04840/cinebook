@@ -1,4 +1,4 @@
-﻿package com.cinebook.service;
+package com.cinebook.service;
 
 import com.cinebook.dto.response.TmdbGenreSyncResponse;
 import com.cinebook.dto.response.TmdbMovieImportResponse;

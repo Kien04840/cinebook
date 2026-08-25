@@ -1,4 +1,4 @@
-﻿package com.cinebook.dto.response;
+package com.cinebook.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
