@@ -29,3 +29,13 @@ jwt:
     expiration: ${JWT_REFRESH_EXPIRATION:604800000} # 7 days (ms)
   reset-token:
     expiration: ${JWT_RESET_EXPIRATION:900000} # 15 minutes (ms)
+
+tmdb:
+  api-key: ${TMDB_API_KEY:}
+  base-url: ${TMDB_BASE_URL:https://api.themoviedb.org/3}
+  image-base-url: ${TMDB_IMAGE_BASE_URL:https://image.tmdb.org/t/p}
+  language: ${TMDB_LANGUAGE:en-US}
+  poster-size: ${TMDB_POSTER_SIZE:w500}
+  backdrop-size: ${TMDB_BACKDROP_SIZE:original}
+  connect-timeout-ms: ${TMDB_CONNECT_TIMEOUT:5000}
+  read-timeout-ms: ${TMDB_READ_TIMEOUT:10000}
