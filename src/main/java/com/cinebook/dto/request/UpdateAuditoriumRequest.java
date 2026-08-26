@@ -1,6 +1,7 @@
 package com.cinebook.dto.request;
 
 import com.cinebook.enums.AuditoriumStatus;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -27,4 +28,10 @@ public class UpdateAuditoriumRequest {
 
     @NotNull(message = "Status is required")
     private AuditoriumStatus status;
+
+    @Min(value = 0, message = "Turnaround minutes cannot be negative")
+    private Short turnaroundMinutes;
+
+    @Min(value = 1, message = "Snap interval minutes must be at least 1")
+    private Short snapIntervalMinutes;
 }

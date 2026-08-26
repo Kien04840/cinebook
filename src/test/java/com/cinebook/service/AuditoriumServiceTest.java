@@ -10,8 +10,8 @@ import com.cinebook.entity.SeatType;
 import com.cinebook.enums.AuditoriumStatus;
 import com.cinebook.enums.CinemaStatus;
 import com.cinebook.enums.SeatTypeStatus;
+import com.cinebook.exception.BadRequestException;
 import com.cinebook.exception.ConflictException;
-import com.cinebook.exception.ResourceNotFoundException;
 import com.cinebook.mapper.AuditoriumMapper;
 import com.cinebook.mapper.SeatMapper;
 import com.cinebook.repository.AuditoriumRepository;
@@ -77,6 +77,8 @@ class AuditoriumServiceTest {
         sampleAuditorium.setRowsCount((short) 10);
         sampleAuditorium.setColumnsCount((short) 12);
         sampleAuditorium.setStatus(AuditoriumStatus.ACTIVE);
+        sampleAuditorium.setTurnaroundMinutes((short) 15);
+        sampleAuditorium.setSnapIntervalMinutes((short) 15);
         sampleAuditorium.setSeats(new HashSet<>());
     }
 
@@ -100,6 +102,8 @@ class AuditoriumServiceTest {
                 .rowsCount((short) 5)
                 .columnsCount((short) 8)
                 .status(AuditoriumStatus.ACTIVE)
+                .turnaroundMinutes((short) 20)
+                .snapIntervalMinutes((short) 10)
                 .build();
 
         when(cinemaRepository.findByIdAndDeletedAtIsNull("cin-1")).thenReturn(Optional.of(sampleCinema));
@@ -119,6 +123,8 @@ class AuditoriumServiceTest {
         assertEquals(40, result.getSeats().size());
         assertEquals("A1", result.getSeats().get(0).getSeatCode());
         assertEquals("E8", result.getSeats().get(39).getSeatCode());
+        assertEquals((short) 20, result.getTurnaroundMinutes());
+        assertEquals((short) 10, result.getSnapIntervalMinutes());
         verify(auditoriumRepository).save(any(Auditorium.class));
     }
 
@@ -144,6 +150,8 @@ class AuditoriumServiceTest {
                 .name("Hall 1 Renovated")
                 .type("VIP")
                 .status(AuditoriumStatus.ACTIVE)
+                .turnaroundMinutes((short) 25)
+                .snapIntervalMinutes((short) 5)
                 .build();
 
         when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
@@ -155,16 +163,59 @@ class AuditoriumServiceTest {
         assertNotNull(result);
         assertEquals("Hall 1 Renovated", result.getName());
         assertEquals("VIP", result.getType());
+        assertEquals((short) 25, result.getTurnaroundMinutes());
+        assertEquals((short) 5, result.getSnapIntervalMinutes());
     }
 
     @Test
-    void deleteAuditorium_Success() {
+    void deleteAuditorium_Success_MarksDecommissioned() {
         when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
 
         auditoriumService.deleteAuditorium("aud-1");
 
         assertNotNull(sampleAuditorium.getDeletedAt());
-        assertEquals(AuditoriumStatus.MAINTENANCE, sampleAuditorium.getStatus());
+        assertEquals(AuditoriumStatus.DECOMMISSIONED, sampleAuditorium.getStatus());
         verify(auditoriumRepository).save(sampleAuditorium);
+    }
+
+    @Test
+    void updateAuditorium_StatusTransitions_ActiveToMaintenanceAndBack() {
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(auditoriumRepository.existsByCinemaIdAndNameAndIdNotAndDeletedAtIsNull("cin-1", "Hall 1", "aud-1")).thenReturn(false);
+        when(auditoriumRepository.save(any(Auditorium.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // ACTIVE -> MAINTENANCE
+        UpdateAuditoriumRequest toMaintenance = UpdateAuditoriumRequest.builder()
+                .name("Hall 1")
+                .type("STANDARD")
+                .status(AuditoriumStatus.MAINTENANCE)
+                .build();
+        AuditoriumResponse res1 = auditoriumService.updateAuditorium("aud-1", toMaintenance);
+        assertEquals(AuditoriumStatus.MAINTENANCE, res1.getStatus());
+
+        // MAINTENANCE -> ACTIVE
+        UpdateAuditoriumRequest toActive = UpdateAuditoriumRequest.builder()
+                .name("Hall 1")
+                .type("STANDARD")
+                .status(AuditoriumStatus.ACTIVE)
+                .build();
+        AuditoriumResponse res2 = auditoriumService.updateAuditorium("aud-1", toActive);
+        assertEquals(AuditoriumStatus.ACTIVE, res2.getStatus());
+    }
+
+    @Test
+    void updateAuditorium_Reject_WhenDecommissioned() {
+        sampleAuditorium.setStatus(AuditoriumStatus.DECOMMISSIONED);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+
+        UpdateAuditoriumRequest toActive = UpdateAuditoriumRequest.builder()
+                .name("Hall 1")
+                .type("STANDARD")
+                .status(AuditoriumStatus.ACTIVE)
+                .build();
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> auditoriumService.updateAuditorium("aud-1", toActive));
+        assertTrue(ex.getMessage().contains("DECOMMISSIONED"));
+        verify(auditoriumRepository, never()).save(any());
     }
 }

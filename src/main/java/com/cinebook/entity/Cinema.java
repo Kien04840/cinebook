@@ -39,6 +39,12 @@ public class Cinema {
     @Column(length = 20, nullable = false)
     private CinemaStatus status;
 
+    @Column(name = "opening_time", nullable = false)
+    private java.time.LocalTime openingTime;
+
+    @Column(name = "closing_time", nullable = false)
+    private java.time.LocalTime closingTime;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -66,6 +72,14 @@ public class Cinema {
         }
 
         LocalDateTime now = LocalDateTime.now();
+
+        if (openingTime == null) {
+            openingTime = java.time.LocalTime.of(8, 0);
+        }
+
+        if (closingTime == null) {
+            closingTime = java.time.LocalTime.of(23, 0);
+        }
 
         if (createdAt == null) {
             createdAt = now;

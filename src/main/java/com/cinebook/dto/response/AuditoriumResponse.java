@@ -25,6 +25,8 @@ public class AuditoriumResponse {
     private Short columnsCount;
     private int totalSeats;
     private AuditoriumStatus status;
+    private Short turnaroundMinutes;
+    private Short snapIntervalMinutes;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

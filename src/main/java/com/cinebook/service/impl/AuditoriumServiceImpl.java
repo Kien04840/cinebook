@@ -10,6 +10,7 @@ import com.cinebook.entity.Seat;
 import com.cinebook.entity.SeatType;
 import com.cinebook.enums.AuditoriumStatus;
 import com.cinebook.enums.SeatStatus;
+import com.cinebook.exception.BadRequestException;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.ResourceNotFoundException;
 import com.cinebook.mapper.AuditoriumMapper;
@@ -76,6 +77,12 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         auditorium.setRowsCount(request.getRowsCount());
         auditorium.setColumnsCount(request.getColumnsCount());
         auditorium.setStatus(request.getStatus() != null ? request.getStatus() : AuditoriumStatus.ACTIVE);
+        if (request.getTurnaroundMinutes() != null) {
+            auditorium.setTurnaroundMinutes(request.getTurnaroundMinutes());
+        }
+        if (request.getSnapIntervalMinutes() != null) {
+            auditorium.setSnapIntervalMinutes(request.getSnapIntervalMinutes());
+        }
 
         // Generate Seat Matrix
         Set<Seat> seats = new HashSet<>();
@@ -109,6 +116,10 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         Auditorium auditorium = auditoriumRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Auditorium not found with id: " + id));
 
+        if (auditorium.getStatus() == AuditoriumStatus.DECOMMISSIONED && request.getStatus() != AuditoriumStatus.DECOMMISSIONED) {
+            throw new BadRequestException("Không thể chuyển phòng chiếu đã ngừng hoạt động (DECOMMISSIONED) về trạng thái hoạt động!");
+        }
+
         if (auditoriumRepository.existsByCinemaIdAndNameAndIdNotAndDeletedAtIsNull(
                 auditorium.getCinema().getId(), request.getName().trim(), id)) {
             throw new ConflictException("Auditorium with name '" + request.getName() + "' already exists in this cinema");
@@ -117,9 +128,15 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         auditorium.setName(request.getName().trim());
         auditorium.setType(request.getType().trim().toUpperCase());
         auditorium.setStatus(request.getStatus());
+        if (request.getTurnaroundMinutes() != null) {
+            auditorium.setTurnaroundMinutes(request.getTurnaroundMinutes());
+        }
+        if (request.getSnapIntervalMinutes() != null) {
+            auditorium.setSnapIntervalMinutes(request.getSnapIntervalMinutes());
+        }
 
         Auditorium updated = auditoriumRepository.save(auditorium);
-        log.info("Updated auditorium: id={}, name={}", updated.getId(), updated.getName());
+        log.info("Updated auditorium: id={}, name={}, status={}", updated.getId(), updated.getName(), updated.getStatus());
         return auditoriumMapper.toAuditoriumResponse(updated);
     }
 
@@ -130,7 +147,7 @@ public class AuditoriumServiceImpl implements AuditoriumService {
                 .orElseThrow(() -> new ResourceNotFoundException("Auditorium not found with id: " + id));
 
         auditorium.setDeletedAt(LocalDateTime.now());
-        auditorium.setStatus(AuditoriumStatus.MAINTENANCE);
+        auditorium.setStatus(AuditoriumStatus.DECOMMISSIONED);
         auditoriumRepository.save(auditorium);
         log.info("Soft-deleted auditorium: id={}", id);
     }

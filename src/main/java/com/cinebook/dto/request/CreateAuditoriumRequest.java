@@ -39,5 +39,11 @@ public class CreateAuditoriumRequest {
 
     private AuditoriumStatus status;
 
+    @Min(value = 0, message = "Turnaround minutes cannot be negative")
+    private Short turnaroundMinutes;
+
+    @Min(value = 1, message = "Snap interval minutes must be at least 1")
+    private Short snapIntervalMinutes;
+
     private String defaultSeatTypeId;
 }

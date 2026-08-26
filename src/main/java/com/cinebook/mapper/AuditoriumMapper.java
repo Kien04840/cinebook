@@ -42,6 +42,8 @@ public class AuditoriumMapper {
                 .columnsCount(auditorium.getColumnsCount())
                 .totalSeats(totalSeats)
                 .status(auditorium.getStatus())
+                .turnaroundMinutes(auditorium.getTurnaroundMinutes())
+                .snapIntervalMinutes(auditorium.getSnapIntervalMinutes())
                 .createdAt(auditorium.getCreatedAt())
                 .updatedAt(auditorium.getUpdatedAt())
                 .build();
@@ -78,6 +80,8 @@ public class AuditoriumMapper {
                 .columnsCount(auditorium.getColumnsCount())
                 .totalSeats(totalSeats)
                 .status(auditorium.getStatus())
+                .turnaroundMinutes(auditorium.getTurnaroundMinutes())
+                .snapIntervalMinutes(auditorium.getSnapIntervalMinutes())
                 .seats(seatResponses)
                 .createdAt(auditorium.getCreatedAt())
                 .updatedAt(auditorium.getUpdatedAt())

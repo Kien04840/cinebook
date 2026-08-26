@@ -7,28 +7,16 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-import java.time.LocalDateTime;
-import java.util.List;
-
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class AuditoriumDetailResponse {
-
+public class AuditoriumSchedulingConfigResponse {
     private String id;
-    private String cinemaId;
-    private String cinemaName;
     private String name;
     private String type;
-    private Short rowsCount;
-    private Short columnsCount;
-    private int totalSeats;
     private AuditoriumStatus status;
     private Short turnaroundMinutes;
     private Short snapIntervalMinutes;
-    private List<SeatResponse> seats;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
 }

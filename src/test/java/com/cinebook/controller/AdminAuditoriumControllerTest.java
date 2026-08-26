@@ -4,6 +4,7 @@ import com.cinebook.dto.request.BatchUpdateSeatTypeRequest;
 import com.cinebook.dto.request.UpdateAuditoriumRequest;
 import com.cinebook.dto.request.UpdateSeatStatusRequest;
 import com.cinebook.dto.request.UpdateSeatTypeForSeatRequest;
+import com.cinebook.dto.response.AuditoriumAvailabilityResponse;
 import com.cinebook.dto.response.AuditoriumResponse;
 import com.cinebook.dto.response.SeatResponse;
 import com.cinebook.enums.AuditoriumStatus;
@@ -11,6 +12,7 @@ import com.cinebook.enums.SeatStatus;
 import com.cinebook.exception.GlobalExceptionHandler;
 import com.cinebook.service.AuditoriumService;
 import com.cinebook.service.SeatService;
+import com.cinebook.service.ShowtimeSchedulingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +44,9 @@ class AdminAuditoriumControllerTest {
     @Mock
     private SeatService seatService;
 
+    @Mock
+    private ShowtimeSchedulingService schedulingService;
+
     @InjectMocks
     private AdminAuditoriumController adminAuditoriumController;
 
@@ -54,6 +59,20 @@ class AdminAuditoriumControllerTest {
                 .setCustomArgumentResolvers(new PageableHandlerMethodArgumentResolver())
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
+    }
+
+    @Test
+    void getAuditoriumAvailability_Returns200() throws Exception {
+        AuditoriumAvailabilityResponse response = AuditoriumAvailabilityResponse.builder()
+                .auditoriumId("aud-1")
+                .auditoriumName("Hall 1")
+                .build();
+
+        when(schedulingService.getAuditoriumAvailability(eq("aud-1"), any())).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/admin/auditoriums/aud-1/availability"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.auditoriumId").value("aud-1"));
     }
 
     @Test

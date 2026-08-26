@@ -3,14 +3,12 @@ package com.cinebook.controller;
 import com.cinebook.dto.request.CreateAuditoriumRequest;
 import com.cinebook.dto.request.CreateCinemaRequest;
 import com.cinebook.dto.request.UpdateCinemaRequest;
-import com.cinebook.dto.response.AuditoriumDetailResponse;
-import com.cinebook.dto.response.CinemaDetailResponse;
-import com.cinebook.dto.response.CinemaSummaryResponse;
-import com.cinebook.dto.response.PageResponse;
+import com.cinebook.dto.response.*;
 import com.cinebook.enums.CinemaStatus;
 import com.cinebook.exception.GlobalExceptionHandler;
 import com.cinebook.service.AuditoriumService;
 import com.cinebook.service.CinemaService;
+import com.cinebook.service.ShowtimeSchedulingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +42,9 @@ class AdminCinemaControllerTest {
     @Mock
     private AuditoriumService auditoriumService;
 
+    @Mock
+    private ShowtimeSchedulingService schedulingService;
+
     @InjectMocks
     private AdminCinemaController adminCinemaController;
 
@@ -72,6 +73,20 @@ class AdminCinemaControllerTest {
 
         mockMvc.perform(get("/api/v1/admin/cinemas"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void getCinemaSchedulingConfig_Returns200() throws Exception {
+        CinemaSchedulingConfigResponse response = CinemaSchedulingConfigResponse.builder()
+                .cinemaId("cin-1")
+                .cinemaName("CineBook Landmark")
+                .build();
+
+        when(schedulingService.getCinemaSchedulingConfig("cin-1")).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/admin/cinemas/cin-1/scheduling-config"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.cinemaId").value("cin-1"));
     }
 
     @Test

@@ -21,6 +21,8 @@ public class CinemaSummaryResponse {
     private String address;
     private String city;
     private CinemaStatus status;
+    private java.time.LocalTime openingTime;
+    private java.time.LocalTime closingTime;
     private int auditoriumsCount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

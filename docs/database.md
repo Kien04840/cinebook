@@ -149,9 +149,9 @@ Promotion
 | Column      | Type           | Notes            |
 |-------------|----------------|------------------|
 | id          | varchar(36) PK |                  |
-| tmdb_id     | bigint unsigned| UNIQUE (nullable)|
 | name        | varchar(100)   | UNIQUE, NOT NULL |
 | description | varchar(255)   |                  |
+| tmdb_id     | bigint         | UNIQUE (nullable)|
 
 #### `movies_genres` (M:N)
 | Column   | Type           | Notes |
@@ -164,36 +164,41 @@ Promotion
 ### 3.3 Cinema
 
 #### `cinemas`
-| Column     | Type           | Notes            |
-|------------|----------------|------------------|
-| id         | varchar(36) PK |                  |
-| name       | varchar(255)   | NOT NULL         |
-| address    | varchar(500)   | NOT NULL         |
-| city       | varchar(100)   | NOT NULL         |
-| status     | varchar(20)    | NOT NULL         |
-| created_at | datetime       | NOT NULL         |
-| updated_at | datetime       | NOT NULL         |
-| deleted_at | datetime       | soft delete      |
-| version    | bigint         | optimistic lock  |
+| Column        | Type           | Notes                                      |
+|---------------|----------------|--------------------------------------------|
+| id            | varchar(36) PK |                                            |
+| name          | varchar(255)   | NOT NULL                                   |
+| address       | varchar(500)   | NOT NULL                                   |
+| city          | varchar(100)   | NOT NULL                                   |
+| opening_time  | time           | NOT NULL, default 08:00:00                 |
+| closing_time  | time           | NOT NULL, default 23:00:00, CHECK > opening_time |
+| status        | varchar(20)    | NOT NULL                                   |
+| created_at    | datetime       | NOT NULL                                   |
+| updated_at    | datetime       | NOT NULL                                   |
+| deleted_at    | datetime       | soft delete                                |
+| version       | bigint         | optimistic lock                            |
 
 **Indexes**: `idx_cinemas_city_status`, `idx_cinemas_status`, `idx_cinemas_city`
 
 #### `auditoriums`
-| Column         | Type               | Notes                          |
-|----------------|--------------------|--------------------------------|
-| id             | varchar(36) PK     |                                |
-| cinema_id      | varchar(36)        | FK → cinemas, NOT NULL         |
-| name           | varchar(100)       | NOT NULL                       |
-| type           | varchar(20)        | NOT NULL                       |
-| rows_count     | smallint unsigned  | NOT NULL, CHECK > 0           |
-| columns_count  | smallint unsigned  | NOT NULL, CHECK > 0           |
-| status         | varchar(20)        | NOT NULL                       |
-| created_at     | datetime           | NOT NULL                       |
-| updated_at     | datetime           | NOT NULL                       |
-| deleted_at     | datetime           | soft delete                    |
-| version        | bigint             | optimistic lock                |
+| Column                 | Type               | Notes                                          |
+|------------------------|--------------------|------------------------------------------------|
+| id                     | varchar(36) PK     |                                                |
+| cinema_id              | varchar(36)        | FK → cinemas, NOT NULL                         |
+| name                   | varchar(100)       | NOT NULL                                       |
+| type                   | varchar(20)        | NOT NULL                                       |
+| rows_count             | smallint unsigned  | NOT NULL, CHECK > 0                           |
+| columns_count          | smallint unsigned  | NOT NULL, CHECK > 0                           |
+| turnaround_minutes     | smallint unsigned  | NOT NULL, default 15, CHECK ≥ 0               |
+| snap_interval_minutes  | smallint unsigned  | NOT NULL, default 15, CHECK > 0               |
+| status                 | varchar(20)        | NOT NULL                                       |
+| created_at             | datetime           | NOT NULL                                       |
+| updated_at             | datetime           | NOT NULL                                       |
+| deleted_at             | datetime           | soft delete                                    |
+| version                | bigint             | optimistic lock                                |
 
-**Unique**: `uk_auditoriums_cinema_name` (cinema_id, name)
+**Unique**: `uk_auditoriums_cinema_name` (cinema_id, name)  
+**Indexes**: `idx_auditoriums_cinema_status`, `idx_auditoriums_cinema_id`
 
 #### `seat_types`
 | Column         | Type             | Notes                        |
@@ -239,7 +244,14 @@ Promotion
 | updated_at     | datetime         | NOT NULL                           |
 | version        | bigint           | optimistic lock                    |
 
-**Indexes**: movie+start, auditorium+start, start+status, movie+status+start, etc.
+**Indexes**:
+- `idx_showtimes_movie_start` (movie_id, start_time)
+- `idx_showtimes_auditorium_start` (auditorium_id, start_time)
+- `idx_showtimes_start_status` (start_time, status)
+- `idx_showtimes_movie_id`, `idx_showtimes_auditorium_id`, `idx_showtimes_status`, `idx_showtimes_start_time`
+- `idx_showtimes_movie_status_start` (movie_id, status, start_time)
+- `idx_showtimes_auditorium_time_range` (auditorium_id, start_time, end_time)
+- `idx_showtimes_calendar` (start_time, end_time, status)
 
 ---
 
@@ -426,6 +438,8 @@ payments 1 ─── 0..1 refunds
 | `uk_users_email` / `uk_users_phone` | Identity uniqueness |
 | `chk_*_amount` / `chk_*_price` | Non-negative monetary values |
 | `chk_showtimes_time` | end_time > start_time |
+| `chk_cinemas_operating_hours` | closing_time > opening_time |
+| `chk_auditoriums_turnaround` / `chk_auditoriums_snap_interval` | turnaround ≥ 0, snap_interval > 0 |
 | `version` columns | Optimistic concurrency control on aggregates |
 
 **Application layer must still enforce**:
@@ -446,10 +460,10 @@ Known columns that act as status:
 |----------------|------------------|-----------------------------------------------|
 | users          | status           | ACTIVE, LOCKED, …                             |
 | movies         | status           | COMING_SOON, NOW_SHOWING, ENDED, …            |
-| cinemas        | status           | ACTIVE, INACTIVE, …                           |
-| auditoriums    | status           | ACTIVE, MAINTENANCE, …                        |
-| seats          | status           | AVAILABLE, BLOCKED, …                         |
-| showtimes      | status           | SCHEDULED, CANCELLED, …                       |
+| cinemas        | status           | ACTIVE, INACTIVE, CLOSED                      |
+| auditoriums    | status           | ACTIVE, MAINTENANCE, DECOMMISSIONED           |
+| seats          | status           | ACTIVE, BROKEN                                |
+| showtimes      | status           | SCHEDULED, CANCELLED                          |
 | bookings       | booking_status   | HOLD, PENDING_PAYMENT, PAID, CANCELLED, …     |
 | tickets        | ticket_status    | VALID, USED, CANCELLED, …                     |
 | payments       | payment_status   | PENDING, SUCCESS, FAILED, …                   |

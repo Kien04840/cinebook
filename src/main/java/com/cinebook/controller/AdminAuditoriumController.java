@@ -4,26 +4,23 @@ import com.cinebook.dto.request.BatchUpdateSeatTypeRequest;
 import com.cinebook.dto.request.UpdateAuditoriumRequest;
 import com.cinebook.dto.request.UpdateSeatStatusRequest;
 import com.cinebook.dto.request.UpdateSeatTypeForSeatRequest;
+import com.cinebook.dto.response.AuditoriumAvailabilityResponse;
 import com.cinebook.dto.response.AuditoriumDetailResponse;
 import com.cinebook.dto.response.AuditoriumResponse;
 import com.cinebook.dto.response.SeatResponse;
 import com.cinebook.service.AuditoriumService;
 import com.cinebook.service.SeatService;
+import com.cinebook.service.ShowtimeSchedulingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Tag(name = "Admin Auditorium", description = "Administrator auditorium and seat management endpoints")
@@ -35,11 +32,22 @@ public class AdminAuditoriumController {
 
     private final AuditoriumService auditoriumService;
     private final SeatService seatService;
+    private final ShowtimeSchedulingService schedulingService;
 
     @Operation(summary = "Get auditorium detail including seats")
     @GetMapping("/{id}")
     public ResponseEntity<AuditoriumDetailResponse> getAuditoriumDetail(@PathVariable String id) {
         AuditoriumDetailResponse response = auditoriumService.getAuditoriumDetail(id);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Get auditorium availability and occupancy intervals on a date")
+    @GetMapping("/{id}/availability")
+    public ResponseEntity<AuditoriumAvailabilityResponse> getAuditoriumAvailability(
+            @PathVariable String id,
+            @RequestParam(name = "date", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date
+    ) {
+        AuditoriumAvailabilityResponse response = schedulingService.getAuditoriumAvailability(id, date);
         return ResponseEntity.ok(response);
     }
 
@@ -53,7 +61,7 @@ public class AdminAuditoriumController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Soft delete / mark auditorium as maintenance")
+    @Operation(summary = "Soft delete / mark auditorium as decommissioned")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteAuditorium(@PathVariable String id) {
         auditoriumService.deleteAuditorium(id);

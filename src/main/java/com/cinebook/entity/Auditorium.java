@@ -50,6 +50,12 @@ public class Auditorium {
     @Column(length = 20, nullable = false)
     private AuditoriumStatus status;
 
+    @Column(name = "turnaround_minutes", nullable = false)
+    private Short turnaroundMinutes;
+
+    @Column(name = "snap_interval_minutes", nullable = false)
+    private Short snapIntervalMinutes;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -80,6 +86,14 @@ public class Auditorium {
         }
 
         LocalDateTime now = LocalDateTime.now();
+
+        if (turnaroundMinutes == null) {
+            turnaroundMinutes = (short) 15;
+        }
+
+        if (snapIntervalMinutes == null) {
+            snapIntervalMinutes = (short) 15;
+        }
 
         if (createdAt == null) {
             createdAt = now;
