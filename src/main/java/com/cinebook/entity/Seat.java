@@ -72,4 +72,8 @@ public class Seat {
             id = UUID.randomUUID().toString();
         }
     }
+
+    public String getSeatCode() {
+        return (rowLabel != null && seatNumber != null) ? rowLabel + seatNumber : "";
+    }
 }

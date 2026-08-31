@@ -3,13 +3,15 @@ package com.cinebook.controller;
 import com.cinebook.dto.response.AuditoriumResponse;
 import com.cinebook.dto.response.MovieSummaryResponse;
 import com.cinebook.dto.response.PageResponse;
-import com.cinebook.dto.response.SeatResponse;
 import com.cinebook.dto.response.ShowtimeDetailResponse;
+import com.cinebook.dto.response.ShowtimeSeatStatusResponse;
 import com.cinebook.dto.response.ShowtimeSummaryResponse;
+import com.cinebook.enums.SeatAvailabilityStatus;
+import com.cinebook.enums.SeatStatus;
 import com.cinebook.enums.ShowtimeFormat;
 import com.cinebook.enums.ShowtimeStatus;
 import com.cinebook.exception.GlobalExceptionHandler;
-import com.cinebook.service.SeatService;
+import com.cinebook.service.BookingService;
 import com.cinebook.service.ShowtimeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,7 +41,7 @@ class ShowtimeControllerTest {
     private ShowtimeService showtimeService;
 
     @Mock
-    private SeatService seatService;
+    private BookingService bookingService;
 
     @InjectMocks
     private ShowtimeController showtimeController;
@@ -84,10 +86,7 @@ class ShowtimeControllerTest {
         ShowtimeDetailResponse detail = ShowtimeDetailResponse.builder()
                 .id("st-1")
                 .movie(MovieSummaryResponse.builder().id("mov-1").title("Inception").build())
-                .auditorium(AuditoriumResponse.builder().id("aud-1").name("Hall 1").build())
                 .format(ShowtimeFormat.IMAX)
-                .startTime(LocalDateTime.of(2026, 9, 1, 10, 0))
-                .endTime(LocalDateTime.of(2026, 9, 1, 12, 30))
                 .basePrice(new BigDecimal("120000.00"))
                 .status(ShowtimeStatus.SCHEDULED)
                 .build();
@@ -101,22 +100,19 @@ class ShowtimeControllerTest {
 
     @Test
     void getShowtimeSeats_Returns200() throws Exception {
-        ShowtimeDetailResponse detail = ShowtimeDetailResponse.builder()
-                .id("st-1")
-                .auditorium(AuditoriumResponse.builder().id("aud-1").name("Hall 1").build())
-                .build();
-
-        SeatResponse seat = SeatResponse.builder()
+        ShowtimeSeatStatusResponse seat = ShowtimeSeatStatusResponse.builder()
                 .id("seat-1")
                 .auditoriumId("aud-1")
                 .seatCode("A1")
+                .seatStatus(SeatStatus.ACTIVE)
+                .availabilityStatus(SeatAvailabilityStatus.AVAILABLE)
                 .build();
 
-        when(showtimeService.getPublicShowtimeDetail("st-1")).thenReturn(detail);
-        when(seatService.getSeatsByAuditorium("aud-1")).thenReturn(List.of(seat));
+        when(bookingService.getShowtimeSeatAvailability("st-1")).thenReturn(List.of(seat));
 
         mockMvc.perform(get("/api/v1/showtimes/st-1/seats"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].seatCode").value("A1"));
+                .andExpect(jsonPath("$[0].seatCode").value("A1"))
+                .andExpect(jsonPath("$[0].availabilityStatus").value("AVAILABLE"));
     }
 }

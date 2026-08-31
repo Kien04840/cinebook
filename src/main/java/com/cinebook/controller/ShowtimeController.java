@@ -1,11 +1,11 @@
 package com.cinebook.controller;
 
 import com.cinebook.dto.response.PageResponse;
-import com.cinebook.dto.response.SeatResponse;
 import com.cinebook.dto.response.ShowtimeDetailResponse;
+import com.cinebook.dto.response.ShowtimeSeatStatusResponse;
 import com.cinebook.dto.response.ShowtimeSummaryResponse;
 import com.cinebook.enums.ShowtimeFormat;
-import com.cinebook.service.SeatService;
+import com.cinebook.service.BookingService;
 import com.cinebook.service.ShowtimeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -31,7 +31,7 @@ import java.util.List;
 public class ShowtimeController {
 
     private final ShowtimeService showtimeService;
-    private final SeatService seatService;
+    private final BookingService bookingService;
 
     @Operation(summary = "List publicly available showtimes with optional filters")
     @GetMapping
@@ -56,11 +56,10 @@ public class ShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Get seat map layout for a specific showtime")
+    @Operation(summary = "Get seat map layout with realtime availability for a specific showtime")
     @GetMapping("/{id}/seats")
-    public ResponseEntity<List<SeatResponse>> getShowtimeSeats(@PathVariable String id) {
-        ShowtimeDetailResponse showtime = showtimeService.getPublicShowtimeDetail(id);
-        List<SeatResponse> response = seatService.getSeatsByAuditorium(showtime.getAuditorium().getId());
+    public ResponseEntity<List<ShowtimeSeatStatusResponse>> getShowtimeSeats(@PathVariable String id) {
+        List<ShowtimeSeatStatusResponse> response = bookingService.getShowtimeSeatAvailability(id);
         return ResponseEntity.ok(response);
     }
 }

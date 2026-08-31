@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,12 +45,47 @@ public interface SeatHoldRepository
             @Param("currentTime") LocalDateTime currentTime
     );
 
+    @Query("""
+        SELECT sh
+        FROM SeatHold sh
+        WHERE sh.showtime.id = :showtimeId
+          AND sh.seat.id IN :seatIds
+          AND sh.expiresAt > :currentTime
+    """)
+    List<SeatHold> findActiveHoldsByShowtimeAndSeatIds(
+            @Param("showtimeId") String showtimeId,
+            @Param("seatIds") Collection<String> seatIds,
+            @Param("currentTime") LocalDateTime currentTime
+    );
+
+    @Modifying
+    @Query("""
+        DELETE FROM SeatHold sh
+        WHERE sh.booking.id = :bookingId
+    """)
+    void deleteByBookingId(
+            @Param("bookingId") String bookingId
+    );
+
     @Modifying
     @Query("""
         DELETE FROM SeatHold sh
         WHERE sh.expiresAt <= :currentTime
     """)
     int deleteExpiredHolds(
+            @Param("currentTime") LocalDateTime currentTime
+    );
+
+    @Modifying
+    @Query("""
+        DELETE FROM SeatHold sh
+        WHERE sh.showtime.id = :showtimeId
+          AND sh.seat.id IN :seatIds
+          AND sh.expiresAt <= :currentTime
+    """)
+    int deleteExpiredHoldsForSeats(
+            @Param("showtimeId") String showtimeId,
+            @Param("seatIds") Collection<String> seatIds,
             @Param("currentTime") LocalDateTime currentTime
     );
 }
