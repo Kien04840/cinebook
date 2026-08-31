@@ -33,3 +33,13 @@ tmdb:
   backdrop-size: original
   connect-timeout-ms: 5000
   read-timeout-ms: 10000
+
+vnpay:
+  tmn-code: 2QXUI4J4
+  hash-secret: RAXMQCKQZUNNUIKQQFJSUBJWBYQXZTXU
+  payment-url: https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
+  return-url: http://localhost:5173/payment/result
+  version: "2.1.0"
+  command: "pay"
+  order-type: "other"
+

@@ -217,20 +217,17 @@ TODO / DECISION REQUIRED:
 - Credentials and signature verification stay server-side.
 - VNPay is used in **sandbox** mode during development; never accidentally point to production.
 
-### 9.2 Consistency
+### 9.2 Cardinality & State Consistency (Finalized V1)
 
-- Payment status and Booking status must be updated consistently (preferably in the same transaction when the callback is processed).
-- At most one refund per payment (`uk_refunds_payment`).
+- **Cardinality**: `Booking 1 ─── N Payment`. A booking can have multiple payment attempts (e.g. after a `FAILED` or `CANCELLED` transaction).
+- **Single Active Pending Payment**: At any given time, a booking can have at most one payment record in `PENDING` status. Concurrent attempts are blocked via pessimistic locking (`409 Conflict`).
+- **Payment Statuses**: `PENDING`, `SUCCESS`, `FAILED`, `CANCELLED`, `REFUNDED`.
+- **Authoritative Confirmation**: VNPay IPN webhook is the authoritative source of truth. The user return URL is strictly read-only for UX.
+- **Financial Race Condition**: If VNPay charges the customer (`00`) but IPN arrives after the booking hold expired, `Payment` remains `SUCCESS`, `Booking` remains `EXPIRED`, zero tickets are issued, and a high-priority audit event (`CRITICAL FINANCIAL EXCEPTION`) is logged for reconciliation / V2 Admin refund.
+- **Refund**: Not implemented in V1 (reserved for V2). Payment record retains all gateway metadata (`gateway_transaction_id`, `paid_at`, `gateway_response`, `amount`) to enable V2 reconciliation.
 
-```text
-TODO / DECISION REQUIRED:
-- Exact payment_status values and transitions
-- Timeout / abandoned payment handling
-- Partial refund rules
-- Whether multiple payment records per booking are allowed
-```
+Canonical specification belongs in `docs/use-cases/payment.md` and `docs/payment.md`.
 
-Detailed VNPay request/callback/signature handling belongs in `docs/payment.md`.
 
 ---
 
