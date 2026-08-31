@@ -22,6 +22,8 @@ public class BookingDetailResponse {
     private String bookingCode;
     private BookingStatus bookingStatus;
     private BigDecimal totalAmount;
+    private BigDecimal grossAmount;
+    private BigDecimal discountAmount;
     private LocalDateTime holdExpiresAt;
     private LocalDateTime createdAt;
     private LocalDateTime cancelledAt;
@@ -30,5 +32,7 @@ public class BookingDetailResponse {
     private List<BookingSeatResponse> seats;
     private List<TicketResponse> tickets;
     private List<PaymentSummaryResponse> payments;
+    private BookingPromotionResponse promotion;
 }
+
 

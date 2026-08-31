@@ -171,10 +171,55 @@ class PaymentSecurityTest {
                 .paymentStatus(PaymentStatus.SUCCESS)
                 .build();
 
-        when(paymentService.getPaymentDetail("pay-1")).thenReturn(summary);
-
         mockMvc.perform(get("/api/v1/payments/pay-1"))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    @DisplayName("Security: Anonymous user cannot refund payment -> 401 Unauthorized")
+    void anonymous_RefundPayment_Returns401() throws Exception {
+        mockMvc.perform(post("/api/v1/payments/payment-1/refund")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser(roles = "CUSTOMER")
+    @DisplayName("Security: Customer cannot access admin refund list -> 403 Forbidden")
+    void customerRole_GetAdminRefunds_Forbidden() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/refunds"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Security: Admin can access admin refund list -> 200 OK")
+    void adminRole_GetAdminRefunds_Allowed() throws Exception {
+        when(paymentService.getAdminRefunds(any(), any()))
+                .thenReturn(com.cinebook.dto.response.PageResponse.<com.cinebook.dto.response.RefundResponse>builder()
+                        .content(java.util.Collections.emptyList())
+                        .build());
+
+        mockMvc.perform(get("/api/v1/admin/refunds"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("Security: Admin can refund booking via admin endpoint -> 200 OK")
+    void adminRole_RefundBooking_Allowed() throws Exception {
+        when(paymentService.refundBooking(eq("booking-1"), any(), any()))
+                .thenReturn(com.cinebook.dto.response.RefundResponse.builder()
+                        .id("ref-1")
+                        .refundStatus(com.cinebook.enums.RefundStatus.SUCCESS)
+                        .build());
+
+        mockMvc.perform(post("/api/v1/admin/bookings/booking-1/refund")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+    }
 }
+
 

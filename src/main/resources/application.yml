@@ -47,4 +47,12 @@ vnpay:
   return-url: ${VNPAY_RETURN_URL:http://localhost:5173/payment/result}
   version: "2.1.0"
   command: "pay"
-  order-type: "other"
+  order-type: "other"
+
+cinebook:
+  payment:
+    gateway: ${PAYMENT_GATEWAY:mock}
+    mock:
+      refund-result: ${MOCK_REFUND_RESULT:SUCCESS}
+
+

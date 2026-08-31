@@ -23,6 +23,9 @@ public interface BookingService {
 
     BookingDetailResponse confirmPaidBooking(String bookingId, String paymentId);
 
+    BookingDetailResponse processBookingRefund(String bookingId, String reason, String userId);
+
     List<ShowtimeSeatStatusResponse> getShowtimeSeatAvailability(String showtimeId);
 }
+
 

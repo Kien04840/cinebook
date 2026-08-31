@@ -1,8 +1,12 @@
 package com.cinebook.task;
 
 import com.cinebook.entity.Booking;
+import com.cinebook.entity.BookingPromotion;
+import com.cinebook.entity.Promotion;
 import com.cinebook.enums.BookingStatus;
+import com.cinebook.repository.BookingPromotionRepository;
 import com.cinebook.repository.BookingRepository;
+import com.cinebook.repository.PromotionRepository;
 import com.cinebook.repository.SeatHoldRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +24,8 @@ public class BookingCleanupTask {
 
     private final BookingRepository bookingRepository;
     private final SeatHoldRepository seatHoldRepository;
+    private final BookingPromotionRepository bookingPromotionRepository;
+    private final PromotionRepository promotionRepository;
 
     @Scheduled(fixedDelay = 60000)
     @Transactional(rollbackFor = Exception.class)
@@ -33,6 +39,17 @@ public class BookingCleanupTask {
                 for (Booking booking : expiredBookings) {
                     booking.setBookingStatus(BookingStatus.EXPIRED);
                     seatHoldRepository.deleteByBookingId(booking.getId());
+
+                    // Idempotent quota release for expired PENDING_PAYMENT booking
+                    List<BookingPromotion> bookingPromotions = bookingPromotionRepository.findByBookingId(booking.getId());
+                    for (BookingPromotion bp : bookingPromotions) {
+                        Promotion promo = promotionRepository.findByIdWithLock(bp.getPromotion().getId()).orElse(null);
+                        if (promo != null && promo.getUsedCount() > 0) {
+                            promo.setUsedCount(promo.getUsedCount() - 1);
+                            promotionRepository.save(promo);
+                            log.info("Housekeeping released promotion quota for promo {}: new usedCount={}", promo.getCode(), promo.getUsedCount());
+                        }
+                    }
                 }
                 bookingRepository.saveAll(expiredBookings);
             }
@@ -47,4 +64,3 @@ public class BookingCleanupTask {
         }
     }
 }
-

@@ -2,7 +2,7 @@ package com.cinebook.mapper;
 
 import com.cinebook.dto.response.*;
 import com.cinebook.entity.*;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -10,10 +10,22 @@ import java.util.Collections;
 import java.util.List;
 
 @Component
-@RequiredArgsConstructor
 public class BookingMapper {
 
     private final ShowtimeMapper showtimeMapper;
+    private final RefundMapper refundMapper;
+
+    public BookingMapper(ShowtimeMapper showtimeMapper) {
+        this.showtimeMapper = showtimeMapper;
+        this.refundMapper = null;
+    }
+
+    @Autowired
+    public BookingMapper(ShowtimeMapper showtimeMapper, RefundMapper refundMapper) {
+        this.showtimeMapper = showtimeMapper;
+        this.refundMapper = refundMapper;
+    }
+
 
     public BookingSummaryResponse toBookingSummaryResponse(Booking booking) {
         if (booking == null) {
@@ -49,9 +61,32 @@ public class BookingMapper {
             List<TicketResponse> tickets,
             List<PaymentSummaryResponse> payments
     ) {
+        return toBookingDetailResponse(booking, seats, tickets, payments, null);
+    }
+
+    public BookingDetailResponse toBookingDetailResponse(
+            Booking booking,
+            List<BookingSeatResponse> seats,
+            List<TicketResponse> tickets,
+            List<PaymentSummaryResponse> payments,
+            BookingPromotionResponse promotion
+    ) {
         if (booking == null) {
             return null;
         }
+
+        BigDecimal grossAmount = BigDecimal.ZERO;
+        if (seats != null) {
+            for (BookingSeatResponse seat : seats) {
+                if (seat.getPrice() != null) {
+                    grossAmount = grossAmount.add(seat.getPrice());
+                }
+            }
+        }
+
+        BigDecimal discountAmount = (promotion != null && promotion.getDiscountAmount() != null)
+                ? promotion.getDiscountAmount()
+                : BigDecimal.ZERO;
 
         ShowtimeDetailResponse showtimeDetail = booking.getShowtime() != null
                 ? showtimeMapper.toShowtimeDetailResponse(booking.getShowtime())
@@ -62,6 +97,8 @@ public class BookingMapper {
                 .bookingCode(booking.getBookingCode())
                 .bookingStatus(booking.getBookingStatus())
                 .totalAmount(booking.getTotalAmount())
+                .grossAmount(grossAmount)
+                .discountAmount(discountAmount)
                 .holdExpiresAt(booking.getHoldExpiresAt())
                 .createdAt(booking.getCreatedAt())
                 .cancelledAt(booking.getCancelledAt())
@@ -70,8 +107,10 @@ public class BookingMapper {
                 .seats(seats != null ? seats : Collections.emptyList())
                 .tickets(tickets != null ? tickets : Collections.emptyList())
                 .payments(payments != null ? payments : Collections.emptyList())
+                .promotion(promotion)
                 .build();
     }
+
 
     public TicketResponse toTicketResponse(Ticket ticket) {
         if (ticket == null) {
@@ -95,6 +134,10 @@ public class BookingMapper {
             return null;
         }
 
+        RefundResponse refundResponse = (refundMapper != null && payment.getRefund() != null)
+                ? refundMapper.toRefundResponse(payment.getRefund())
+                : null;
+
         return PaymentSummaryResponse.builder()
                 .id(payment.getId())
                 .paymentMethod(payment.getPaymentMethod())
@@ -104,8 +147,10 @@ public class BookingMapper {
                 .paymentStatus(payment.getPaymentStatus())
                 .paidAt(payment.getPaidAt())
                 .createdAt(payment.getCreatedAt())
+                .refund(refundResponse)
                 .build();
     }
+
 
     public BookingSeatResponse toBookingSeatResponse(Seat seat, BigDecimal price) {
         if (seat == null) {

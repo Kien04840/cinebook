@@ -119,16 +119,9 @@ Both endpoints are idempotent, run entirely on the backend, and require `ROLE_AD
 
 ---
 
-## 9. Rate Limiting & Reliability
+- TMDB's API has request rate limits; bulk import throttles/paginates requests.
+- Import tolerates partial failure — individual movie import errors log a warning, return a descriptive error message to the admin caller, and do not abort system execution.
 
-- TMDB's API has request rate limits; bulk import should throttle/paginate requests rather than firing all calls at once.
-- Import should tolerate partial failure — one movie failing to import must not abort the whole batch — and should report which items failed.
-
-```text
-TODO / DECISION REQUIRED:
-- Retry policy for transient TMDB failures.
-- Logging/reporting format for import results (success/skip/fail counts).
-```
 
 ---
 

@@ -2,27 +2,43 @@ package com.cinebook.service;
 
 import com.cinebook.config.VnPayConfig;
 import com.cinebook.dto.request.InitiatePaymentRequest;
+import com.cinebook.dto.request.RefundRequest;
 import com.cinebook.dto.response.InitiatePaymentResponse;
 import com.cinebook.dto.response.IpnResponse;
+import com.cinebook.dto.response.PageResponse;
 import com.cinebook.dto.response.PaymentResultResponse;
 import com.cinebook.dto.response.PaymentSummaryResponse;
+import com.cinebook.dto.response.RefundResponse;
 import com.cinebook.entity.Booking;
 import com.cinebook.entity.Payment;
+import com.cinebook.entity.Refund;
 import com.cinebook.entity.Seat;
 import com.cinebook.entity.SeatHold;
+import com.cinebook.entity.Showtime;
+import com.cinebook.entity.Ticket;
 import com.cinebook.entity.User;
 import com.cinebook.enums.BookingStatus;
 import com.cinebook.enums.PaymentMethod;
 import com.cinebook.enums.PaymentStatus;
+import com.cinebook.enums.RefundStatus;
+import com.cinebook.enums.TicketStatus;
 import com.cinebook.exception.BadRequestException;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.ForbiddenException;
 import com.cinebook.exception.ResourceNotFoundException;
 import com.cinebook.exception.UnauthorizedException;
 import com.cinebook.mapper.BookingMapper;
+import com.cinebook.mapper.RefundMapper;
 import com.cinebook.repository.BookingRepository;
 import com.cinebook.repository.PaymentRepository;
+import com.cinebook.repository.RefundRepository;
 import com.cinebook.repository.SeatHoldRepository;
+import com.cinebook.repository.TicketRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+
 import com.cinebook.security.UserDetailsImpl;
 import com.cinebook.service.impl.PaymentServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -79,10 +95,20 @@ class PaymentServiceTest {
     private SeatHoldRepository seatHoldRepository;
 
     @Mock
+    private RefundRepository refundRepository;
+
+    @Mock
+    private TicketRepository ticketRepository;
+
+    @Mock
     private BookingMapper bookingMapper;
+
+    @Mock
+    private RefundMapper refundMapper;
 
     @InjectMocks
     private PaymentServiceImpl paymentService;
+
 
 
     private User testCustomer;
@@ -578,5 +604,335 @@ class PaymentServiceTest {
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Bạn không có quyền thao tác với thanh toán");
     }
+
+    // ==========================================
+    // 5. REFUND PAYMENT & BOOKING TESTS
+    // ==========================================
+
+    @Test
+    @DisplayName("refundPayment - Customer full successful refund")
+    void testRefundPayment_Customer_Success() {
+        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+
+        Showtime futureShowtime = new Showtime();
+        futureShowtime.setId("showtime-future");
+        futureShowtime.setStartTime(LocalDateTime.now().plusHours(5));
+        testBooking.setShowtime(futureShowtime);
+        testBooking.setBookingStatus(BookingStatus.PAID);
+
+        testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+        testPayment.setGatewayTransactionId("VNP-TRANS-12345");
+        testPayment.setPaidAt(LocalDateTime.now().minusHours(1));
+
+        Ticket ticket = new Ticket();
+        ticket.setId("ticket-1");
+        ticket.setBooking(testBooking);
+        ticket.setTicketStatus(TicketStatus.VALID);
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.empty());
+        when(ticketRepository.findByBookingId(testBooking.getId())).thenReturn(List.of(ticket));
+        when(refundRepository.existsByRefundCode(anyString())).thenReturn(false);
+        when(refundRepository.saveAndFlush(any(Refund.class))).thenAnswer(i -> i.getArgument(0));
+
+        Map<String, String> gatewaySuccess = new HashMap<>();
+        gatewaySuccess.put("vnp_ResponseCode", "00");
+        gatewaySuccess.put("vnp_ResponseId", "VNP-REFUND-999");
+        gatewaySuccess.put("vnp_Message", "Success");
+        when(vnPayService.refundPayment(any(), any(), any(), any())).thenReturn(gatewaySuccess);
+
+        when(refundRepository.findById(anyString())).thenAnswer(i -> {
+            Refund r = new Refund();
+            r.setId(i.getArgument(0));
+            r.setPayment(testPayment);
+            r.setAmount(testPayment.getAmount());
+            r.setRefundStatus(RefundStatus.PENDING);
+            return Optional.of(r);
+        });
+
+        RefundResponse expectedResponse = RefundResponse.builder()
+                .paymentId("payment-1")
+                .refundStatus(RefundStatus.SUCCESS)
+                .amount(testPayment.getAmount())
+                .build();
+        when(refundMapper.toRefundResponse(any(Refund.class))).thenReturn(expectedResponse);
+
+        RefundRequest request = new RefundRequest("Khách hàng đổi lịch");
+        MockHttpServletRequest httpRequest = new MockHttpServletRequest();
+
+        RefundResponse response = paymentService.refundPayment("payment-1", request, httpRequest);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getRefundStatus()).isEqualTo(RefundStatus.SUCCESS);
+        assertThat(testPayment.getPaymentStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        verify(bookingService).processBookingRefund(eq(testBooking.getId()), any(), any());
+    }
+
+    @Test
+    @DisplayName("refundPayment - Customer refund rejected if showtime is within 2 hours")
+    void testRefundPayment_Customer_ShowtimeTooClose_ThrowsBadRequest() {
+        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+
+        Showtime soonShowtime = new Showtime();
+        soonShowtime.setId("showtime-soon");
+        soonShowtime.setStartTime(LocalDateTime.now().plusMinutes(60)); // Only 1 hour away
+        testBooking.setShowtime(soonShowtime);
+        testBooking.setBookingStatus(BookingStatus.PAID);
+
+        testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.empty());
+
+        RefundRequest request = new RefundRequest("Muốn hủy");
+        MockHttpServletRequest httpRequest = new MockHttpServletRequest();
+
+        assertThatThrownBy(() -> paymentService.refundPayment("payment-1", request, httpRequest))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("trước giờ chiếu ít nhất 2 tiếng");
+    }
+
+    @Test
+    @DisplayName("refundPayment - Admin can refund booking even if showtime is within 2 hours")
+    void testRefundPayment_Admin_CanRefundWithin2Hours() {
+        mockAuthentication(testAdmin, "ROLE_ADMIN");
+
+        Showtime soonShowtime = new Showtime();
+        soonShowtime.setId("showtime-soon");
+        soonShowtime.setStartTime(LocalDateTime.now().plusMinutes(30));
+        testBooking.setShowtime(soonShowtime);
+        testBooking.setBookingStatus(BookingStatus.PAID);
+        testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.empty());
+        when(ticketRepository.findByBookingId(testBooking.getId())).thenReturn(List.of());
+        when(refundRepository.saveAndFlush(any(Refund.class))).thenAnswer(i -> i.getArgument(0));
+
+        Map<String, String> gatewaySuccess = new HashMap<>();
+        gatewaySuccess.put("vnp_ResponseCode", "00");
+        gatewaySuccess.put("vnp_ResponseId", "VNP-REFUND-ADMIN");
+        when(vnPayService.refundPayment(any(), any(), any(), any())).thenReturn(gatewaySuccess);
+
+        when(refundRepository.findById(anyString())).thenAnswer(i -> {
+            Refund r = new Refund();
+            r.setId(i.getArgument(0));
+            r.setPayment(testPayment);
+            r.setAmount(testPayment.getAmount());
+            r.setRefundStatus(RefundStatus.PENDING);
+            return Optional.of(r);
+        });
+
+        RefundResponse expectedResponse = RefundResponse.builder()
+                .paymentId("payment-1")
+                .refundStatus(RefundStatus.SUCCESS)
+                .build();
+        when(refundMapper.toRefundResponse(any(Refund.class))).thenReturn(expectedResponse);
+
+        RefundResponse response = paymentService.refundPayment("payment-1", new RefundRequest("Admin hủy suất chiếu"), new MockHttpServletRequest());
+        assertThat(response).isNotNull();
+        assertThat(response.getRefundStatus()).isEqualTo(RefundStatus.SUCCESS);
+    }
+
+    @Test
+    @DisplayName("refundPayment - Rejection if tickets are already USED")
+    void testRefundPayment_UsedTicket_ThrowsBadRequest() {
+        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+
+        Showtime futureShowtime = new Showtime();
+        futureShowtime.setId("showtime-future");
+        futureShowtime.setStartTime(LocalDateTime.now().plusHours(5));
+        testBooking.setShowtime(futureShowtime);
+        testBooking.setBookingStatus(BookingStatus.PAID);
+        testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+
+        Ticket usedTicket = new Ticket();
+        usedTicket.setId("ticket-used");
+        usedTicket.setBooking(testBooking);
+        usedTicket.setTicketStatus(TicketStatus.USED);
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.empty());
+        when(ticketRepository.findByBookingId(testBooking.getId())).thenReturn(List.of(usedTicket));
+
+        assertThatThrownBy(() -> paymentService.refundPayment("payment-1", new RefundRequest("Hủy"), new MockHttpServletRequest()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Không thể hoàn tiền đơn hàng đã có vé được sử dụng");
+    }
+
+    @Test
+    @DisplayName("refundPayment - Rejection if payment is not SUCCESS")
+    void testRefundPayment_NotSuccessPayment_ThrowsBadRequest() {
+        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+
+        testPayment.setPaymentStatus(PaymentStatus.PENDING);
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> paymentService.refundPayment("payment-1", new RefundRequest("Hủy"), new MockHttpServletRequest()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Chỉ có thể hoàn tiền cho giao dịch thanh toán thành công (SUCCESS)");
+    }
+
+    @Test
+    @DisplayName("refundPayment - Idempotent return when payment already has SUCCESS refund")
+    void testRefundPayment_AlreadyRefunded_ReturnsExistingRefund() {
+        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+
+        testPayment.setPaymentStatus(PaymentStatus.REFUNDED);
+        Refund existingRefund = new Refund();
+        existingRefund.setId("refund-existing");
+        existingRefund.setPayment(testPayment);
+        existingRefund.setRefundCode("REF-20260901-EXISTS");
+        existingRefund.setRefundStatus(RefundStatus.SUCCESS);
+        existingRefund.setAmount(testPayment.getAmount());
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.of(existingRefund));
+
+        RefundResponse expected = RefundResponse.builder()
+                .id("refund-existing")
+                .refundStatus(RefundStatus.SUCCESS)
+                .build();
+        when(refundMapper.toRefundResponse(existingRefund)).thenReturn(expected);
+
+        RefundResponse response = paymentService.refundPayment("payment-1", new RefundRequest("Hủy lại"), new MockHttpServletRequest());
+
+        assertThat(response).isNotNull();
+        assertThat(response.getId()).isEqualTo("refund-existing");
+        verify(vnPayService, never()).refundPayment(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("refundBooking - Admin refunds orphaned SUCCESS payment on EXPIRED booking")
+    void testRefundBooking_Admin_OrphanedPaymentOnExpiredBooking_Success() {
+        mockAuthentication(testAdmin, "ROLE_ADMIN");
+
+        testBooking.setBookingStatus(BookingStatus.EXPIRED);
+        testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+
+        when(paymentRepository.findFirstByBookingIdAndPaymentStatus(testBooking.getId(), PaymentStatus.SUCCESS))
+                .thenReturn(Optional.of(testPayment));
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.empty());
+        when(ticketRepository.findByBookingId(testBooking.getId())).thenReturn(List.of());
+        when(refundRepository.saveAndFlush(any(Refund.class))).thenAnswer(i -> i.getArgument(0));
+
+        Map<String, String> gatewaySuccess = new HashMap<>();
+        gatewaySuccess.put("vnp_ResponseCode", "00");
+        gatewaySuccess.put("vnp_ResponseId", "VNP-REF-ORPHAN");
+        when(vnPayService.refundPayment(any(), any(), any(), any())).thenReturn(gatewaySuccess);
+
+        when(refundRepository.findById(anyString())).thenAnswer(i -> {
+            Refund r = new Refund();
+            r.setId(i.getArgument(0));
+            r.setPayment(testPayment);
+            r.setAmount(testPayment.getAmount());
+            r.setRefundStatus(RefundStatus.PENDING);
+            return Optional.of(r);
+        });
+
+        RefundResponse expected = RefundResponse.builder()
+                .paymentId("payment-1")
+                .refundStatus(RefundStatus.SUCCESS)
+                .build();
+        when(refundMapper.toRefundResponse(any(Refund.class))).thenReturn(expected);
+
+        RefundResponse response = paymentService.refundBooking(testBooking.getId(), new RefundRequest("Hoàn tiền đơn hết hạn"), new MockHttpServletRequest());
+
+        assertThat(response).isNotNull();
+        assertThat(response.getRefundStatus()).isEqualTo(RefundStatus.SUCCESS);
+    }
+
+    @Test
+    @DisplayName("refundPayment - Gateway failure marks refund as FAILED and preserves payment")
+    void testRefundPayment_GatewayFailure_MarksRefundFailed() {
+        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+
+        Showtime futureShowtime = new Showtime();
+        futureShowtime.setId("showtime-future");
+        futureShowtime.setStartTime(LocalDateTime.now().plusHours(5));
+        testBooking.setShowtime(futureShowtime);
+        testBooking.setBookingStatus(BookingStatus.PAID);
+        testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.empty());
+        when(ticketRepository.findByBookingId(testBooking.getId())).thenReturn(List.of());
+        when(refundRepository.saveAndFlush(any(Refund.class))).thenAnswer(i -> i.getArgument(0));
+
+        Map<String, String> gatewayFailure = new HashMap<>();
+        gatewayFailure.put("vnp_ResponseCode", "91");
+        gatewayFailure.put("vnp_Message", "Transaction not found on gateway");
+        when(vnPayService.refundPayment(any(), any(), any(), any())).thenReturn(gatewayFailure);
+
+        when(refundRepository.findById(anyString())).thenAnswer(i -> {
+            Refund r = new Refund();
+            r.setId(i.getArgument(0));
+            r.setPayment(testPayment);
+            r.setAmount(testPayment.getAmount());
+            r.setRefundStatus(RefundStatus.PENDING);
+            return Optional.of(r);
+        });
+
+        assertThatThrownBy(() -> paymentService.refundPayment("payment-1", new RefundRequest("Thử"), new MockHttpServletRequest()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Cổng thanh toán từ chối hoàn tiền");
+
+        assertThat(testPayment.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        verify(bookingService, never()).processBookingRefund(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("getRefundDetail - Customer views refund details successfully")
+    void testGetRefundDetail_Success() {
+        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+
+        Refund refund = new Refund();
+        refund.setId("refund-1");
+        refund.setPayment(testPayment);
+        refund.setRefundCode("REF-12345");
+        refund.setRefundStatus(RefundStatus.SUCCESS);
+
+        when(paymentRepository.findById("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.of(refund));
+
+        RefundResponse expected = RefundResponse.builder()
+                .id("refund-1")
+                .refundCode("REF-12345")
+                .refundStatus(RefundStatus.SUCCESS)
+                .build();
+        when(refundMapper.toRefundResponse(refund)).thenReturn(expected);
+
+        RefundResponse response = paymentService.getRefundDetail("payment-1");
+
+        assertThat(response).isNotNull();
+        assertThat(response.getRefundCode()).isEqualTo("REF-12345");
+    }
+
+    @Test
+    @DisplayName("getAdminRefunds - Admin queries refund list with pagination")
+    void testGetAdminRefunds_Success() {
+        Pageable pageable = PageRequest.of(0, 10);
+        Refund refund = new Refund();
+        refund.setId("refund-1");
+        refund.setRefundCode("REF-123");
+        refund.setRefundStatus(RefundStatus.SUCCESS);
+        Page<Refund> page = new PageImpl<>(List.of(refund), pageable, 1);
+
+        when(refundRepository.findAdminRefunds(RefundStatus.SUCCESS, pageable)).thenReturn(page);
+
+        RefundResponse resp = RefundResponse.builder().id("refund-1").refundStatus(RefundStatus.SUCCESS).build();
+        when(refundMapper.toRefundResponse(refund)).thenReturn(resp);
+
+        PageResponse<RefundResponse> result = paymentService.getAdminRefunds(RefundStatus.SUCCESS, pageable);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getTotalElements()).isEqualTo(1);
+    }
 }
+
+
 

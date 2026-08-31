@@ -59,4 +59,25 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
             @Param("status") BookingStatus status,
             @Param("now") LocalDateTime now
     );
-}
+
+    long countByCreatedAtBetween(
+            LocalDateTime from,
+            LocalDateTime to
+    );
+
+    long countByBookingStatusAndCreatedAtBetween(
+            BookingStatus bookingStatus,
+            LocalDateTime from,
+            LocalDateTime to
+    );
+
+    @Query("""
+        SELECT COALESCE(SUM(b.totalAmount), 0)
+        FROM Booking b
+        WHERE b.createdAt >= :from AND b.createdAt <= :to
+    """)
+    java.math.BigDecimal findTotalBookingAmountBetween(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+}

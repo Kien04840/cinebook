@@ -11,6 +11,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.cinebook.repository.BookingPromotionRepository;
+import com.cinebook.repository.PromotionRepository;
+
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -28,10 +31,17 @@ class BookingCleanupTaskTest {
     @Mock
     private SeatHoldRepository seatHoldRepository;
 
+    @Mock
+    private BookingPromotionRepository bookingPromotionRepository;
+
+    @Mock
+    private PromotionRepository promotionRepository;
+
     @InjectMocks
     private BookingCleanupTask bookingCleanupTask;
 
     private Booking expiredBooking;
+
 
     @BeforeEach
     void setUp() {

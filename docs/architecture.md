@@ -327,18 +327,17 @@ Avoid duplicating the same rule in multiple places with slightly different wordi
 
 ---
 
-## 12. Open Decisions / TODOs
+## 12. Finalized Architectural Decisions (Backend V1)
 
-Do **not** invent values for the following. Mark them clearly when they affect implementation:
+All critical architectural decisions have been locked and implemented:
 
-- Exact seat-hold expiration duration
-- Pricing precedence (day rule vs time-slot rule vs seat-type modifier)
-- Refund policy details
-- Voucher / promotion stacking rules
-- Exact concurrency locking strategy beyond existing unique constraints & version columns
-- Whether Redis will be used at all
+- **Seat-Hold Expiration Duration**: Strictly 5 minutes (`holdExpiresAt = now.plusMinutes(5)`).
+- **Pricing Precedence**: Ticket gross price = showtime base price + seat type modifier + day/time rules.
+- **Refund Policy**: Customer refund $\ge 2$ hours before showtime; Admin refund anytime for paid/orphaned bookings.
+- **Promotion / Voucher Stacking**: Strictly at most 1 promotion per booking (no stacking in V1).
+- **Concurrency Locking Strategy**: Database unique constraints (`uk_*`) + JPA pessimistic write locks (`PESSIMISTIC_WRITE`) for seat allocation, IPN settlement, and promotion quotas.
+- **Redis**: Optional (MySQL 8 is the single authoritative source of truth).
 
-When a feature depends on one of these, surface the question to the developer instead of guessing.
 
 ---
 

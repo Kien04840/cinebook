@@ -7,9 +7,11 @@ import com.cinebook.entity.*;
 import com.cinebook.enums.*;
 import com.cinebook.exception.*;
 import com.cinebook.mapper.BookingMapper;
+import com.cinebook.mapper.PromotionMapper;
 import com.cinebook.repository.*;
 import com.cinebook.security.UserDetailsImpl;
 import com.cinebook.service.BookingService;
+import com.cinebook.service.PromotionService;
 import com.cinebook.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,7 +47,12 @@ public class BookingServiceImpl implements BookingService {
     private final ShowtimeRepository showtimeRepository;
     private final UserRepository userRepository;
     private final PaymentRepository paymentRepository;
+    private final PromotionRepository promotionRepository;
+    private final BookingPromotionRepository bookingPromotionRepository;
+    private final PromotionService promotionService;
     private final BookingMapper bookingMapper;
+    private final PromotionMapper promotionMapper;
+
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -72,8 +79,14 @@ public class BookingServiceImpl implements BookingService {
 
         LocalDateTime now = LocalDateTime.now();
 
-        if (showtime.getStatus() == ShowtimeStatus.CANCELLED) {
-            throw new BadRequestException("Lịch chiếu đã bị hủy.");
+        if (showtime.getStatus() != ShowtimeStatus.SCHEDULED) {
+            if (showtime.getStatus() == ShowtimeStatus.CANCELLED) {
+                throw new BadRequestException("Lịch chiếu đã bị hủy.");
+            }
+            if (showtime.getStatus() == ShowtimeStatus.FINISHED) {
+                throw new BadRequestException("Lịch chiếu đã kết thúc.");
+            }
+            throw new BadRequestException("Lịch chiếu hiện không khả dụng để đặt vé.");
         }
 
         if (showtime.getStartTime().isBefore(now)) {
@@ -124,7 +137,7 @@ public class BookingServiceImpl implements BookingService {
         }
 
         BigDecimal basePrice = showtime.getBasePrice();
-        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal grossAmount = BigDecimal.ZERO;
         List<BookingSeatResponse> seatResponses = new ArrayList<>();
 
         for (Seat seat : seats) {
@@ -132,10 +145,45 @@ public class BookingServiceImpl implements BookingService {
                     ? seat.getSeatType().getPriceModifier()
                     : BigDecimal.ZERO;
             BigDecimal price = basePrice.add(modifier);
-            totalAmount = totalAmount.add(price);
+            grossAmount = grossAmount.add(price);
             seatResponses.add(bookingMapper.toBookingSeatResponse(seat, price));
         }
 
+        Promotion appliedPromotion = null;
+        BigDecimal discountAmount = BigDecimal.ZERO;
+
+        if (StringUtils.hasText(request.getPromotionCode())) {
+            String normalizedCode = request.getPromotionCode().trim().toUpperCase();
+            Promotion promo = promotionRepository.findByCodeWithLock(normalizedCode)
+                    .orElseThrow(() -> new BadRequestException("Mã giảm giá không tồn tại: " + normalizedCode));
+
+            if (promo.getStatus() != PromotionStatus.ACTIVE) {
+                throw new BadRequestException("Mã giảm giá hiện đang tạm khóa hoặc không hoạt động.");
+            }
+
+            if (now.isBefore(promo.getStartAt())) {
+                throw new BadRequestException("Mã giảm giá chưa đến thời gian áp dụng.");
+            }
+
+            if (now.isAfter(promo.getEndAt()) || now.isEqual(promo.getEndAt())) {
+                throw new BadRequestException("Mã giảm giá đã hết hạn sử dụng.");
+            }
+
+            if (promo.getMinOrderAmount() != null && grossAmount.compareTo(promo.getMinOrderAmount()) < 0) {
+                throw new BadRequestException("Đơn đặt vé chưa đạt giá trị tối thiểu (" + promo.getMinOrderAmount() + " VND) để áp dụng mã giảm giá.");
+            }
+
+            if (promo.getUsageLimit() != null && promo.getUsedCount() >= promo.getUsageLimit()) {
+                throw new ConflictException("Mã giảm giá đã hết lượt sử dụng.");
+            }
+
+            discountAmount = promotionService.calculateDiscount(promo, grossAmount);
+            promo.setUsedCount(promo.getUsedCount() + 1);
+            promotionRepository.save(promo);
+            appliedPromotion = promo;
+        }
+
+        BigDecimal netTotal = grossAmount.subtract(discountAmount).max(BigDecimal.ZERO);
         LocalDateTime holdExpiresAt = now.plusMinutes(HOLD_DURATION_MINUTES);
         String bookingCode = generateUniqueBookingCode(now);
 
@@ -143,13 +191,24 @@ public class BookingServiceImpl implements BookingService {
         booking.setBookingCode(bookingCode);
         booking.setUser(user);
         booking.setShowtime(showtime);
-        booking.setTotalAmount(totalAmount);
+        booking.setTotalAmount(netTotal);
         booking.setBookingStatus(BookingStatus.PENDING_PAYMENT);
         booking.setHoldExpiresAt(holdExpiresAt);
 
         Booking savedBooking;
         try {
             savedBooking = bookingRepository.saveAndFlush(booking);
+
+            if (appliedPromotion != null) {
+                BookingPromotion bookingPromotion = new BookingPromotion();
+                BookingPromotionId bpId = new BookingPromotionId(appliedPromotion.getId(), savedBooking.getId());
+                bookingPromotion.setId(bpId);
+                bookingPromotion.setPromotion(appliedPromotion);
+                bookingPromotion.setBooking(savedBooking);
+                bookingPromotion.setDiscountAmount(discountAmount);
+                bookingPromotion.setCreatedAt(now);
+                bookingPromotionRepository.saveAndFlush(bookingPromotion);
+            }
 
             List<SeatHold> seatHoldsToSave = new ArrayList<>();
             for (Seat seat : seats) {
@@ -162,11 +221,15 @@ public class BookingServiceImpl implements BookingService {
             }
             seatHoldRepository.saveAllAndFlush(seatHoldsToSave);
         } catch (DataIntegrityViolationException ex) {
-            log.warn("Concurrency conflict while holding seats for showtime {}: {}", showtime.getId(), ex.getMessage());
-            throw new ConflictException("Một hoặc nhiều ghế đã được người khác giữ chỗ. Vui lòng chọn ghế khác.");
+            log.warn("Concurrency conflict while holding seats or applying promotion for showtime {}: {}", showtime.getId(), ex.getMessage());
+            throw new ConflictException("Một hoặc nhiều ghế đã được người khác giữ chỗ hoặc phát sinh xung đột dữ liệu.");
         }
 
-        return bookingMapper.toBookingDetailResponse(savedBooking, seatResponses, Collections.emptyList(), Collections.emptyList());
+        BookingPromotionResponse promoResponse = (appliedPromotion != null)
+                ? promotionMapper.toBookingPromotionResponse(appliedPromotion, discountAmount)
+                : null;
+
+        return bookingMapper.toBookingDetailResponse(savedBooking, seatResponses, Collections.emptyList(), Collections.emptyList(), promoResponse);
     }
 
     @Override
@@ -186,8 +249,11 @@ public class BookingServiceImpl implements BookingService {
                 .stream()
                 .map(bookingMapper::toPaymentSummaryResponse)
                 .toList();
+        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(booking.getId())
+                .map(promotionMapper::toBookingPromotionResponse)
+                .orElse(null);
 
-        return bookingMapper.toBookingDetailResponse(booking, seatResponses, ticketResponses, paymentResponses);
+        return bookingMapper.toBookingDetailResponse(booking, seatResponses, ticketResponses, paymentResponses, promoResponse);
     }
 
     @Override
@@ -232,6 +298,17 @@ public class BookingServiceImpl implements BookingService {
         bookingRepository.save(booking);
         seatHoldRepository.deleteByBookingId(booking.getId());
 
+        // Idempotent quota release for PENDING_PAYMENT booking cancellation
+        List<BookingPromotion> bookingPromotions = bookingPromotionRepository.findByBookingId(booking.getId());
+        for (BookingPromotion bp : bookingPromotions) {
+            Promotion promo = promotionRepository.findByIdWithLock(bp.getPromotion().getId()).orElse(null);
+            if (promo != null && promo.getUsedCount() > 0) {
+                promo.setUsedCount(promo.getUsedCount() - 1);
+                promotionRepository.save(promo);
+                log.info("Released promotion quota for promo {}: new usedCount={}", promo.getCode(), promo.getUsedCount());
+            }
+        }
+
         List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(booking);
         List<TicketResponse> ticketResponses = ticketRepository.findByBookingId(booking.getId())
                 .stream()
@@ -241,8 +318,11 @@ public class BookingServiceImpl implements BookingService {
                 .stream()
                 .map(bookingMapper::toPaymentSummaryResponse)
                 .toList();
+        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(booking.getId())
+                .map(promotionMapper::toBookingPromotionResponse)
+                .orElse(null);
 
-        return bookingMapper.toBookingDetailResponse(booking, seatResponses, ticketResponses, paymentResponses);
+        return bookingMapper.toBookingDetailResponse(booking, seatResponses, ticketResponses, paymentResponses, promoResponse);
     }
 
     @Override
@@ -330,9 +410,71 @@ public class BookingServiceImpl implements BookingService {
                 .stream()
                 .map(bookingMapper::toPaymentSummaryResponse)
                 .toList();
+        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(updatedBooking.getId())
+                .map(promotionMapper::toBookingPromotionResponse)
+                .orElse(null);
 
-        return bookingMapper.toBookingDetailResponse(updatedBooking, seatResponses, ticketResponses, paymentResponses);
+        return bookingMapper.toBookingDetailResponse(updatedBooking, seatResponses, ticketResponses, paymentResponses, promoResponse);
     }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public BookingDetailResponse processBookingRefund(String bookingId, String reason, String userId) {
+        Booking booking = bookingRepository.findByIdWithLock(bookingId)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt vé với id: " + bookingId));
+
+        if (booking.getBookingStatus() == BookingStatus.REFUNDED) {
+            return getBookingDetail(booking.getId());
+        }
+
+        if (booking.getBookingStatus() != BookingStatus.PAID && booking.getBookingStatus() != BookingStatus.EXPIRED) {
+            throw new BadRequestException("Đơn đặt vé đang ở trạng thái " + booking.getBookingStatus() + ", không thể hoàn tiền.");
+        }
+
+        List<Ticket> tickets = ticketRepository.findByBookingId(booking.getId());
+        boolean hasUsedTickets = tickets.stream().anyMatch(t -> t.getTicketStatus() == TicketStatus.USED);
+        if (hasUsedTickets) {
+            throw new BadRequestException("Không thể hoàn tiền đơn hàng đã có vé được sử dụng.");
+        }
+
+        booking.setBookingStatus(BookingStatus.REFUNDED);
+        booking.setCancelledAt(LocalDateTime.now());
+        booking.setCancelledReason(StringUtils.hasText(reason) ? reason : "Hoàn tiền đơn đặt vé");
+
+        if (StringUtils.hasText(userId)) {
+            userRepository.findById(userId).ifPresent(booking::setCancelledByUser);
+        }
+
+        Booking updatedBooking = bookingRepository.save(booking);
+
+        for (Ticket ticket : tickets) {
+            ticket.setTicketStatus(TicketStatus.CANCELLED);
+        }
+        if (!tickets.isEmpty()) {
+            ticketRepository.saveAll(tickets);
+        }
+
+        seatHoldRepository.deleteByBookingId(booking.getId());
+
+        log.info("Successfully processed refund for booking {}: status=REFUNDED, tickets cancelled={}",
+                booking.getId(), tickets.size());
+
+        List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(updatedBooking);
+        List<TicketResponse> ticketResponses = tickets.stream()
+                .map(bookingMapper::toTicketResponse)
+                .toList();
+        List<PaymentSummaryResponse> paymentResponses = paymentRepository.findByBookingId(booking.getId())
+                .stream()
+                .map(bookingMapper::toPaymentSummaryResponse)
+                .toList();
+        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(updatedBooking.getId())
+                .map(promotionMapper::toBookingPromotionResponse)
+                .orElse(null);
+
+        return bookingMapper.toBookingDetailResponse(updatedBooking, seatResponses, ticketResponses, paymentResponses, promoResponse);
+    }
+
+
 
     @Override
     @Transactional(readOnly = true)

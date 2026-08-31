@@ -3,7 +3,9 @@ package com.cinebook.service.impl;
 import com.cinebook.config.VnPayConfig;
 import com.cinebook.entity.Booking;
 import com.cinebook.entity.Payment;
+import com.cinebook.entity.Refund;
 import com.cinebook.service.VnPayService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,11 +15,22 @@ import org.springframework.util.StringUtils;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
+import java.net.URI;
 import java.net.URLEncoder;
+
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.cert.X509Certificate;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -26,11 +39,18 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
+@ConditionalOnProperty(name = "cinebook.payment.gateway", havingValue = "vnpay")
 public class VnPayServiceImpl implements VnPayService {
+
+
 
     private static final String HMAC_SHA512_ALGORITHM = "HmacSHA512";
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
@@ -154,6 +174,122 @@ public class VnPayServiceImpl implements VnPayService {
     }
 
     @Override
+
+    public Map<String, String> refundPayment(Payment payment, Refund refund, String userEmail, String clientIp) {
+        Map<String, String> result = new HashMap<>();
+        String requestId = UUID.randomUUID().toString().replace("-", "").substring(0, 32);
+        String version = vnPayConfig.getVersion();
+        String command = "refund";
+        String tmnCode = vnPayConfig.getTmnCode();
+        String transactionType = "02"; // Full refund
+        String txnRef = payment.getPaymentCode();
+        long amount = refund.getAmount().multiply(BigDecimal.valueOf(100)).longValue();
+        String orderInfo = "Hoan tien giao dich " + txnRef;
+        String transactionNo = (StringUtils.hasText(payment.getGatewayTransactionId()) && payment.getGatewayTransactionId().matches("\\d+"))
+                ? payment.getGatewayTransactionId()
+                : "0";
+
+
+        LocalDateTime now = LocalDateTime.now(VIETNAM_ZONE);
+        String createDate = now.format(DATE_FORMATTER);
+        String transactionDate = (payment.getPaidAt() != null)
+                ? payment.getPaidAt().format(DATE_FORMATTER)
+                : createDate;
+        String createBy = StringUtils.hasText(userEmail) ? userEmail : "System";
+        String ipAddr = StringUtils.hasText(clientIp) ? clientIp : "127.0.0.1";
+
+        // Raw data format: vnp_RequestId|vnp_Version|vnp_Command|vnp_TmnCode|vnp_TransactionType|vnp_TxnRef|vnp_Amount|vnp_TransactionNo|vnp_TransactionDate|vnp_CreateBy|vnp_CreateDate|vnp_IpAddr|vnp_OrderInfo
+        String rawHashData = String.join("|",
+                requestId,
+                version,
+                command,
+                tmnCode,
+                transactionType,
+                txnRef,
+                String.valueOf(amount),
+                transactionNo,
+                transactionDate,
+                createBy,
+                createDate,
+                ipAddr,
+                orderInfo
+        );
+
+        String secureHash = hmacSha512(vnPayConfig.getHashSecret(), rawHashData);
+
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("vnp_RequestId", requestId);
+        requestBody.put("vnp_Version", version);
+        requestBody.put("vnp_Command", command);
+        requestBody.put("vnp_TmnCode", tmnCode);
+        requestBody.put("vnp_TransactionType", transactionType);
+        requestBody.put("vnp_TxnRef", txnRef);
+        requestBody.put("vnp_Amount", amount);
+        requestBody.put("vnp_OrderInfo", orderInfo);
+        requestBody.put("vnp_TransactionNo", transactionNo);
+        requestBody.put("vnp_TransactionDate", transactionDate);
+        requestBody.put("vnp_CreateBy", createBy);
+        requestBody.put("vnp_CreateDate", createDate);
+        requestBody.put("vnp_IpAddr", ipAddr);
+        requestBody.put("vnp_SecureHash", secureHash);
+
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            String jsonPayload = objectMapper.writeValueAsString(requestBody);
+
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509TrustManager() {
+                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                    public void checkClientTrusted(X509Certificate[] certs, String authType) { }
+                    public void checkServerTrusted(X509Certificate[] certs, String authType) { }
+                }
+            };
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+
+            HttpClient client = HttpClient.newBuilder()
+                    .sslContext(sslContext)
+                    .connectTimeout(Duration.ofSeconds(10))
+                    .build();
+
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(vnPayConfig.getApiUrl()))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonPayload, StandardCharsets.UTF_8))
+                    .timeout(Duration.ofSeconds(15))
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            log.info("VNPay Refund API response status {}: {}", response.statusCode(), response.body());
+
+            if (response.statusCode() == 200 && StringUtils.hasText(response.body())) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> respMap = objectMapper.readValue(response.body(), Map.class);
+                String responseCode = respMap.get("vnp_ResponseCode") != null ? String.valueOf(respMap.get("vnp_ResponseCode")) : "";
+                String responseId = respMap.get("vnp_ResponseId") != null ? String.valueOf(respMap.get("vnp_ResponseId")) : "";
+                String message = respMap.get("vnp_Message") != null ? String.valueOf(respMap.get("vnp_Message")) : "";
+
+                result.put("vnp_ResponseCode", responseCode);
+                result.put("vnp_ResponseId", responseId);
+                result.put("vnp_Message", message);
+                result.put("rawResponse", response.body());
+                return result;
+            } else {
+                result.put("vnp_ResponseCode", "99");
+                result.put("vnp_Message", "HTTP error " + response.statusCode());
+                result.put("rawResponse", response.body());
+                return result;
+            }
+        } catch (Exception e) {
+            log.error("Exception while sending VNPay refund request: {}", e.getMessage());
+            result.put("vnp_ResponseCode", "99");
+            result.put("vnp_Message", "Exception: " + e.getMessage());
+            return result;
+        }
+    }
+
+    @Override
     public String extractClientIp(HttpServletRequest request) {
         if (request == null) {
             return "127.0.0.1";
@@ -199,4 +335,5 @@ public class VnPayServiceImpl implements VnPayService {
         }
     }
 }
+
 

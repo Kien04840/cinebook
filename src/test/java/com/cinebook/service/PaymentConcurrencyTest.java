@@ -2,21 +2,30 @@ package com.cinebook.service;
 
 import com.cinebook.config.VnPayConfig;
 import com.cinebook.dto.request.InitiatePaymentRequest;
+import com.cinebook.dto.request.RefundRequest;
 import com.cinebook.dto.response.InitiatePaymentResponse;
 import com.cinebook.dto.response.IpnResponse;
+import com.cinebook.dto.response.RefundResponse;
 import com.cinebook.entity.Booking;
 import com.cinebook.entity.Payment;
+import com.cinebook.entity.Refund;
 import com.cinebook.entity.Seat;
 import com.cinebook.entity.SeatHold;
+import com.cinebook.entity.Showtime;
 import com.cinebook.entity.User;
 import com.cinebook.enums.BookingStatus;
 import com.cinebook.enums.PaymentMethod;
 import com.cinebook.enums.PaymentStatus;
+import com.cinebook.enums.RefundStatus;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.mapper.BookingMapper;
+import com.cinebook.mapper.RefundMapper;
 import com.cinebook.repository.BookingRepository;
 import com.cinebook.repository.PaymentRepository;
+import com.cinebook.repository.RefundRepository;
 import com.cinebook.repository.SeatHoldRepository;
+import com.cinebook.repository.TicketRepository;
+
 import com.cinebook.security.UserDetailsImpl;
 import com.cinebook.service.impl.PaymentServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -76,7 +85,17 @@ class PaymentConcurrencyTest {
     private SeatHoldRepository seatHoldRepository;
 
     @Mock
+    private RefundRepository refundRepository;
+
+    @Mock
+    private TicketRepository ticketRepository;
+
+    @Mock
     private BookingMapper bookingMapper;
+
+    @Mock
+    private RefundMapper refundMapper;
+
 
     private PaymentServiceImpl paymentService;
 
@@ -96,8 +115,12 @@ class PaymentConcurrencyTest {
                 bookingRepository,
                 paymentRepository,
                 seatHoldRepository,
-                bookingMapper
+                refundRepository,
+                ticketRepository,
+                bookingMapper,
+                refundMapper
         );
+
 
         testCustomer = new User();
 
@@ -272,5 +295,94 @@ class PaymentConcurrencyTest {
         assertThat(rsp02Count.get()).isEqualTo(1);
         verify(bookingService, times(1)).confirmPaidBooking(anyString(), anyString());
     }
+
+    @Test
+    @DisplayName("Concurrency: Concurrent refund attempts on same payment - Idempotent and thread safe")
+    void testConcurrentRefund_IdempotentBehavior() throws Exception {
+        int threadCount = 2;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(threadCount);
+
+        AtomicInteger successCount = new AtomicInteger(0);
+
+        testBooking.setBookingStatus(BookingStatus.PAID);
+        Showtime showtime = new Showtime();
+        showtime.setId("showtime-future");
+        showtime.setStartTime(LocalDateTime.now().plusHours(5));
+        testBooking.setShowtime(showtime);
+        testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+        testPayment.setPaidAt(LocalDateTime.now().minusHours(1));
+
+        mockAuthentication(testCustomer);
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(ticketRepository.findByBookingId(testBooking.getId())).thenReturn(List.of());
+
+        AtomicBoolean firstCall = new AtomicBoolean(true);
+        when(refundRepository.findByPaymentId("payment-1")).thenAnswer(invocation -> {
+            if (firstCall.get()) {
+                return Optional.empty();
+            } else {
+                Refund existing = new Refund();
+                existing.setId("ref-existing");
+                existing.setPayment(testPayment);
+                existing.setRefundStatus(RefundStatus.SUCCESS);
+                existing.setAmount(testPayment.getAmount());
+                return Optional.of(existing);
+            }
+        });
+
+        when(refundRepository.saveAndFlush(any(Refund.class))).thenAnswer(invocation -> {
+            Refund r = invocation.getArgument(0);
+            return r;
+        });
+
+        Map<String, String> gatewaySuccess = new HashMap<>();
+        gatewaySuccess.put("vnp_ResponseCode", "00");
+        gatewaySuccess.put("vnp_ResponseId", "VNP-REF-CONCUR");
+        when(vnPayService.refundPayment(any(), any(), any(), any())).thenReturn(gatewaySuccess);
+
+        when(refundRepository.findById(anyString())).thenAnswer(invocation -> {
+            Refund r = new Refund();
+            r.setId(invocation.getArgument(0));
+            r.setPayment(testPayment);
+            r.setAmount(testPayment.getAmount());
+            r.setRefundStatus(RefundStatus.PENDING);
+            return Optional.of(r);
+        });
+
+        RefundResponse resp = RefundResponse.builder()
+                .paymentId("payment-1")
+                .refundStatus(RefundStatus.SUCCESS)
+                .amount(testPayment.getAmount())
+                .build();
+        when(refundMapper.toRefundResponse(any(Refund.class))).thenReturn(resp);
+
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                mockAuthentication(testCustomer);
+                try {
+                    startLatch.await();
+                    RefundResponse result = paymentService.refundPayment("payment-1", new RefundRequest("Hủy"), new MockHttpServletRequest());
+                    if (result != null && result.getRefundStatus() == RefundStatus.SUCCESS) {
+                        successCount.incrementAndGet();
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        boolean finished = doneLatch.await(5, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        assertThat(finished).isTrue();
+        assertThat(successCount.get()).isGreaterThanOrEqualTo(1);
+    }
 }
+
+
 

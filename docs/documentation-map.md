@@ -118,9 +118,13 @@ Use this matrix to determine which documentation files MUST be loaded and which 
 | **Cinema, Auditorium, Seat** | `docs/business-rules.md` §5<br>`docs/database.md` §3.3 | `docs/api.md` §6<br>`docs/architecture.md` §6 | `docs/payment.md`<br>`docs/tmdb-import.md` |
 | **Showtime & Scheduling** | `docs/business-rules.md` §6<br>`docs/database.md` §3.4 | `docs/api.md` §7<br>`docs/architecture.md` §6 | `docs/payment.md`<br>`docs/tmdb-import.md` |
 | **Pricing Rules** | `docs/business-rules.md` §7<br>`docs/database.md` §3.5 | `docs/architecture.md` §6 | `docs/tmdb-import.md`<br>`docs/payment.md` |
-| **Seat Hold & Booking** | `docs/business-rules.md` §8<br>`docs/database.md` §3.6<br>`.agents/rules/backend.md` | `docs/api.md` §8<br>`docs/architecture.md` §7.3 | `docs/tmdb-import.md`<br>`docs/use-cases/authentication.md` |
-| **Payment (VNPay)** | `docs/payment.md`<br>`docs/business-rules.md` §9<br>`.agents/rules/security.md` | `docs/database.md` §3.7<br>`docs/api.md` §9<br>`docs/architecture.md` §7.4 | `docs/tmdb-import.md`<br>`docs/use-cases/movie.md` |
+| **Seat Hold & Booking** | `docs/use-cases/booking.md`<br>`docs/business-rules.md` §8<br>`docs/database.md` §3.6<br>`.agents/rules/backend.md` | `docs/api.md` §8<br>`docs/architecture.md` §7.3 | `docs/tmdb-import.md`<br>`docs/use-cases/authentication.md` |
+| **Payment (VNPay)** | `docs/use-cases/payment.md`<br>`docs/payment.md`<br>`docs/business-rules.md` §9<br>`.agents/rules/security.md` | `docs/database.md` §3.7<br>`docs/api.md` §9<br>`docs/architecture.md` §7.4 | `docs/tmdb-import.md`<br>`docs/use-cases/movie.md` |
+| **Promotion & Voucher** | `docs/use-cases/promotion.md`<br>`docs/business-rules.md` §10<br>`docs/database.md` §3.8 | `docs/api.md` §10<br>`docs/architecture.md` §6 | `docs/tmdb-import.md`<br>`docs/payment.md` |
+| **Reporting & Dashboard** | `docs/use-cases/reporting.md`<br>`.agents/rules/backend.md`<br>`.agents/rules/security.md` | `docs/api.md` §19<br>`docs/database.md`<br>`docs/business-rules.md` | `docs/tmdb-import.md`<br>`docs/payment.md` |
+
 | **Database Schema Change** | `docs/database.md`<br>`.agents/rules/database.md`<br>`.agents/skills/database-change/SKILL.md` | `docs/business-rules.md`<br>`docs/architecture.md` | `docs/payment.md`<br>`docs/tmdb-import.md` |
+
 | **Frontend UI Implementation** | `.agents/rules/frontend.md`<br>`docs/api.md`<br>`docs/use-cases/{domain}.md` | `docs/architecture.md` §5 | `docs/database.md`<br>`docs/tmdb-import.md` |
 
 ---

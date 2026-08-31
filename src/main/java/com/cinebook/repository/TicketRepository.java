@@ -77,4 +77,43 @@ public interface TicketRepository extends JpaRepository<Ticket, String> {
             @Param("showtimeId") String showtimeId,
             @Param("statuses") Collection<TicketStatus> statuses
     );
-}
+
+    @Query("""
+        SELECT COUNT(t)
+        FROM Ticket t
+        WHERE t.booking.bookingStatus IN (com.cinebook.enums.BookingStatus.PAID, com.cinebook.enums.BookingStatus.REFUNDED)
+          AND t.createdAt >= :from AND t.createdAt <= :to
+    """)
+    long countGrossTicketsBetween(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to
+    );
+
+    @Query("""
+        SELECT COUNT(t)
+        FROM Ticket t
+        WHERE t.booking.bookingStatus = com.cinebook.enums.BookingStatus.REFUNDED
+          AND t.ticketStatus = com.cinebook.enums.TicketStatus.CANCELLED
+          AND t.createdAt >= :from AND t.createdAt <= :to
+    """)
+    long countRefundedTicketsBetween(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to
+    );
+
+    @Query("""
+        SELECT t
+        FROM Ticket t
+        JOIN FETCH t.booking b
+        JOIN FETCH b.showtime s
+        JOIN FETCH s.movie m
+        JOIN FETCH s.auditorium a
+        JOIN FETCH a.cinema c
+        WHERE b.bookingStatus IN (com.cinebook.enums.BookingStatus.PAID, com.cinebook.enums.BookingStatus.REFUNDED)
+          AND t.createdAt >= :from AND t.createdAt <= :to
+    """)
+    List<Ticket> findSoldTicketsBetween(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to
+    );
+}

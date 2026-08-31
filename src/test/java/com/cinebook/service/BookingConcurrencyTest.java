@@ -57,11 +57,23 @@ class BookingConcurrencyTest {
     @Mock
     private PaymentRepository paymentRepository;
 
+    @Mock
+    private PromotionRepository promotionRepository;
+
+    @Mock
+    private BookingPromotionRepository bookingPromotionRepository;
+
+    @Mock
+    private PromotionService promotionService;
+
     @Spy
     private GenreMapper genreMapper = new GenreMapper();
 
     @Spy
     private SeatMapper seatMapper = new SeatMapper();
+
+    @Spy
+    private PromotionMapper promotionMapper = new PromotionMapper();
 
     private MovieMapper movieMapper;
     private AuditoriumMapper auditoriumMapper;
@@ -93,8 +105,13 @@ class BookingConcurrencyTest {
                 showtimeRepository,
                 userRepository,
                 paymentRepository,
-                bookingMapper
+                promotionRepository,
+                bookingPromotionRepository,
+                promotionService,
+                bookingMapper,
+                promotionMapper
         );
+
 
         userA = new User();
         userA.setId("user-a");

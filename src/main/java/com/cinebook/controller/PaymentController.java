@@ -1,11 +1,14 @@
 package com.cinebook.controller;
 
 import com.cinebook.dto.request.InitiatePaymentRequest;
+import com.cinebook.dto.request.RefundRequest;
 import com.cinebook.dto.response.InitiatePaymentResponse;
 import com.cinebook.dto.response.IpnResponse;
 import com.cinebook.dto.response.PaymentResultResponse;
 import com.cinebook.dto.response.PaymentSummaryResponse;
+import com.cinebook.dto.response.RefundResponse;
 import com.cinebook.service.PaymentService;
+
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -84,5 +87,32 @@ public class PaymentController {
         PaymentSummaryResponse response = paymentService.getPaymentDetail(id);
         return ResponseEntity.ok(response);
     }
+
+    @Operation(
+            summary = "Yêu cầu hoàn tiền cho giao dịch thanh toán",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    @PostMapping("/api/v1/payments/{paymentId}/refund")
+    @PreAuthorize("hasRole('CUSTOMER') or hasRole('ADMIN')")
+    public ResponseEntity<RefundResponse> refundPayment(
+            @PathVariable String paymentId,
+            @Valid @RequestBody(required = false) RefundRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        RefundResponse response = paymentService.refundPayment(paymentId, request, httpRequest);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(
+            summary = "Lấy thông tin hoàn tiền của một giao dịch thanh toán",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
+    @GetMapping("/api/v1/payments/{paymentId}/refund")
+    @PreAuthorize("hasRole('CUSTOMER') or hasRole('ADMIN')")
+    public ResponseEntity<RefundResponse> getRefundDetail(@PathVariable String paymentId) {
+        RefundResponse response = paymentService.getRefundDetail(paymentId);
+        return ResponseEntity.ok(response);
+    }
 }
+
 

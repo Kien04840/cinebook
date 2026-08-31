@@ -33,4 +33,11 @@ public interface UserRepository extends JpaRepository<User, String> {
             @Param("keyword") String keyword,
             Pageable pageable
     );
-}
+
+    long countByCreatedAtBetween(
+            java.time.LocalDateTime from,
+            java.time.LocalDateTime to
+    );
+
+    long countByStatus(UserStatus status);
+}

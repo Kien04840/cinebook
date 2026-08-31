@@ -24,5 +24,9 @@ public class CreateBookingRequest {
     @NotEmpty(message = "Seat IDs list cannot be empty")
     @Size(max = 8, message = "Maximum 8 seats per booking transaction")
     private List<String> seatIds;
+
+    @Size(max = 50, message = "Promotion code must not exceed 50 characters")
+    private String promotionCode;
 }
+
 

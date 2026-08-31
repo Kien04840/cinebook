@@ -192,5 +192,48 @@ class PaymentControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.message").value("Bạn không có quyền thao tác với thanh toán"));
     }
+
+    @Test
+    @DisplayName("POST /api/v1/payments/{paymentId}/refund - Success returns 200 OK with RefundResponse")
+    void testRefundPayment_Success() throws Exception {
+        com.cinebook.dto.response.RefundResponse refundResponse = com.cinebook.dto.response.RefundResponse.builder()
+                .id("ref-1")
+                .paymentId("pay-1")
+                .refundCode("REF-20260901-ABCD1234")
+                .refundStatus(com.cinebook.enums.RefundStatus.SUCCESS)
+                .amount(new BigDecimal("200000.00"))
+                .build();
+
+        when(paymentService.refundPayment(eq("pay-1"), any(), any())).thenReturn(refundResponse);
+
+        com.cinebook.dto.request.RefundRequest request = new com.cinebook.dto.request.RefundRequest("Khách hàng bận đột xuất");
+
+        mockMvc.perform(post("/api/v1/payments/pay-1/refund")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("ref-1"))
+                .andExpect(jsonPath("$.refundCode").value("REF-20260901-ABCD1234"))
+                .andExpect(jsonPath("$.refundStatus").value("SUCCESS"));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/payments/{paymentId}/refund - Success returns 200 OK")
+    void testGetRefundDetail_Success() throws Exception {
+        com.cinebook.dto.response.RefundResponse refundResponse = com.cinebook.dto.response.RefundResponse.builder()
+                .id("ref-1")
+                .paymentId("pay-1")
+                .refundCode("REF-20260901-ABCD1234")
+                .refundStatus(com.cinebook.enums.RefundStatus.SUCCESS)
+                .build();
+
+        when(paymentService.getRefundDetail("pay-1")).thenReturn(refundResponse);
+
+        mockMvc.perform(get("/api/v1/payments/pay-1/refund"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("ref-1"))
+                .andExpect(jsonPath("$.refundCode").value("REF-20260901-ABCD1234"));
+    }
 }
+
 

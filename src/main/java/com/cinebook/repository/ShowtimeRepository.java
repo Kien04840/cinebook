@@ -101,4 +101,28 @@ public interface ShowtimeRepository extends JpaRepository<Showtime, String>, Jpa
             LocalDateTime startTime,
             ShowtimeStatus status
     );
+
+    long countByStartTimeBetween(
+            LocalDateTime from,
+            LocalDateTime to
+    );
+
+    @Query("""
+        SELECT s
+        FROM Showtime s
+        JOIN FETCH s.movie m
+        JOIN FETCH s.auditorium a
+        JOIN FETCH a.cinema c
+        WHERE s.startTime >= :from AND s.startTime <= :to
+          AND (:cinemaId IS NULL OR c.id = :cinemaId)
+          AND (:movieId IS NULL OR m.id = :movieId)
+          AND s.status <> com.cinebook.enums.ShowtimeStatus.CANCELLED
+        ORDER BY s.startTime ASC
+    """)
+    List<Showtime> findActiveShowtimesForReport(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to,
+            @Param("cinemaId") String cinemaId,
+            @Param("movieId") String movieId
+    );
 }

@@ -59,11 +59,23 @@ class BookingServiceTest {
     @Mock
     private PaymentRepository paymentRepository;
 
+    @Mock
+    private PromotionRepository promotionRepository;
+
+    @Mock
+    private BookingPromotionRepository bookingPromotionRepository;
+
+    @Mock
+    private PromotionService promotionService;
+
     @Spy
     private GenreMapper genreMapper = new GenreMapper();
 
     @Spy
     private SeatMapper seatMapper = new SeatMapper();
+
+    @Spy
+    private PromotionMapper promotionMapper = new PromotionMapper();
 
     private MovieMapper movieMapper;
     private AuditoriumMapper auditoriumMapper;
@@ -100,8 +112,13 @@ class BookingServiceTest {
                 showtimeRepository,
                 userRepository,
                 paymentRepository,
-                bookingMapper
+                promotionRepository,
+                bookingPromotionRepository,
+                promotionService,
+                bookingMapper,
+                promotionMapper
         );
+
 
         sampleUser = new User();
         sampleUser.setId("user-1");
@@ -860,4 +877,86 @@ class BookingServiceTest {
         assertEquals(1, availability.size());
         assertEquals(SeatAvailabilityStatus.SOLD, availability.get(0).getAvailabilityStatus());
     }
+
+    // ==========================================
+    // REFUND TESTS
+    // ==========================================
+
+    @Test
+    void processBookingRefund_PaidBooking_Success() {
+        Booking paidBooking = new Booking();
+        paidBooking.setId("booking-paid-1");
+        paidBooking.setBookingStatus(BookingStatus.PAID);
+        paidBooking.setTotalAmount(new BigDecimal("180000.00"));
+        paidBooking.setUser(sampleUser);
+        paidBooking.setShowtime(sampleShowtime);
+
+        Ticket validTicket = new Ticket();
+        validTicket.setId("ticket-1");
+        validTicket.setBooking(paidBooking);
+        validTicket.setSeat(seat1);
+        validTicket.setTicketStatus(TicketStatus.VALID);
+
+        when(bookingRepository.findByIdWithLock("booking-paid-1")).thenReturn(Optional.of(paidBooking));
+        when(ticketRepository.findByBookingId("booking-paid-1")).thenReturn(List.of(validTicket));
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(i -> i.getArgument(0));
+
+        BookingDetailResponse result = bookingService.processBookingRefund("booking-paid-1", "Khách hủy vé", sampleUser.getId());
+
+        assertNotNull(result);
+        assertEquals(BookingStatus.REFUNDED, result.getBookingStatus());
+        assertEquals(BookingStatus.REFUNDED, paidBooking.getBookingStatus());
+        assertEquals(TicketStatus.CANCELLED, validTicket.getTicketStatus());
+        verify(ticketRepository).saveAll(List.of(validTicket));
+        verify(promotionRepository, never()).save(any());
+    }
+
+    @Test
+    void processBookingRefund_UsedTicket_ThrowsBadRequest() {
+        Booking paidBooking = new Booking();
+        paidBooking.setId("booking-paid-1");
+        paidBooking.setBookingStatus(BookingStatus.PAID);
+
+        Ticket usedTicket = new Ticket();
+        usedTicket.setId("ticket-used");
+        usedTicket.setTicketStatus(TicketStatus.USED);
+
+        when(bookingRepository.findByIdWithLock("booking-paid-1")).thenReturn(Optional.of(paidBooking));
+        when(ticketRepository.findByBookingId("booking-paid-1")).thenReturn(List.of(usedTicket));
+
+        assertThrows(BadRequestException.class, () ->
+                bookingService.processBookingRefund("booking-paid-1", "Hủy", sampleUser.getId()));
+    }
+
+    @Test
+    void processBookingRefund_InvalidStatus_ThrowsBadRequest() {
+        Booking pendingBooking = new Booking();
+        pendingBooking.setId("booking-pending-1");
+        pendingBooking.setBookingStatus(BookingStatus.PENDING_PAYMENT);
+
+        when(bookingRepository.findByIdWithLock("booking-pending-1")).thenReturn(Optional.of(pendingBooking));
+
+        assertThrows(BadRequestException.class, () ->
+                bookingService.processBookingRefund("booking-pending-1", "Hủy", sampleUser.getId()));
+    }
+
+    @Test
+    void processBookingRefund_AlreadyRefunded_Idempotent() {
+        Booking refundedBooking = new Booking();
+        refundedBooking.setId("booking-ref-1");
+        refundedBooking.setBookingStatus(BookingStatus.REFUNDED);
+        refundedBooking.setUser(sampleUser);
+        refundedBooking.setShowtime(sampleShowtime);
+
+        when(bookingRepository.findByIdWithLock("booking-ref-1")).thenReturn(Optional.of(refundedBooking));
+        when(bookingRepository.findById("booking-ref-1")).thenReturn(Optional.of(refundedBooking));
+
+        BookingDetailResponse result = bookingService.processBookingRefund("booking-ref-1", "Hủy lại", sampleUser.getId());
+
+        assertNotNull(result);
+        assertEquals(BookingStatus.REFUNDED, result.getBookingStatus());
+        verify(bookingRepository, never()).save(any(Booking.class));
+    }
 }
+
+

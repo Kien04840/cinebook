@@ -450,14 +450,8 @@ Rules:
 6. Never store plaintext passwords.
 7. Never return the password hash.
 
-After a successful password change, consider revoking existing refresh-token sessions if required by the final security policy.
+- After a successful password change, existing refresh tokens for the user are invalidated.
 
-### Open decision
-
-```text
-TODO / DECISION REQUIRED:
-Whether changing the password revokes all existing refresh-token sessions.
-```
 
 ---
 
@@ -934,16 +928,10 @@ Authentication must reject users who are not eligible to log in.
 
 Soft-deleted users must not be treated as active accounts.
 
-Do not hard-delete users merely to implement normal account management.
+User status values are `ACTIVE` and `BLOCKED` (`UserStatus` enum). `ACTIVE` users can authenticate and transact; `BLOCKED` users are forbidden from logging in or booking (`403 Forbidden`).
 
 The exact status values and state transitions must follow `docs/database.md` and the existing entity/database implementation.
 
-### Open decision
-
-```text
-TODO / DECISION REQUIRED:
-Finalize the exact allowed user status values and their authentication behavior.
-```
 
 ---
 

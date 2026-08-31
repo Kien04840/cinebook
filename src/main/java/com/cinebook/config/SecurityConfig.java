@@ -82,9 +82,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/seat-types/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/showtimes/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/genres/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/promotions/validate").permitAll()
 
                         // Public payment callback/IPN endpoints
                         .requestMatchers("/api/v1/payments/vnpay/**").permitAll()
+
 
                         // Admin endpoints
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")

@@ -26,16 +26,24 @@ import com.cinebook.mapper.BookingMapper;
 import com.cinebook.mapper.CinemaMapper;
 import com.cinebook.mapper.GenreMapper;
 import com.cinebook.mapper.MovieMapper;
+import com.cinebook.mapper.PromotionMapper;
+import com.cinebook.mapper.RefundMapper;
 import com.cinebook.mapper.SeatMapper;
 import com.cinebook.mapper.ShowtimeMapper;
+import com.cinebook.repository.BookingPromotionRepository;
 import com.cinebook.repository.BookingRepository;
 import com.cinebook.repository.PaymentRepository;
+import com.cinebook.repository.PromotionRepository;
+import com.cinebook.repository.RefundRepository;
 import com.cinebook.repository.SeatHoldRepository;
 import com.cinebook.repository.SeatRepository;
 import com.cinebook.repository.ShowtimeRepository;
 import com.cinebook.repository.TicketRepository;
 import com.cinebook.repository.UserRepository;
+
+import com.cinebook.service.PromotionService;
 import com.cinebook.service.impl.BookingServiceImpl;
+
 import com.cinebook.service.impl.PaymentServiceImpl;
 import com.cinebook.task.BookingCleanupTask;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,17 +109,33 @@ class PaymentFinancialRaceIntegrationTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private PromotionRepository promotionRepository;
+
+    @Mock
+    private BookingPromotionRepository bookingPromotionRepository;
+
+    @Mock
+    private PromotionService promotionService;
+
+    @Mock
+    private RefundRepository refundRepository;
+
     @Spy
     private GenreMapper genreMapper = new GenreMapper();
 
     @Spy
     private SeatMapper seatMapper = new SeatMapper();
 
+    @Spy
+    private PromotionMapper promotionMapper = new PromotionMapper();
+
     private MovieMapper movieMapper;
     private AuditoriumMapper auditoriumMapper;
     private CinemaMapper cinemaMapper;
     private ShowtimeMapper showtimeMapper;
     private BookingMapper bookingMapper;
+    private RefundMapper refundMapper;
 
     private BookingServiceImpl bookingService;
     private PaymentServiceImpl paymentService;
@@ -132,7 +156,8 @@ class PaymentFinancialRaceIntegrationTest {
         auditoriumMapper = new AuditoriumMapper(seatMapper);
         cinemaMapper = new CinemaMapper(auditoriumMapper);
         showtimeMapper = new ShowtimeMapper(movieMapper, cinemaMapper, auditoriumMapper);
-        bookingMapper = new BookingMapper(showtimeMapper);
+        refundMapper = new RefundMapper();
+        bookingMapper = new BookingMapper(showtimeMapper, refundMapper);
 
         bookingService = new BookingServiceImpl(
                 bookingRepository,
@@ -142,7 +167,11 @@ class PaymentFinancialRaceIntegrationTest {
                 showtimeRepository,
                 userRepository,
                 paymentRepository,
-                bookingMapper
+                promotionRepository,
+                bookingPromotionRepository,
+                promotionService,
+                bookingMapper,
+                promotionMapper
         );
 
         paymentService = new PaymentServiceImpl(
@@ -152,13 +181,20 @@ class PaymentFinancialRaceIntegrationTest {
                 bookingRepository,
                 paymentRepository,
                 seatHoldRepository,
-                bookingMapper
+                refundRepository,
+                ticketRepository,
+                bookingMapper,
+                refundMapper
         );
+
 
         bookingCleanupTask = new BookingCleanupTask(
                 bookingRepository,
-                seatHoldRepository
+                seatHoldRepository,
+                bookingPromotionRepository,
+                promotionRepository
         );
+
 
         testUser = new User();
         testUser.setId("user-1");

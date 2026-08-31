@@ -12,21 +12,14 @@
 This document is the **contract** between backend and frontend.  
 Do not silently break existing endpoints once they are implemented and consumed.
 
-```text
-TODO / DECISION REQUIRED:
-- Exact date-time format (recommend ISO-8601 UTC: 2026-08-24T14:30:00Z)
-- Pagination defaults (page size, max page size)
-- Error response envelope (see section 3 — confirm final shape)
-- Whether HATEOAS links are required (currently: not required)
-```
+- **Date-Time Format**: ISO-8601 (e.g. `2026-08-24T14:30:00`)
+- **Pagination Defaults**: `page = 0`, `size = 20`
+- **Error Response**: Standardized via `GlobalExceptionHandler` and `ErrorResponse`
+- **HATEOAS**: Not required
+
 
 ---
-
-## 2. Versioning
-
-- Current version: **v1**
 - Version is part of the URL: `/api/v1/...`
-- Breaking changes require a new version (`/api/v2/...`) or explicit migration plan.
 - Non-breaking additions (new optional fields, new endpoints) may stay in v1.
 
 ---
@@ -76,10 +69,8 @@ TODO / DECISION REQUIRED:
 }
 ```
 
-```text
-TODO / DECISION REQUIRED:
-Confirm final error envelope with existing exception handler (if any).
-```
+- Error response format is handled globally by `GlobalExceptionHandler`.
+
 
 ### 3.4 Authentication Header
 
@@ -89,9 +80,7 @@ Authorization: Bearer <access_token>
 
 ### 3.5 Pagination (list endpoints)
 
-Query parameters (recommended):
 
-| Param    | Type    | Default | Description        |
 |----------|---------|---------|--------------------|
 | page     | int     | 0       | Zero-based page    |
 | size     | int     | 20      | Page size          |
@@ -394,13 +383,8 @@ GET /api/v1/bookings/me
 POST /api/v1/bookings/{id}/cancel
 ```
 
-**Auth**: Required (owner or admin)
+- Cancels an unpaid booking in `PENDING_PAYMENT` status and releases seat holds immediately. Paid bookings must use the Refund API (`POST /api/v1/payments/{paymentId}/refund`).
 
-```text
-TODO / DECISION REQUIRED:
-- Cancellation window and conditions
-- Whether this endpoint also triggers refund flow
-```
 
 ---
 
@@ -411,7 +395,6 @@ TODO / DECISION REQUIRED:
 ```http
 POST /api/v1/bookings/{bookingId}/payments
 ```
-
 **Auth**: Required (owner)
 
 **Request** (example):
@@ -457,22 +440,119 @@ GET /api/v1/payments/{id}
 
 **Auth**: Required (owner or admin)
 
+### 9.4 Customer Refund Payment
+
+```http
+POST /api/v1/payments/{paymentId}/refund
+```
+
+**Auth**: Required (`ROLE_CUSTOMER` or `ROLE_ADMIN` - owner or admin)
+
+**Request**:
+```json
+{
+  "reason": "Khách hàng bận đột xuất"
+}
+```
+
+**Response**: `200 OK`
+```json
+{
+  "id": "uuid",
+  "paymentId": "uuid",
+  "bookingId": "uuid",
+  "bookingCode": "CB-20260901-ABC",
+  "refundCode": "REF-20260901-XYZ",
+  "gatewayRefundId": "VNP-REF-12345",
+  "amount": 180000.00,
+  "refundReason": "Khách hàng bận đột xuất",
+  "refundStatus": "SUCCESS",
+  "processedAt": "2026-09-01T10:00:00",
+  "createdAt": "2026-09-01T10:00:00"
+}
+```
+
+### 9.5 Customer Get Refund Detail
+
+```http
+GET /api/v1/payments/{paymentId}/refund
+```
+
+**Auth**: Required (owner or admin)
+
+### 9.6 Admin Refund Booking (including Orphaned Payments on Expired Bookings)
+
+```http
+POST /api/v1/admin/bookings/{bookingId}/refund
+```
+
+**Auth**: Required (`ROLE_ADMIN`)
+
+**Request**:
+```json
+{
+  "reason": "Admin đối soát hoàn tiền đơn hàng quá hạn"
+}
+```
+
+### 9.7 Admin List Refunds
+
+```http
+GET /api/v1/admin/refunds?status=SUCCESS&page=0&size=20
+```
+
+**Auth**: Required (`ROLE_ADMIN`)
+
 ---
 
 ## 10. Promotions
 
+
+### 10.1 Validate Promotion Code (Preview)
 ```http
-GET  /api/v1/promotions/validate?code=XXX&bookingId=...
-POST /api/v1/bookings/{id}/promotions          // apply
+GET /api/v1/promotions/validate?code=SUMMER20&grossAmount=180000
+```
+**Auth**: Public / Authenticated  
+**Response**: `200 OK`
+```json
+{
+  "valid": true,
+  "code": "SUMMER20",
+  "name": "Giảm 20% mùa hè",
+  "discountType": "PERCENTAGE",
+  "discountValue": 20.00,
+  "grossAmount": 180000.00,
+  "discountAmount": 36000.00,
+  "finalAmount": 144000.00,
+  "message": "Áp dụng mã giảm giá thành công."
+}
 ```
 
-Admin CRUD under `/api/v1/admin/promotions`
-
-```text
-TODO / DECISION REQUIRED:
-- Stacking rules
-- Exact discount calculation
+### 10.2 Apply Promotion in Booking
+```http
+POST /api/v1/bookings
 ```
+**Request**:
+```json
+{
+  "showtimeId": "uuid",
+  "seatIds": ["seat-1", "seat-2"],
+  "promotionCode": "SUMMER20"
+}
+```
+
+### 10.3 Admin Promotion Endpoints
+All require `ROLE_ADMIN`:
+```http
+POST   /api/v1/admin/promotions          // Create promotion
+GET    /api/v1/admin/promotions          // List & search promotions (page, size, status, search)
+GET    /api/v1/admin/promotions/{id}     // Promotion detail with statistics
+PUT    /api/v1/admin/promotions/{id}     // Update promotion metadata
+PATCH  /api/v1/admin/promotions/{id}/status // Toggle status (ACTIVE / INACTIVE)
+```
+
+Canonical specification belongs in `docs/use-cases/promotion.md`.
+
 
 ---
 
@@ -526,19 +606,8 @@ Useful for deployment checks; not part of core business.
 **Target**:
 - SpringDoc OpenAPI 3 (or equivalent already in the project)
 - UI available at `/swagger-ui.html` or `/swagger-ui/index.html` (confirm path)
-- Spec at `/v3/api-docs`
+- SpringDoc OpenAPI is configured via `springdoc-openapi-starter-webmvc-ui:2.8.5`. Admin endpoints require Bearer JWT authentication in Swagger UI.
 
-Rules for the AI:
-- Keep controller annotations and DTOs in sync with this contract.
-- When an endpoint is implemented, its OpenAPI description should match this document.
-- Do not expose internal entities directly; use DTOs.
-- Do not document secrets or internal admin-only debug endpoints publicly.
-
-```text
-TODO / DECISION REQUIRED:
-- Exact SpringDoc / springfox dependency already present in the project
-- Whether admin endpoints are hidden from public Swagger or protected by auth in UI
-```
 
 ---
 
@@ -555,7 +624,6 @@ TODO / DECISION REQUIRED:
 | GET    | /api/v1/movies                            | Public   | List movies                |
 | GET    | /api/v1/movies/{id}                       | Public   | Movie detail               |
 | GET    | /api/v1/cinemas                           | Public   | List cinemas               |
-| GET    | /api/v1/cinemas/{id}                      | Public   | Cinema detail              |
 | GET    | /api/v1/showtimes                         | Public   | List showtimes             |
 | GET    | /api/v1/showtimes/{id}                    | Public   | Showtime detail            |
 | GET    | /api/v1/showtimes/{id}/seats              | Public*  | Seat map for showtime      |
@@ -697,3 +765,238 @@ Imports or updates a movie by its TMDB movie ID.
 | `TMDB_READ_TIMEOUT` | No | `10000` | HTTP read timeout (ms) |
 
 > ⚠️ `TMDB_API_KEY` must **never** be committed to source control. Set via environment variable or CI/CD secret.
+
+---
+
+## 19. Admin Reporting & Dashboard API
+
+All endpoints in this section require `ROLE_ADMIN` authentication (`Authorization: Bearer <ADMIN_JWT>`).
+
+### 19.1 Dashboard Summary
+`GET /api/v1/admin/reports/dashboard`
+
+**Query Parameters:**
+- `from` (optional): ISO-8601 Date/DateTime (e.g. `2026-08-01` or `2026-08-01T00:00:00`). Defaults to 1st day of current month.
+- `to` (optional): ISO-8601 Date/DateTime (e.g. `2026-08-31` or `2026-08-31T23:59:59`). Defaults to end of today.
+
+**Response `200 OK`:**
+```json
+{
+  "from": "2026-08-01T00:00:00",
+  "to": "2026-08-31T23:59:59.999999999",
+  "financial": {
+    "grossRevenue": 25000000.00,
+    "refundAmount": 100000.00,
+    "netRevenue": 24900000.00
+  },
+  "tickets": {
+    "grossTicketsSold": 250,
+    "refundedTickets": 1,
+    "netTicketsSold": 249
+  },
+  "bookings": {
+    "totalBookings": 120,
+    "paidBookings": 105,
+    "cancelledBookings": 5,
+    "expiredBookings": 9,
+    "refundedBookings": 1
+  },
+  "users": {
+    "totalUsers": 500,
+    "newUsersInPeriod": 45,
+    "activeUsers": 490,
+    "blockedUsers": 10
+  },
+  "operations": {
+    "totalShowtimes": 80,
+    "averageOccupancyRate": 65.50
+  }
+}
+```
+
+### 19.2 Revenue Trend
+`GET /api/v1/admin/reports/revenue`
+
+**Query Parameters:**
+- `from`, `to` (optional)
+- `groupBy` (optional): `DAY` (default), `MONTH`
+
+**Response `200 OK`:**
+```json
+[
+  {
+    "period": "2026-08-31",
+    "grossRevenue": 2500000.00,
+    "refundAmount": 100000.00,
+    "netRevenue": 2400000.00,
+    "ticketCount": 24
+  }
+]
+```
+
+### 19.3 Movie Performance & Ranking
+`GET /api/v1/admin/reports/movies`
+
+**Query Parameters:**
+- `from`, `to` (optional)
+- `sortBy` (optional): `REVENUE` (default), `TICKETS`
+- `limit` (optional): integer (e.g. `10`)
+
+**Response `200 OK`:**
+```json
+[
+  {
+    "rank": 1,
+    "movieId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "movieTitle": "Inception",
+    "posterUrl": "https://image.tmdb.org/t/p/w500/poster.jpg",
+    "grossRevenue": 15000000.00,
+    "refundAmount": 0.00,
+    "netRevenue": 15000000.00,
+    "grossTicketsSold": 150,
+    "refundedTickets": 0,
+    "netTicketsSold": 150
+  }
+]
+```
+
+### 19.4 Cinema Performance & Ranking
+`GET /api/v1/admin/reports/cinemas`
+
+**Query Parameters:**
+- `from`, `to` (optional)
+- `sortBy` (optional): `REVENUE` (default), `TICKETS`
+- `limit` (optional): integer
+
+**Response `200 OK`:**
+```json
+[
+  {
+    "rank": 1,
+    "cinemaId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "cinemaName": "CineBook Landmark",
+    "city": "Ho Chi Minh",
+    "grossRevenue": 18000000.00,
+    "refundAmount": 100000.00,
+    "netRevenue": 17900000.00,
+    "grossTicketsSold": 180,
+    "refundedTickets": 1,
+    "netTicketsSold": 179
+  }
+]
+```
+
+### 19.5 Showtime Occupancy Report
+`GET /api/v1/admin/reports/showtimes/occupancy`
+
+**Query Parameters:**
+- `from`, `to` (optional)
+- `cinemaId` (optional): UUID
+- `movieId` (optional): UUID
+- `sortBy` (optional): `START_TIME` (default), `OCCUPANCY_RATE`
+- `page`, `size` (optional, default page=0, size=20)
+
+**Response `200 OK`:** `PageResponse<ShowtimeOccupancyResponse>`
+```json
+{
+  "content": [
+    {
+      "showtimeId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      "movieId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      "movieTitle": "Inception",
+      "cinemaId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      "cinemaName": "CineBook Landmark",
+      "auditoriumId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+      "auditoriumName": "Cinema 1",
+      "startTime": "2026-08-31T19:00:00",
+      "endTime": "2026-08-31T21:30:00",
+      "format": "DIGITAL_2D",
+      "totalCapacity": 120,
+      "occupiedSeats": 90,
+      "availableSeats": 30,
+      "occupancyRate": 75.00
+    }
+  ],
+  "pageNumber": 0,
+  "pageSize": 20,
+  "totalElements": 1,
+  "totalPages": 1,
+  "last": true
+}
+```
+
+### 19.6 Top Occupancy Showtimes
+`GET /api/v1/admin/reports/showtimes/top-occupancy`
+
+**Query Parameters:**
+- `from`, `to` (optional)
+- `limit` (optional, default 10)
+
+**Response `200 OK`:** `List<ShowtimeOccupancyResponse>`
+
+### 19.7 Booking Statistics
+`GET /api/v1/admin/reports/bookings`
+
+**Query Parameters:** `from`, `to`
+
+**Response `200 OK`:**
+```json
+{
+  "from": "2026-08-01T00:00:00",
+  "to": "2026-08-31T23:59:59.999999999",
+  "totalBookings": 120,
+  "paidBookings": 105,
+  "cancelledBookings": 5,
+  "expiredBookings": 9,
+  "refundedBookings": 1,
+  "totalBookingAmount": 25000000.00
+}
+```
+
+### 19.8 User Statistics
+`GET /api/v1/admin/reports/users`
+
+**Query Parameters:** `from`, `to`
+
+**Response `200 OK`:**
+```json
+{
+  "from": "2026-08-01T00:00:00",
+  "to": "2026-08-31T23:59:59.999999999",
+  "totalUsers": 500,
+  "newUsersInPeriod": 45,
+  "activeUsers": 490,
+  "blockedUsers": 10
+}
+```
+
+### 19.9 Refund Statistics
+`GET /api/v1/admin/reports/refunds`
+
+**Query Parameters:** `from`, `to`
+
+**Response `200 OK`:**
+```json
+{
+  "from": "2026-08-01T00:00:00",
+  "to": "2026-08-31T23:59:59.999999999",
+  "totalRefunds": 1,
+  "successfulRefunds": 1,
+  "failedRefunds": 0,
+  "pendingRefunds": 0,
+  "totalRefundAmount": 100000.00
+}
+```
+
+### 19.10 Report Export
+`GET /api/v1/admin/reports/export`
+
+**Query Parameters:**
+- `reportType`: `REVENUE`, `MOVIES`, `CINEMAS`, `OCCUPANCY`
+- `format`: `CSV`, `XLSX`
+- `from`, `to`, `groupBy`, `sortBy`, `cinemaId`, `movieId`
+
+**Response `200 OK`:** Binary file download with headers:
+- `Content-Type`: `text/csv; charset=UTF-8` or `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- `Content-Disposition`: `attachment; filename="<report-name>-<timestamp>.<csv|xlsx>"`
+
