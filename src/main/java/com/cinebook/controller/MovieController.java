@@ -38,6 +38,15 @@ public class MovieController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(summary = "Get personalized movie recommendations based on user watching history or popular movies")
+    @GetMapping("/recommendations")
+    public ResponseEntity<com.cinebook.dto.response.MovieRecommendationResponse> getRecommendations(
+            @RequestParam(name = "limit", required = false, defaultValue = "6") Integer limit
+    ) {
+        com.cinebook.dto.response.MovieRecommendationResponse response = movieService.getMovieRecommendations(limit);
+        return ResponseEntity.ok(response);
+    }
+
     @Operation(summary = "Get public movie detail by ID")
     @GetMapping("/{id}")
     public ResponseEntity<MovieDetailResponse> getMovieDetail(@PathVariable String id) {

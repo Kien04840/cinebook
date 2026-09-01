@@ -19,6 +19,8 @@ public interface BookingService {
 
     PageResponse<BookingSummaryResponse> getMyBookings(BookingStatus status, Pageable pageable);
 
+    PageResponse<BookingSummaryResponse> getAdminBookings(String q, BookingStatus status, String showtimeId, Pageable pageable);
+
     BookingDetailResponse cancelBooking(String bookingId, CancelBookingRequest request);
 
     BookingDetailResponse confirmPaidBooking(String bookingId, String paymentId);
@@ -26,6 +28,8 @@ public interface BookingService {
     BookingDetailResponse processBookingRefund(String bookingId, String reason, String userId);
 
     List<ShowtimeSeatStatusResponse> getShowtimeSeatAvailability(String showtimeId);
+    BookingDetailResponse getActiveBookingForShowtime(String showtimeId);
 }
+
 
 

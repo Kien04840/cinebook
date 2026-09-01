@@ -18,6 +18,15 @@ public class PromotionController {
 
     private final PromotionService promotionService;
 
+    @Operation(summary = "List active public promotions for customers")
+    @GetMapping
+    public ResponseEntity<com.cinebook.dto.response.PageResponse<com.cinebook.dto.response.PromotionResponse>> getPublicPromotions(
+            @org.springframework.data.web.PageableDefault(size = 20, sort = "createdAt", direction = org.springframework.data.domain.Sort.Direction.DESC) org.springframework.data.domain.Pageable pageable
+    ) {
+        com.cinebook.dto.response.PageResponse<com.cinebook.dto.response.PromotionResponse> response = promotionService.getPublicPromotions(pageable);
+        return ResponseEntity.ok(response);
+    }
+
     @Operation(summary = "Validate and preview a promotion code discount against a gross amount")
     @GetMapping("/validate")
     public ResponseEntity<ValidatePromotionResponse> validatePromotion(

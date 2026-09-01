@@ -42,6 +42,14 @@ application-local.yml
 application-local.yaml
 application-local.properties
 
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/node_modules/
+
 # Temporary files
 *.tmp
 *.temp
+
+# Temporary / local audit scripts
+scratch/

@@ -68,6 +68,9 @@ class BookingServiceTest {
     @Mock
     private PromotionService promotionService;
 
+    @Mock
+    private EmailService emailService;
+
     @Spy
     private GenreMapper genreMapper = new GenreMapper();
 
@@ -116,7 +119,8 @@ class BookingServiceTest {
                 bookingPromotionRepository,
                 promotionService,
                 bookingMapper,
-                promotionMapper
+                promotionMapper,
+                emailService
         );
 
 
@@ -184,7 +188,7 @@ class BookingServiceTest {
         seat2.setSeatType(vipType);
         seat2.setStatus(SeatStatus.ACTIVE);
 
-        setAuthenticatedUser(sampleUser.getId(), "ROLE_CUSTOMER");
+        setAuthenticatedUser(sampleUser.getId(), "CUSTOMER");
     }
 
     @AfterEach
@@ -193,10 +197,11 @@ class BookingServiceTest {
     }
 
     private void setAuthenticatedUser(String userId, String role) {
+        String authName = role.startsWith("ROLE_") ? role : "ROLE_" + role;
         UserDetailsImpl userDetails = UserDetailsImpl.builder()
                 .id(userId)
                 .email(userId + "@example.com")
-                .authorities(List.of(new SimpleGrantedAuthority(role)))
+                .authorities(List.of(new SimpleGrantedAuthority(authName)))
                 .build();
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities())
@@ -536,7 +541,7 @@ class BookingServiceTest {
 
     @Test
     void getBookingDetail_Admin_Success() {
-        setAuthenticatedUser(adminUser.getId(), "ROLE_ADMIN");
+        setAuthenticatedUser(adminUser.getId(), "ADMIN");
 
         Booking booking = new Booking();
         booking.setId("booking-1");
@@ -956,6 +961,140 @@ class BookingServiceTest {
         assertNotNull(result);
         assertEquals(BookingStatus.REFUNDED, result.getBookingStatus());
         verify(bookingRepository, never()).save(any(Booking.class));
+    }
+
+    @Test
+    void getShowtimeSeatAvailability_WhenUserHasActiveHold_MarksIsHeldByCurrentUserTrue() {
+        UserDetailsImpl userDetails = UserDetailsImpl.builder()
+                .id(sampleUser.getId())
+                .email(sampleUser.getEmail())
+                .password("password")
+                .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
+
+        when(showtimeRepository.findById(sampleShowtime.getId())).thenReturn(Optional.of(sampleShowtime));
+        when(seatRepository.findByAuditoriumIdOrderByRowLabelAscSeatNumberAsc(sampleAuditorium.getId()))
+                .thenReturn(List.of(seat1, seat2));
+
+        Booking userBooking = new Booking();
+        userBooking.setId("b-1");
+        userBooking.setUser(sampleUser);
+
+        SeatHold userHold = new SeatHold();
+        userHold.setId(10L);
+        userHold.setSeat(seat1);
+        userHold.setBooking(userBooking);
+        userHold.setExpiresAt(LocalDateTime.now().plusMinutes(3));
+
+        when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq(sampleShowtime.getId()), any(LocalDateTime.class)))
+                .thenReturn(List.of(userHold));
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(sampleShowtime.getId()), any()))
+                .thenReturn(Collections.emptyList());
+
+        List<ShowtimeSeatStatusResponse> seatStatuses = bookingService.getShowtimeSeatAvailability(sampleShowtime.getId());
+
+        assertEquals(2, seatStatuses.size());
+        ShowtimeSeatStatusResponse s1 = seatStatuses.stream().filter(s -> s.getId().equals(seat1.getId())).findFirst().orElseThrow();
+        ShowtimeSeatStatusResponse s2 = seatStatuses.stream().filter(s -> s.getId().equals(seat2.getId())).findFirst().orElseThrow();
+
+        assertEquals(SeatAvailabilityStatus.HELD, s1.getAvailabilityStatus());
+        assertTrue(s1.getIsHeldByCurrentUser());
+
+        assertEquals(SeatAvailabilityStatus.AVAILABLE, s2.getAvailabilityStatus());
+        assertFalse(s2.getIsHeldByCurrentUser());
+    }
+
+    @Test
+    void getShowtimeSeatAvailability_WhenOtherUserHasHold_MarksIsHeldByCurrentUserFalse() {
+        UserDetailsImpl userDetails = UserDetailsImpl.builder()
+                .id(sampleUser.getId())
+                .email(sampleUser.getEmail())
+                .password("password")
+                .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
+
+        when(showtimeRepository.findById(sampleShowtime.getId())).thenReturn(Optional.of(sampleShowtime));
+        when(seatRepository.findByAuditoriumIdOrderByRowLabelAscSeatNumberAsc(sampleAuditorium.getId()))
+                .thenReturn(List.of(seat1));
+
+        User otherUser = new User();
+        otherUser.setId("other-user-id");
+
+        Booking otherBooking = new Booking();
+        otherBooking.setId("b-other");
+        otherBooking.setUser(otherUser);
+
+        SeatHold otherHold = new SeatHold();
+        otherHold.setId(11L);
+        otherHold.setSeat(seat1);
+        otherHold.setBooking(otherBooking);
+        otherHold.setExpiresAt(LocalDateTime.now().plusMinutes(3));
+
+        when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq(sampleShowtime.getId()), any(LocalDateTime.class)))
+                .thenReturn(List.of(otherHold));
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(sampleShowtime.getId()), any()))
+                .thenReturn(Collections.emptyList());
+
+        List<ShowtimeSeatStatusResponse> seatStatuses = bookingService.getShowtimeSeatAvailability(sampleShowtime.getId());
+
+        assertEquals(1, seatStatuses.size());
+        assertEquals(SeatAvailabilityStatus.HELD, seatStatuses.get(0).getAvailabilityStatus());
+        assertFalse(seatStatuses.get(0).getIsHeldByCurrentUser());
+    }
+
+    @Test
+    void getActiveBookingForShowtime_WhenActiveBookingExists_ReturnsDetail() {
+        UserDetailsImpl userDetails = UserDetailsImpl.builder()
+                .id(sampleUser.getId())
+                .email(sampleUser.getEmail())
+                .password("password")
+                .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
+
+        Booking activeB = new Booking();
+        activeB.setId("active-b-1");
+        activeB.setBookingCode("CB-ACTIVE-001");
+        activeB.setUser(sampleUser);
+        activeB.setShowtime(sampleShowtime);
+        activeB.setBookingStatus(BookingStatus.PENDING_PAYMENT);
+        activeB.setHoldExpiresAt(LocalDateTime.now().plusMinutes(4));
+
+        when(bookingRepository.findActiveBookingsByUserAndShowtime(eq(sampleUser.getId()), eq(sampleShowtime.getId()), any(LocalDateTime.class)))
+                .thenReturn(List.of(activeB));
+        when(seatHoldRepository.findByBookingId("active-b-1")).thenReturn(List.of());
+        when(paymentRepository.findByBookingId("active-b-1")).thenReturn(List.of());
+        when(bookingPromotionRepository.findFirstByBookingId("active-b-1")).thenReturn(Optional.empty());
+
+        BookingDetailResponse response = bookingService.getActiveBookingForShowtime(sampleShowtime.getId());
+
+        assertNotNull(response);
+        assertEquals("active-b-1", response.getId());
+        assertEquals("CB-ACTIVE-001", response.getBookingCode());
+    }
+
+    @Test
+    void getActiveBookingForShowtime_WhenNoActiveBooking_ReturnsNull() {
+        UserDetailsImpl userDetails = UserDetailsImpl.builder()
+                .id(sampleUser.getId())
+                .email(sampleUser.getEmail())
+                .password("password")
+                .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                .build();
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
+
+        when(bookingRepository.findActiveBookingsByUserAndShowtime(eq(sampleUser.getId()), eq(sampleShowtime.getId()), any(LocalDateTime.class)))
+                .thenReturn(List.of());
+
+        BookingDetailResponse response = bookingService.getActiveBookingForShowtime(sampleShowtime.getId());
+
+        assertNull(response);
     }
 }
 

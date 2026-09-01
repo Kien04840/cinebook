@@ -11,5 +11,9 @@ public interface UserService {
     UserProfileResponse updateCurrentProfile(UpdateProfileRequest request);
 
     void changePassword(ChangePasswordRequest request);
+
+    com.cinebook.dto.response.PageResponse<UserProfileResponse> getAdminUsers(String q, com.cinebook.enums.UserStatus status, org.springframework.data.domain.Pageable pageable);
+
+    UserProfileResponse updateUserStatus(String userId, com.cinebook.enums.UserStatus status);
 }
 

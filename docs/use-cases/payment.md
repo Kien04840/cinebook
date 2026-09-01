@@ -42,7 +42,7 @@ The implementation agent MUST adhere to:
 ### 2.1 In Scope (Payment V2 & Refund)
 
 1. **Payment Initiation (`POST /api/v1/bookings/{bookingId}/payments`)**:
-   - Customer authentication & ownership verification (`booking.user_id == currentUserId` or `ROLE_ADMIN`).
+   - Customer authentication & ownership verification (`booking.user_id == currentUserId` or `ADMIN`).
    - Booking eligibility validation (status `PENDING_PAYMENT`, `hold_expires_at > now()`, active seat holds exist in `seat_holds`).
    - Snapshot payment amount strictly from `booking.total_amount` (net amount after promotion discount). Client cannot control amount.
    - Create `Payment` record with status `PENDING`, method `VNPAY`, unique `payment_code`.
@@ -320,7 +320,7 @@ VNPay Sandbox provides a server-to-server refund endpoint:
 
 #### 1. Initiate Payment
 - `POST /api/v1/bookings/{bookingId}/payments`
-- **Auth**: `ROLE_CUSTOMER` (Owner) or `ROLE_ADMIN`
+- **Auth**: `CUSTOMER` (Owner) or `ADMIN`
 - **Request**:
   ```json
   {
@@ -356,7 +356,7 @@ VNPay Sandbox provides a server-to-server refund endpoint:
 
 #### 4. Get Payment Detail
 - `GET /api/v1/payments/{id}`
-- **Auth**: `ROLE_CUSTOMER` (Owner) or `ROLE_ADMIN`
+- **Auth**: `CUSTOMER` (Owner) or `ADMIN`
 - **Response**: `200 OK` (`PaymentSummaryResponse`)
 
 ---
@@ -365,7 +365,7 @@ VNPay Sandbox provides a server-to-server refund endpoint:
 
 #### 1. Customer / Admin Refund Payment
 - `POST /api/v1/payments/{paymentId}/refund`
-- **Auth**: `ROLE_CUSTOMER` (Owner) or `ROLE_ADMIN`
+- **Auth**: `CUSTOMER` (Owner) or `ADMIN`
 - **Request**:
   ```json
   {
@@ -389,12 +389,12 @@ VNPay Sandbox provides a server-to-server refund endpoint:
 
 #### 2. Get Refund Detail by Payment ID
 - `GET /api/v1/payments/{paymentId}/refund`
-- **Auth**: `ROLE_CUSTOMER` (Owner) or `ROLE_ADMIN`
+- **Auth**: `CUSTOMER` (Owner) or `ADMIN`
 - **Response**: `200 OK` (`RefundResponse`)
 
 #### 3. Admin Search & List Refunds
 - `GET /api/v1/admin/refunds?status=SUCCESS&page=0&size=20`
-- **Auth**: `ROLE_ADMIN`
+- **Auth**: `ADMIN`
 - **Response**: `200 OK` (`PageResponse<RefundResponse>`)
 
 ---

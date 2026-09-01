@@ -25,7 +25,7 @@ Canonical API Reference: `docs/api.md`
 - Follow resource naming conventions defined in `docs/api.md`.
 - Use consistent HTTP methods (`GET`, `POST`, `PUT`, `DELETE`).
 - Return standard error envelope on failures (`AppException` hierarchy -> `GlobalExceptionHandler`).
-- Protect `/api/v1/admin/**` endpoints with `ROLE_ADMIN`.
+- Protect `/api/v1/admin/**` endpoints with `ADMIN`.
 
 ## 3. Concurrency & Transactions
 

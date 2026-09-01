@@ -178,7 +178,7 @@ Verify that:
    - Calculate booking total and snapshot ticket prices (`base_price + price_modifier`).
 2. **Booking Retrieval & Ownership**:
    - Customer booking history (`GET /api/v1/bookings/me`) with pagination (`Pageable`, sort `createdAt,DESC`).
-   - Customer booking detail (`GET /api/v1/bookings/{id}`) enforcing strict owner authorization (`booking.user_id == currentUserId` or `ROLE_ADMIN`).
+   - Customer booking detail (`GET /api/v1/bookings/{id}`) enforcing strict owner authorization (`booking.user_id == currentUserId` or `ADMIN`).
 3. **Booking Cancellation**:
    - Customer self-cancellation of `PENDING_PAYMENT` bookings (`POST /api/v1/bookings/{id}/cancel`), updating status to `CANCELLED` and releasing held seats immediately.
    - Strict rejection of customer self-cancellation for `PAID` bookings (400 Bad Request).
@@ -335,13 +335,13 @@ The database schema (`docs/database.md` §3.6, §3.7) defines the authoritative 
 
 ### Role-Based Access Control (RBAC)
 
-1. **`ROLE_CUSTOMER`**:
+1. **`CUSTOMER`**:
    - Can create a booking (`POST /api/v1/bookings`).
    - Can view own booking list (`GET /api/v1/bookings/me`).
    - Can view own booking detail (`GET /api/v1/bookings/{id}`).
    - Can cancel own `PENDING_PAYMENT` booking (`POST /api/v1/bookings/{id}/cancel`).
    - Can initiate payment for own booking (`POST /api/v1/bookings/{id}/payments`).
-2. **`ROLE_ADMIN`**:
+2. **`ADMIN`**:
    - Can view any booking detail (`GET /api/v1/bookings/{id}`).
    - Can view administrative booking queries (if admin endpoints are exposed).
 3. **Anonymous Users**:
@@ -354,7 +354,7 @@ For every request targeting a specific booking `GET /api/v1/bookings/{id}` or `P
 ```text
 authenticatedUser = SecurityContext.getCurrentUser()
 
-if (authenticatedUser.hasRole("ROLE_ADMIN")) {
+if (authenticatedUser.hasRole("ADMIN")) {
     allowAccess()
 } else if (booking.user_id.equals(authenticatedUser.getId())) {
     allowAccess()
@@ -716,7 +716,7 @@ When the Payment module processes gateway notifications:
 
 ### Endpoint: `POST /api/v1/bookings/{id}/cancel`
 
-**Authorization**: Owner customer (`ROLE_CUSTOMER`) or `ROLE_ADMIN`.
+**Authorization**: Owner customer (`CUSTOMER`) or `ADMIN`.
 
 ### Behavior by Status (Locked V1)
 
@@ -738,7 +738,7 @@ When the Payment module processes gateway notifications:
 
 ### 14.1 List My Bookings (`GET /api/v1/bookings/me`)
 
-- **Auth**: `ROLE_CUSTOMER`
+- **Auth**: `CUSTOMER`
 - **Query Params**: `page` (default 0), `size` (default 20), `status` (optional filter).
 - **Sort**: `createdAt,DESC`.
 - **Response**: `PageResponse<BookingSummaryResponse>` containing:
@@ -748,7 +748,7 @@ When the Payment module processes gateway notifications:
 
 ### 14.2 Get Booking Detail (`GET /api/v1/bookings/{id}`)
 
-- **Auth**: `ROLE_CUSTOMER` (owner only) or `ROLE_ADMIN`.
+- **Auth**: `CUSTOMER` (owner only) or `ADMIN`.
 - **Response**: `BookingDetailResponse` containing:
   - `id`, `bookingCode`, `bookingStatus`, `totalAmount`, `holdExpiresAt`, `createdAt`, `cancelledAt`, `cancelledReason`.
   - `showtime`: ID, movie (title, poster, duration), cinema (name, address), auditorium (name), format, language, `startTime`, `endTime`.
@@ -764,10 +764,10 @@ When the Payment module processes gateway notifications:
 
 | Method | Endpoint | Auth | Request Body | Success Response | Error Codes |
 |---|---|---|---|---|---|
-| `POST` | `/api/v1/bookings` | `ROLE_CUSTOMER` | `CreateBookingRequest` | `201 Created` (`BookingDetailResponse`) | `400`, `401`, `404`, `409` |
-| `GET` | `/api/v1/bookings/me` | `ROLE_CUSTOMER` | None (Pageable query) | `200 OK` (`PageResponse<BookingSummaryResponse>`) | `401` |
-| `GET` | `/api/v1/bookings/{id}` | `ROLE_CUSTOMER` / `ROLE_ADMIN` | None | `200 OK` (`BookingDetailResponse`) | `401`, `403`, `404` |
-| `POST` | `/api/v1/bookings/{id}/cancel` | `ROLE_CUSTOMER` / `ROLE_ADMIN` | `CancelBookingRequest` (optional) | `200 OK` (`BookingDetailResponse`) | `400`, `401`, `403`, `404` |
+| `POST` | `/api/v1/bookings` | `CUSTOMER` | `CreateBookingRequest` | `201 Created` (`BookingDetailResponse`) | `400`, `401`, `404`, `409` |
+| `GET` | `/api/v1/bookings/me` | `CUSTOMER` | None (Pageable query) | `200 OK` (`PageResponse<BookingSummaryResponse>`) | `401` |
+| `GET` | `/api/v1/bookings/{id}` | `CUSTOMER` / `ADMIN` | None | `200 OK` (`BookingDetailResponse`) | `401`, `403`, `404` |
+| `POST` | `/api/v1/bookings/{id}/cancel` | `CUSTOMER` / `ADMIN` | `CancelBookingRequest` (optional) | `200 OK` (`BookingDetailResponse`) | `400`, `401`, `403`, `404` |
 
 ### 15.2 Request / Response DTO Shapes
 

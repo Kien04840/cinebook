@@ -96,6 +96,8 @@ class PaymentConcurrencyTest {
     @Mock
     private RefundMapper refundMapper;
 
+    @Mock
+    private EmailService emailService;
 
     private PaymentServiceImpl paymentService;
 
@@ -118,7 +120,8 @@ class PaymentConcurrencyTest {
                 refundRepository,
                 ticketRepository,
                 bookingMapper,
-                refundMapper
+                refundMapper,
+                emailService
         );
 
 
@@ -161,7 +164,7 @@ class PaymentConcurrencyTest {
                 .id(user.getId())
                 .email(user.getEmail())
                 .password("password")
-                .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                .authorities(List.of(new SimpleGrantedAuthority("CUSTOMER")))
                 .build();
         SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
         securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
@@ -171,16 +174,15 @@ class PaymentConcurrencyTest {
 
 
     @Test
-    @DisplayName("Concurrency: 2 simultaneous payment initiations for same booking -> Exactly 1 succeeds, 1 gets 409 Conflict")
-    void testConcurrentPaymentInitiation_ExactlyOneSucceeds() throws InterruptedException {
+    @DisplayName("Concurrency: 2 simultaneous payment initiations for same booking -> Both return valid URLs, exactly 1 Payment saved in DB (idempotent resume)")
+    void testConcurrentPaymentInitiation_ExactlyOnePaymentRecordCreated() throws InterruptedException {
         int threadCount = 2;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
         CountDownLatch startLatch = new CountDownLatch(1);
         CountDownLatch doneLatch = new CountDownLatch(threadCount);
 
         AtomicInteger successCount = new AtomicInteger(0);
-        AtomicInteger conflictCount = new AtomicInteger(0);
-        AtomicBoolean hasPending = new AtomicBoolean(false);
+        List<Payment> persistedPayments = new java.util.concurrent.CopyOnWriteArrayList<>();
         java.util.concurrent.locks.ReentrantLock dbLock = new java.util.concurrent.locks.ReentrantLock();
 
         // Simulate database pessimistic row-lock behavior on Booking:
@@ -189,12 +191,12 @@ class PaymentConcurrencyTest {
             return Optional.of(testBooking);
         });
         when(seatHoldRepository.findByBookingId("booking-1")).thenReturn(List.of(testHold));
-        when(paymentRepository.existsByBookingIdAndPaymentStatus(eq("booking-1"), eq(PaymentStatus.PENDING)))
-                .thenAnswer(invocation -> hasPending.get());
+        when(paymentRepository.findByBookingId("booking-1")).thenAnswer(invocation -> persistedPayments);
 
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> {
-            hasPending.set(true); // Thread 1 marks PENDING payment created
-            return invocation.getArgument(0);
+            Payment p = invocation.getArgument(0);
+            persistedPayments.add(p);
+            return p;
         });
 
         when(vnPayService.extractClientIp(any())).thenReturn("127.0.0.1");
@@ -212,8 +214,6 @@ class PaymentConcurrencyTest {
                     startLatch.await();
                     paymentService.initiatePayment("booking-1", new InitiatePaymentRequest(PaymentMethod.VNPAY), new MockHttpServletRequest());
                     successCount.incrementAndGet();
-                } catch (ConflictException ex) {
-                    conflictCount.incrementAndGet();
                 } catch (Exception ignored) {
                 } finally {
                     if (dbLock.isHeldByCurrentThread()) {
@@ -229,8 +229,9 @@ class PaymentConcurrencyTest {
         executor.shutdown();
 
         assertThat(finished).isTrue();
-        assertThat(successCount.get()).isEqualTo(1);
-        assertThat(conflictCount.get()).isEqualTo(1);
+        assertThat(successCount.get()).isEqualTo(2);
+        assertThat(persistedPayments.size()).isEqualTo(1);
+        verify(paymentRepository, times(1)).saveAndFlush(any(Payment.class));
     }
 
     @Test

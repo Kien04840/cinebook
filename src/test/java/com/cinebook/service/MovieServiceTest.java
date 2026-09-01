@@ -52,6 +52,9 @@ class MovieServiceTest {
     @Mock
     private GenreRepository genreRepository;
 
+    @Mock
+    private com.cinebook.repository.BookingRepository bookingRepository;
+
     @Spy
     private GenreMapper genreMapper = new GenreMapper();
 

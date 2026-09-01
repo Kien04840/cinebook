@@ -42,6 +42,13 @@ public class PromotionServiceImpl implements PromotionService {
 
     @Override
     @Transactional(readOnly = true)
+    public PageResponse<PromotionResponse> getPublicPromotions(Pageable pageable) {
+        Page<Promotion> page = promotionRepository.findByStatus(PromotionStatus.ACTIVE, pageable);
+        return PageResponse.of(page, promotionMapper::toPromotionResponse);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public PageResponse<PromotionResponse> getAdminPromotions(PromotionStatus status, String keyword, Pageable pageable) {
         String trimmedKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
         Page<Promotion> page = promotionRepository.findAdminPromotions(status, trimmedKeyword, pageable);

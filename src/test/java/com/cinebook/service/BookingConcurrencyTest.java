@@ -64,6 +64,9 @@ class BookingConcurrencyTest {
     private BookingPromotionRepository bookingPromotionRepository;
 
     @Mock
+    private EmailService emailService;
+
+    @Mock
     private PromotionService promotionService;
 
     @Spy
@@ -109,7 +112,8 @@ class BookingConcurrencyTest {
                 bookingPromotionRepository,
                 promotionService,
                 bookingMapper,
-                promotionMapper
+                promotionMapper,
+                emailService
         );
 
 
@@ -215,7 +219,7 @@ class BookingConcurrencyTest {
             UserDetailsImpl userDetails = UserDetailsImpl.builder()
                     .id("user-a")
                     .email("usera@example.com")
-                    .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                    .authorities(List.of(new SimpleGrantedAuthority("CUSTOMER")))
                     .build();
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities())
@@ -231,7 +235,7 @@ class BookingConcurrencyTest {
             UserDetailsImpl userDetails = UserDetailsImpl.builder()
                     .id("user-b")
                     .email("userb@example.com")
-                    .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                    .authorities(List.of(new SimpleGrantedAuthority("CUSTOMER")))
                     .build();
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities())
@@ -326,7 +330,7 @@ class BookingConcurrencyTest {
             UserDetailsImpl userDetails = UserDetailsImpl.builder()
                     .id("user-a")
                     .email("usera@example.com")
-                    .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                    .authorities(List.of(new SimpleGrantedAuthority("CUSTOMER")))
                     .build();
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities())
@@ -342,7 +346,7 @@ class BookingConcurrencyTest {
             UserDetailsImpl userDetails = UserDetailsImpl.builder()
                     .id("user-b")
                     .email("userb@example.com")
-                    .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                    .authorities(List.of(new SimpleGrantedAuthority("CUSTOMER")))
                     .build();
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities())
@@ -427,7 +431,7 @@ class BookingConcurrencyTest {
         UserDetailsImpl userDetails = UserDetailsImpl.builder()
                 .id("user-a")
                 .email("usera@example.com")
-                .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                .authorities(List.of(new SimpleGrantedAuthority("CUSTOMER")))
                 .build();
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities())

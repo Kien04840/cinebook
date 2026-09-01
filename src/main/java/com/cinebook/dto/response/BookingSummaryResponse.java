@@ -25,5 +25,6 @@ public class BookingSummaryResponse {
     private LocalDateTime createdAt;
     private Integer seatCount;
     private ShowtimeSummaryResponse showtime;
+    private UserSummaryResponse user;
 }
 

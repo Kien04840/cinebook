@@ -83,6 +83,9 @@ class PaymentRefundIntegrationTest {
     @Mock
     private ShowtimeMapper showtimeMapper;
 
+    @Mock
+    private EmailService emailService;
+
     private RefundMapper refundMapper;
     private BookingMapper bookingMapper;
     private BookingServiceImpl bookingService;
@@ -114,7 +117,8 @@ class PaymentRefundIntegrationTest {
                 bookingPromotionRepository,
                 promotionService,
                 bookingMapper,
-                promotionMapper
+                promotionMapper,
+                emailService
         );
 
         paymentService = new PaymentServiceImpl(
@@ -127,7 +131,8 @@ class PaymentRefundIntegrationTest {
                 refundRepository,
                 ticketRepository,
                 bookingMapper,
-                refundMapper
+                refundMapper,
+                emailService
         );
 
         testCustomer = new User();
@@ -191,6 +196,7 @@ class PaymentRefundIntegrationTest {
     }
 
     private void mockAuthentication(User user, String role) {
+        String authName = role.startsWith("ROLE_") ? role : "ROLE_" + role;
         UserDetailsImpl userDetails = new UserDetailsImpl(
                 user.getId(),
                 user.getEmail(),
@@ -198,7 +204,7 @@ class PaymentRefundIntegrationTest {
                 user.getFullName(),
                 UserStatus.ACTIVE,
                 true,
-                List.of(new SimpleGrantedAuthority(role))
+                List.of(new SimpleGrantedAuthority(authName))
         );
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
@@ -208,7 +214,7 @@ class PaymentRefundIntegrationTest {
     @Test
     @DisplayName("E2E Refund Flow: Customer refunds paid booking -> Payment=REFUNDED, Booking=REFUNDED, Ticket=CANCELLED, Quota NOT restored")
     void testCustomerFullRefundIntegration() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         when(paymentRepository.findByIdWithLock("pay-1")).thenReturn(Optional.of(testPayment));
         when(refundRepository.findByPaymentId("pay-1")).thenReturn(Optional.empty());

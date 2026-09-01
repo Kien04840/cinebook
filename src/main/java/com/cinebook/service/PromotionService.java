@@ -14,6 +14,8 @@ import java.math.BigDecimal;
 
 public interface PromotionService {
 
+    PageResponse<PromotionResponse> getPublicPromotions(Pageable pageable);
+
     PageResponse<PromotionResponse> getAdminPromotions(PromotionStatus status, String keyword, Pageable pageable);
 
     PromotionResponse getPromotionDetail(String id);

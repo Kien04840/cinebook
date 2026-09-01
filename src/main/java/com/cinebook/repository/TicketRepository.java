@@ -18,6 +18,14 @@ public interface TicketRepository extends JpaRepository<Ticket, String> {
 
     Optional<Ticket> findByQrCode(String qrCode);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT t FROM Ticket t WHERE t.id = :id")
+    Optional<Ticket> findByIdWithLock(@Param("id") String id);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT t FROM Ticket t WHERE t.qrCode = :qrCode")
+    Optional<Ticket> findByQrCodeWithLock(@Param("qrCode") String qrCode);
+
     boolean existsByQrCode(String qrCode);
 
     List<Ticket> findBySeatId(String seatId);

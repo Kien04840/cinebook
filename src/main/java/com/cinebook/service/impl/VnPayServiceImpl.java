@@ -4,20 +4,25 @@ import com.cinebook.config.VnPayConfig;
 import com.cinebook.entity.Booking;
 import com.cinebook.entity.Payment;
 import com.cinebook.entity.Refund;
+import com.cinebook.exception.BadRequestException;
 import com.cinebook.service.VnPayService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URLEncoder;
-
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -26,23 +31,11 @@ import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Service;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -50,16 +43,38 @@ import org.springframework.stereotype.Service;
 @ConditionalOnProperty(name = "cinebook.payment.gateway", havingValue = "vnpay")
 public class VnPayServiceImpl implements VnPayService {
 
-
-
     private static final String HMAC_SHA512_ALGORITHM = "HmacSHA512";
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final ZoneId VIETNAM_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     private final VnPayConfig vnPayConfig;
 
+    @PostConstruct
+    public void logGatewayStatus() {
+        boolean tmnConfigured = isConfigured(vnPayConfig.getTmnCode());
+        boolean secretConfigured = isConfigured(vnPayConfig.getHashSecret());
+        log.info("=== VNPay Gateway Configuration ===");
+        log.info("VNPay TMN Code configured: {}", tmnConfigured);
+        log.info("VNPay Hash Secret configured: {}", secretConfigured);
+        log.info("VNPay Payment URL: {}", vnPayConfig.getPaymentUrl());
+        log.info("VNPay Return URL: {}", vnPayConfig.getReturnUrl());
+    }
+
+    private boolean isConfigured(String val) {
+        if (!StringUtils.hasText(val)) {
+            return false;
+        }
+        String trimmed = val.trim();
+        return !trimmed.startsWith("YOUR_") && !trimmed.contains("CHANGE_ME");
+    }
+
     @Override
     public String buildPaymentUrl(Payment payment, Booking booking, String clientIp) {
+        if (!isConfigured(vnPayConfig.getTmnCode()) || !isConfigured(vnPayConfig.getHashSecret())) {
+            log.error("VNPay credentials are not configured properly (missing or placeholder).");
+            throw new BadRequestException("Cổng thanh toán VNPay chưa được cấu hình credentials hợp lệ.");
+        }
+
         Map<String, String> vnpParams = new HashMap<>();
 
         vnpParams.put("vnp_Version", vnPayConfig.getVersion());
@@ -94,17 +109,14 @@ public class VnPayServiceImpl implements VnPayService {
             String fieldValue = vnpParams.get(fieldName);
             if (StringUtils.hasText(fieldValue)) {
                 try {
-                    String encodedKey = URLEncoder.encode(fieldName, StandardCharsets.US_ASCII.toString());
-                    String encodedValue = URLEncoder.encode(fieldValue, StandardCharsets.US_ASCII.toString());
+                    String encodedKey = URLEncoder.encode(fieldName, StandardCharsets.UTF_8.toString());
+                    String encodedValue = URLEncoder.encode(fieldValue, StandardCharsets.UTF_8.toString());
 
                     // Build hash data
-                    hashData.append(fieldName).append('=').append(encodedValue);
+                    hashData.append(encodedKey).append('=').append(encodedValue).append('&');
 
                     // Build query string
-                    query.append(encodedKey).append('=').append(encodedValue);
-
-                    query.append('&');
-                    hashData.append('&');
+                    query.append(encodedKey).append('=').append(encodedValue).append('&');
                 } catch (Exception e) {
                     log.error("Error encoding VNPay parameter {}: {}", fieldName, e.getMessage());
                 }
@@ -158,8 +170,9 @@ public class VnPayServiceImpl implements VnPayService {
                     && !"vnp_SecureHash".equals(fieldName)
                     && !"vnp_SecureHashType".equals(fieldName)) {
                 try {
-                    String encodedValue = URLEncoder.encode(fieldValue, StandardCharsets.US_ASCII.toString());
-                    hashData.append(fieldName).append('=').append(encodedValue).append('&');
+                    String encodedKey = URLEncoder.encode(fieldName, StandardCharsets.UTF_8.toString());
+                    String encodedValue = URLEncoder.encode(fieldValue, StandardCharsets.UTF_8.toString());
+                    hashData.append(encodedKey).append('=').append(encodedValue).append('&');
                 } catch (Exception e) {
                     log.error("Error encoding VNPay field {}: {}", fieldName, e.getMessage());
                 }
@@ -300,18 +313,24 @@ public class VnPayServiceImpl implements VnPayService {
             // In case of multiple proxies, take first client IP
             int commaIndex = ip.indexOf(',');
             if (commaIndex > 0) {
-                return ip.substring(0, commaIndex).trim();
+                return sanitizeClientIp(ip.substring(0, commaIndex));
             }
-            return ip.trim();
+            return sanitizeClientIp(ip);
         }
 
         ip = request.getHeader("X-Real-IP");
         if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            return ip.trim();
+            return sanitizeClientIp(ip);
         }
 
-        ip = request.getRemoteAddr();
-        return StringUtils.hasText(ip) ? ip : "127.0.0.1";
+        return sanitizeClientIp(request.getRemoteAddr());
+    }
+
+    private String sanitizeClientIp(String ip) {
+        if (!StringUtils.hasText(ip) || "0:0:0:0:0:0:0:1".equals(ip) || "::1".equals(ip) || "localhost".equalsIgnoreCase(ip) || ip.contains(":")) {
+            return "127.0.0.1";
+        }
+        return ip.trim();
     }
 
     private String hmacSha512(String key, String data) {

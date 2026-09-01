@@ -115,7 +115,7 @@ Import is triggered server-side by administrators via REST API endpoints:
 - `POST /api/v1/admin/tmdb/genres/sync` — Synchronizes all official TMDB genres.
 - `POST /api/v1/admin/tmdb/movies/{tmdbId}/import` — Imports or updates a specific movie by its TMDB ID.
 
-Both endpoints are idempotent, run entirely on the backend, and require `ROLE_ADMIN`.
+Both endpoints are idempotent, run entirely on the backend, and require `ADMIN`.
 
 ---
 

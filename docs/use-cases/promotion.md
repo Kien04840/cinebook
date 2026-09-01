@@ -194,7 +194,7 @@ CREATE TABLE booking_promotions (
 ## 6. Admin Promotion Management
 
 ### 6.1 Create Promotion (`POST /api/v1/admin/promotions`)
-- **Authorization**: `ROLE_ADMIN` strictly required.
+- **Authorization**: `ADMIN` strictly required.
 - **Validation Rules**:
   - `code`: Not blank, max 50 chars, sanitized to uppercase alphanumeric (`^[A-Z0-9_-]+$`). Must be globally unique (`uk_promotions_code`).
   - `name`: Not blank, max 255 chars.
@@ -212,7 +212,7 @@ CREATE TABLE booking_promotions (
   - Initial `usedCount`: Always initialized to `0`.
 
 ### 6.2 Update Promotion (`PUT /api/v1/admin/promotions/{id}`)
-- **Authorization**: `ROLE_ADMIN` strictly required.
+- **Authorization**: `ADMIN` strictly required.
 - **Immutable Fields**:
   - `id`: Immutable primary key.
   - `code`: Immutable business identifier (prevent breaking external advertising/links).
@@ -431,13 +431,13 @@ When a customer applies a voucher, `used_count` is temporarily reserved during t
 ### 13.1 RBAC Enforcement
 | Endpoint | Method | Path | Required Role | Notes |
 |---|---|---|---|---|
-| Create Promotion | `POST` | `/api/v1/admin/promotions` | `ROLE_ADMIN` | Configures discount & quota |
-| List Promotions | `GET` | `/api/v1/admin/promotions` | `ROLE_ADMIN` | Admin pagination & filters |
-| Get Promotion Detail | `GET` | `/api/v1/admin/promotions/{id}` | `ROLE_ADMIN` | Includes internal stats |
-| Update Promotion | `PUT` | `/api/v1/admin/promotions/{id}` | `ROLE_ADMIN` | Updates parameters |
-| Toggle Status | `PATCH` | `/api/v1/admin/promotions/{id}/status` | `ROLE_ADMIN` | Activate/Deactivate |
+| Create Promotion | `POST` | `/api/v1/admin/promotions` | `ADMIN` | Configures discount & quota |
+| List Promotions | `GET` | `/api/v1/admin/promotions` | `ADMIN` | Admin pagination & filters |
+| Get Promotion Detail | `GET` | `/api/v1/admin/promotions/{id}` | `ADMIN` | Includes internal stats |
+| Update Promotion | `PUT` | `/api/v1/admin/promotions/{id}` | `ADMIN` | Updates parameters |
+| Toggle Status | `PATCH` | `/api/v1/admin/promotions/{id}/status` | `ADMIN` | Activate/Deactivate |
 | Validate Code Preview | `GET` | `/api/v1/promotions/validate` | Public / Authenticated | Read-only calculation |
-| Apply in Booking | `POST` | `/api/v1/bookings` | `ROLE_CUSTOMER` / `ROLE_ADMIN` | Client sends code only |
+| Apply in Booking | `POST` | `/api/v1/bookings` | `CUSTOMER` / `ADMIN` | Client sends code only |
 
 ### 13.2 Security Invariants
 1. **Zero Client Trust on Financials**: Clients NEVER submit `discountAmount`, `usedCount`, `totalAmount`, or `status`. All pricing and promotion rules are computed authoritatively on the backend.

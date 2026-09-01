@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Admin-only endpoints for TMDB data import/synchronization.
- * Security is enforced by SecurityConfig: /api/v1/admin/** requires ROLE_ADMIN.
+ * Security is enforced by SecurityConfig: /api/v1/admin/** requires ADMIN.
  */
 @Tag(name = "Admin TMDB", description = "Administrator endpoints for TMDB data import and synchronization")
 @SecurityRequirement(name = "bearerAuth")

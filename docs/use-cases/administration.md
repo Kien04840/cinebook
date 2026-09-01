@@ -2,7 +2,7 @@
 
 ## 1. Overview & Scope
 
-The **Administration & Platform Operations** domain encompasses all administrative endpoints, business controls, management interfaces, and operational oversight tools restricted to users with `ROLE_ADMIN`.
+The **Administration & Platform Operations** domain encompasses all administrative endpoints, business controls, management interfaces, and operational oversight tools restricted to users with `ADMIN`.
 
 Administrative functionality in CineBook is partitioned into focused, cohesive domain modules with strict Layered Architecture and RBAC enforcement.
 

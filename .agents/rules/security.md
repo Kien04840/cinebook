@@ -20,8 +20,8 @@ Canonical API Security Reference: `docs/api.md`
 - Password reset tokens expire in 15 minutes, are single-use, and stored as SHA-256 hashes.
 - Enforce role-based access control (RBAC):
   - Public: Movie listings, showtimes, cinemas, auth endpoints.
-  - `ROLE_CUSTOMER`: Booking creation, personal profile/booking history, payment initiation.
-  - `ROLE_ADMIN`: All management endpoints under `/api/v1/admin/**`.
+  - `CUSTOMER`: Booking creation, personal profile/booking history, payment initiation.
+  - `ADMIN`: All management endpoints under `/api/v1/admin/**`.
 - Never trust client-supplied user IDs; extract authenticated user identity from the `SecurityContext`.
 
 ## 3. External Gateways

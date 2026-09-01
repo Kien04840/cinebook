@@ -13,12 +13,16 @@ public class RefundMapper {
         }
 
         String paymentId = refund.getPayment() != null ? refund.getPayment().getId() : null;
-        String bookingId = (refund.getPayment() != null && refund.getPayment().getBooking() != null)
-                ? refund.getPayment().getBooking().getId()
-                : null;
-        String bookingCode = (refund.getPayment() != null && refund.getPayment().getBooking() != null)
-                ? refund.getPayment().getBooking().getBookingCode()
-                : null;
+        String bookingId = null;
+        String bookingCode = null;
+        if (refund.getPayment() != null && refund.getPayment().getBooking() != null) {
+            try {
+                bookingId = refund.getPayment().getBooking().getId();
+                bookingCode = refund.getPayment().getBooking().getBookingCode();
+            } catch (Exception ignored) {
+                // Ignore if proxy is uninitialized outside transaction
+            }
+        }
 
         return RefundResponse.builder()
                 .id(refund.getId())

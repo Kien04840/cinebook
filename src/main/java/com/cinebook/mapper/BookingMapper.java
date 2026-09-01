@@ -43,6 +43,15 @@ public class BookingMapper {
                 ? showtimeMapper.toShowtimeSummaryResponse(booking.getShowtime())
                 : null;
 
+        UserSummaryResponse userSummary = booking.getUser() != null
+                ? UserSummaryResponse.builder()
+                .id(booking.getUser().getId())
+                .email(booking.getUser().getEmail())
+                .fullName(booking.getUser().getFullName())
+                .phone(booking.getUser().getPhone())
+                .build()
+                : null;
+
         return BookingSummaryResponse.builder()
                 .id(booking.getId())
                 .bookingCode(booking.getBookingCode())
@@ -52,6 +61,7 @@ public class BookingMapper {
                 .createdAt(booking.getCreatedAt())
                 .seatCount(seatCount)
                 .showtime(showtimeSummary)
+                .user(userSummary)
                 .build();
     }
 
@@ -92,6 +102,15 @@ public class BookingMapper {
                 ? showtimeMapper.toShowtimeDetailResponse(booking.getShowtime())
                 : null;
 
+        UserSummaryResponse userSummary = booking.getUser() != null
+                ? UserSummaryResponse.builder()
+                .id(booking.getUser().getId())
+                .email(booking.getUser().getEmail())
+                .fullName(booking.getUser().getFullName())
+                .phone(booking.getUser().getPhone())
+                .build()
+                : null;
+
         return BookingDetailResponse.builder()
                 .id(booking.getId())
                 .bookingCode(booking.getBookingCode())
@@ -108,6 +127,7 @@ public class BookingMapper {
                 .tickets(tickets != null ? tickets : Collections.emptyList())
                 .payments(payments != null ? payments : Collections.emptyList())
                 .promotion(promotion)
+                .user(userSummary)
                 .build();
     }
 

@@ -67,6 +67,9 @@ class PromotionConcurrencyTest {
     @Mock
     private BookingPromotionRepository bookingPromotionRepository;
 
+    @Mock
+    private EmailService emailService;
+
     @Spy
     private GenreMapper genreMapper = new GenreMapper();
 
@@ -111,7 +114,8 @@ class PromotionConcurrencyTest {
                 bookingPromotionRepository,
                 promotionService,
                 bookingMapper,
-                promotionMapper
+                promotionMapper,
+                emailService
         );
 
         testUser = new User();
@@ -123,7 +127,7 @@ class PromotionConcurrencyTest {
                 .email(testUser.getEmail())
                 .fullName("Customer")
                 .status(UserStatus.ACTIVE)
-                .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                .authorities(List.of(new SimpleGrantedAuthority("CUSTOMER")))
                 .build();
 
         SecurityContextHolder.getContext().setAuthentication(
@@ -222,7 +226,7 @@ class PromotionConcurrencyTest {
                             .email("customer@cinebook.com")
                             .fullName("Customer")
                             .status(UserStatus.ACTIVE)
-                            .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                            .authorities(List.of(new SimpleGrantedAuthority("CUSTOMER")))
                             .build();
                     SecurityContextHolder.getContext().setAuthentication(
                             new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities())

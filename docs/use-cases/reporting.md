@@ -2,13 +2,13 @@
 
 ## 1. Overview & Scope
 
-The **Reporting & Admin Dashboard Module** provides comprehensive, read-only business analytics, executive KPIs, revenue trends, movie/cinema performance metrics, occupancy tracking, and report exports (CSV / XLSX) for CineBook system administrators (`ROLE_ADMIN`).
+The **Reporting & Admin Dashboard Module** provides comprehensive, read-only business analytics, executive KPIs, revenue trends, movie/cinema performance metrics, occupancy tracking, and report exports (CSV / XLSX) for CineBook system administrators (`ADMIN`).
 
 ---
 
 ## 2. Actors & Permissions
 
-* **Actor**: `Administrator` (`ROLE_ADMIN`).
+* **Actor**: `Administrator` (`ADMIN`).
 * **Security & RBAC**:
   * Anonymous access $\rightarrow$ `401 Unauthorized`.
   * Non-admin customer access $\rightarrow$ `403 Forbidden`.

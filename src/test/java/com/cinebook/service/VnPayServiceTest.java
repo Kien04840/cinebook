@@ -175,7 +175,7 @@ class VnPayServiceTest {
     }
 
     @Test
-    @DisplayName("extractClientIp - Handles proxies and headers correctly")
+    @DisplayName("extractClientIp - Handles proxies, headers, and IPv6 localhost normalization correctly")
     void testExtractClientIp() {
         MockHttpServletRequest request1 = new MockHttpServletRequest();
         request1.addHeader("X-Forwarded-For", "203.0.113.195, 70.41.3.18, 150.172.238.178");
@@ -189,7 +189,34 @@ class VnPayServiceTest {
         request3.setRemoteAddr("192.168.1.50");
         assertThat(vnPayService.extractClientIp(request3)).isEqualTo("192.168.1.50");
 
+        // IPv6 localhost normalization
+        MockHttpServletRequest request4 = new MockHttpServletRequest();
+        request4.setRemoteAddr("0:0:0:0:0:0:0:1");
+        assertThat(vnPayService.extractClientIp(request4)).isEqualTo("127.0.0.1");
+
+        MockHttpServletRequest request5 = new MockHttpServletRequest();
+        request5.setRemoteAddr("::1");
+        assertThat(vnPayService.extractClientIp(request5)).isEqualTo("127.0.0.1");
+
         assertThat(vnPayService.extractClientIp(null)).isEqualTo("127.0.0.1");
+    }
+
+    @Test
+    @DisplayName("HMAC-SHA512 Calculation - Deterministic hash on UTF-8 and special characters")
+    void testCalculateHmacSha512_Utf8AndSpecialCharacters() {
+        Map<String, String> params = new HashMap<>();
+        params.put("vnp_Amount", "10000000");
+        params.put("vnp_OrderInfo", "Thanh toan ve xem phim & combo bắp nước");
+        params.put("vnp_TmnCode", TEST_TMN_CODE);
+        params.put("vnp_TxnRef", "PAY-TEST-001");
+
+        String hash = vnPayService.calculateHmacSha512(params, TEST_HASH_SECRET);
+        assertThat(hash).isNotEmpty();
+        assertThat(hash).hasSize(128);
+
+        // Verification must succeed with the same hash
+        params.put("vnp_SecureHash", hash);
+        assertThat(vnPayService.verifySignature(params, hash)).isTrue();
     }
 }
 

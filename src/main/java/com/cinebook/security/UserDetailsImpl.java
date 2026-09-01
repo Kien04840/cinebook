@@ -34,7 +34,11 @@ public class UserDetailsImpl implements UserDetails {
                 ? List.of()
                 : user.getUserRoles().stream()
                 .filter(ur -> ur.getRole() != null)
-                .map(ur -> new SimpleGrantedAuthority("ROLE_" + ur.getRole().getName()))
+                .map(ur -> {
+                    String name = ur.getRole().getName();
+                    String roleName = name.startsWith("ROLE_") ? name : "ROLE_" + name;
+                    return new SimpleGrantedAuthority(roleName);
+                })
                 .toList();
 
         return UserDetailsImpl.builder()
@@ -46,6 +50,16 @@ public class UserDetailsImpl implements UserDetails {
                 .isDeleted(user.getDeletedAt() != null)
                 .authorities(authorities)
                 .build();
+    }
+
+    public boolean isAdmin() {
+        return authorities != null && authorities.stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ADMIN"));
+    }
+
+    public boolean isCustomer() {
+        return authorities != null && authorities.stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_CUSTOMER") || a.getAuthority().equals("CUSTOMER"));
     }
 
     @Override

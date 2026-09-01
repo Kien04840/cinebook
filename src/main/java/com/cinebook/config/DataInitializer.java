@@ -40,6 +40,7 @@ public class DataInitializer implements CommandLineRunner {
         initSeatTypeIfAbsent("VIP", new BigDecimal("20000.00"), "VIP premium cinema seat with extra legroom");
 
         initAdminUserIfAbsent(adminRole, customerRole);
+        initCustomerUserIfAbsent(customerRole);
     }
 
     private Role initRoleIfAbsent(String roleName, String description) {
@@ -100,6 +101,36 @@ public class DataInitializer implements CommandLineRunner {
             admin.setStatus(UserStatus.ACTIVE);
             userRepository.save(admin);
             log.info("Reset password for default admin user: admin@cinebook.com");
+        }
+    }
+
+    private void initCustomerUserIfAbsent(Role customerRole) {
+        User customer = userRepository.findByEmail("customer@cinebook.com").orElse(null);
+        if (customer == null) {
+            customer = new User();
+            customer.setId(UUID.randomUUID().toString());
+            customer.setEmail("customer@cinebook.com");
+            customer.setPasswordHash(passwordEncoder.encode("Password123@"));
+            customer.setFullName("Default Customer");
+            customer.setPhone("0911111111");
+            customer.setStatus(UserStatus.ACTIVE);
+            customer.setEmailVerified(true);
+
+            if (customerRole != null) {
+                UserRole urCustomer = new UserRole();
+                urCustomer.setId(new UserRoleId(customer.getId(), customerRole.getId()));
+                urCustomer.setUser(customer);
+                urCustomer.setRole(customerRole);
+                customer.addUserRole(urCustomer);
+            }
+
+            userRepository.save(customer);
+            log.info("Initialized default customer user: customer@cinebook.com");
+        } else {
+            customer.setPasswordHash(passwordEncoder.encode("Password123@"));
+            customer.setStatus(UserStatus.ACTIVE);
+            userRepository.save(customer);
+            log.info("Reset password for default customer user: customer@cinebook.com");
         }
     }
 }

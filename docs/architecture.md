@@ -321,7 +321,8 @@ Do **not** introduce: microservices, Eureka, Config Server, separate API Gateway
 | `docs/payment.md`       | VNPay integration details                           |
 | `docs/tmdb-import.md`   | TMDB import/seed workflow                           |
 | `docs/use-cases/*.md`   | End-to-end scenarios                                |
-| `docs/frontend.md`      | Frontend conventions (created later)                |
+| `.agents/rules/frontend.md` | Frontend conventions & UI architectural rules     |
+| `docs/ui/design-system.md`  | Frontend UI tokens, components & design specs     |
 
 Avoid duplicating the same rule in multiple places with slightly different wording.
 

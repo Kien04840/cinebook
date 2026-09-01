@@ -67,6 +67,9 @@ class BookingPromotionIntegrationTest {
     @Mock
     private BookingPromotionRepository bookingPromotionRepository;
 
+    @Mock
+    private EmailService emailService;
+
     @Spy
     private GenreMapper genreMapper = new GenreMapper();
 
@@ -115,7 +118,8 @@ class BookingPromotionIntegrationTest {
                 bookingPromotionRepository,
                 promotionService,
                 bookingMapper,
-                promotionMapper
+                promotionMapper,
+                emailService
         );
 
         bookingCleanupTask = new BookingCleanupTask(
@@ -134,7 +138,7 @@ class BookingPromotionIntegrationTest {
                 .email(testUser.getEmail())
                 .fullName("Customer")
                 .status(UserStatus.ACTIVE)
-                .authorities(List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")))
+                .authorities(List.of(new SimpleGrantedAuthority("CUSTOMER")))
                 .build();
 
         SecurityContextHolder.getContext().setAuthentication(

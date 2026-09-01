@@ -25,7 +25,7 @@ import com.cinebook.repository.SeatHoldRepository;
 import com.cinebook.security.UserDetailsImpl;
 import com.cinebook.util.SecurityUtils;
 import com.cinebook.service.BookingService;
-
+import com.cinebook.service.EmailService;
 import com.cinebook.service.PaymentService;
 import com.cinebook.service.VnPayService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -79,6 +79,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final TicketRepository ticketRepository;
     private final BookingMapper bookingMapper;
     private final RefundMapper refundMapper;
+    private final EmailService emailService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
 
@@ -123,44 +124,58 @@ public class PaymentServiceImpl implements PaymentService {
 
         LocalDateTime now = LocalDateTime.now();
         if (booking.getHoldExpiresAt() != null && booking.getHoldExpiresAt().isBefore(now)) {
+            // Lazy expiration: mark booking EXPIRED and clean up seat holds
+            booking.setBookingStatus(BookingStatus.EXPIRED);
+            bookingRepository.save(booking);
+            seatHoldRepository.deleteByBookingId(booking.getId());
             throw new BadRequestException("Đơn đặt vé đã hết hạn giữ chỗ.");
         }
 
         List<SeatHold> holds = seatHoldRepository.findByBookingId(booking.getId());
         if (holds.isEmpty()) {
+            booking.setBookingStatus(BookingStatus.EXPIRED);
+            bookingRepository.save(booking);
             throw new BadRequestException("Không tìm thấy thông tin giữ chỗ cho đơn đặt vé này hoặc giữ chỗ đã hết hạn.");
         }
 
-        // Single active PENDING payment invariant
-        boolean hasPendingPayment = paymentRepository.existsByBookingIdAndPaymentStatus(booking.getId(), PaymentStatus.PENDING);
-        if (hasPendingPayment) {
-            throw new ConflictException("Đơn đặt vé đang có một phiên thanh toán đang chờ xử lý. Vui lòng hoàn tất hoặc chờ giao dịch hết hạn.");
+        // Check existing payments for this booking to support seamless resume/retry
+        List<Payment> existingPayments = paymentRepository.findByBookingId(booking.getId());
+        Optional<Payment> existingPendingPayment = existingPayments.stream()
+                .filter(p -> p.getPaymentStatus() == PaymentStatus.PENDING)
+                .findFirst();
+
+        Payment paymentToUse;
+        if (existingPendingPayment.isPresent()) {
+            // RESUME: Reuse the existing PENDING payment record
+            paymentToUse = existingPendingPayment.get();
+            log.info("Resuming existing PENDING payment {} for booking {}", paymentToUse.getPaymentCode(), booking.getBookingCode());
+        } else {
+            // CREATE NEW ATTEMPT (either first attempt or previous attempt was FAILED/CANCELLED)
+            BigDecimal totalAmount = booking.getTotalAmount();
+            if (totalAmount == null || totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BadRequestException("Tổng tiền đơn đặt vé không hợp lệ.");
+            }
+
+            String paymentCode = generatePaymentCode();
+            Payment newPayment = new Payment();
+            newPayment.setId(UUID.randomUUID().toString());
+            newPayment.setBooking(booking);
+            newPayment.setPaymentMethod(PaymentMethod.VNPAY);
+            newPayment.setPaymentCode(paymentCode);
+            newPayment.setAmount(totalAmount);
+            newPayment.setPaymentStatus(PaymentStatus.PENDING);
+
+            paymentToUse = paymentRepository.saveAndFlush(newPayment);
+            log.info("Created new PENDING payment {} for booking {}", paymentToUse.getPaymentCode(), booking.getBookingCode());
         }
-
-        BigDecimal totalAmount = booking.getTotalAmount();
-        if (totalAmount == null || totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BadRequestException("Tổng tiền đơn đặt vé không hợp lệ.");
-        }
-
-        String paymentCode = generatePaymentCode();
-
-        Payment payment = new Payment();
-        payment.setId(UUID.randomUUID().toString());
-        payment.setBooking(booking);
-        payment.setPaymentMethod(PaymentMethod.VNPAY);
-        payment.setPaymentCode(paymentCode);
-        payment.setAmount(totalAmount);
-        payment.setPaymentStatus(PaymentStatus.PENDING);
-
-        Payment savedPayment = paymentRepository.saveAndFlush(payment);
 
         String clientIp = vnPayService.extractClientIp(httpRequest);
-        String paymentUrl = vnPayService.buildPaymentUrl(savedPayment, booking, clientIp);
+        String paymentUrl = vnPayService.buildPaymentUrl(paymentToUse, booking, clientIp);
 
         return InitiatePaymentResponse.builder()
-                .paymentId(savedPayment.getId())
-                .paymentCode(savedPayment.getPaymentCode())
-                .amount(savedPayment.getAmount())
+                .paymentId(paymentToUse.getId())
+                .paymentCode(paymentToUse.getPaymentCode())
+                .amount(paymentToUse.getAmount())
                 .paymentUrl(paymentUrl)
                 .expiresAt(booking.getHoldExpiresAt())
                 .build();
@@ -265,6 +280,7 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public PaymentResultResponse processReturn(Map<String, String> params) {
         if (params == null || params.isEmpty()) {
             throw new BadRequestException("Tham số phản hồi từ VNPay không hợp lệ.");
@@ -378,8 +394,7 @@ public class PaymentServiceImpl implements PaymentService {
             throw new BadRequestException("Chỉ có thể hoàn tiền cho giao dịch thanh toán thành công (SUCCESS). Trạng thái hiện tại: " + payment.getPaymentStatus());
         }
 
-        boolean isAdmin = currentUser.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        boolean isAdmin = currentUser.isAdmin();
 
         Booking booking = payment.getBooking();
         if (booking.getBookingStatus() != BookingStatus.PAID) {
@@ -444,6 +459,17 @@ public class PaymentServiceImpl implements PaymentService {
 
             bookingService.processBookingRefund(payment.getBooking().getId(), refund.getRefundReason(), currentUserId);
 
+            // Dispatch refund confirmation email safely
+            try {
+                String customerEmail = payment.getBooking().getUser() != null ? payment.getBooking().getUser().getEmail() : null;
+                String customerName = payment.getBooking().getUser() != null ? payment.getBooking().getUser().getFullName() : null;
+                if (customerEmail != null) {
+                    emailService.sendRefundConfirmationEmail(customerEmail, customerName, payment.getBooking(), savedRefund);
+                }
+            } catch (Exception e) {
+                log.error("Failed to trigger refund confirmation email for refund {}: {}", savedRefund.getRefundCode(), e.getMessage());
+            }
+
             log.info("Refund completed successfully for payment {} (refundCode={})", payment.getPaymentCode(), refund.getRefundCode());
             return refundMapper.toRefundResponse(savedRefund);
         } else {
@@ -485,8 +511,7 @@ public class PaymentServiceImpl implements PaymentService {
 
 
     private void validateBookingOwnershipOrAdmin(Booking booking, UserDetailsImpl currentUser) {
-        boolean isAdmin = currentUser.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        boolean isAdmin = currentUser.isAdmin();
 
         if (!isAdmin && (booking.getUser() == null || !booking.getUser().getId().equals(currentUser.getId()))) {
             throw new ForbiddenException("Bạn không có quyền thao tác với thanh toán của đơn đặt vé này.");

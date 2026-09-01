@@ -33,6 +33,7 @@ public class BookingDetailResponse {
     private List<TicketResponse> tickets;
     private List<PaymentSummaryResponse> payments;
     private BookingPromotionResponse promotion;
+    private UserSummaryResponse user;
 }
 
 

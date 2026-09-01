@@ -101,7 +101,7 @@ If schema expansion is required, follow `.agents/rules/database.md` and `.agents
 
 - **Zero hard-coded credentials**: `TMDB_API_KEY`, `JWT_SECRET`, database passwords, and VNPay merchant keys must remain in environment variables (`${VAR_NAME:default}`).
 - **Sensitive data protection**: Never log passwords, tokens, or payment hash secrets; never return password hashes.
-- **Authorization**: Enforce role-based access control (RBAC). Public endpoints allow anonymous access; `/api/v1/admin/**` strictly requires `ROLE_ADMIN`.
+- **Authorization**: Enforce role-based access control (RBAC). Public endpoints allow anonymous access; `/api/v1/admin/**` strictly requires `ADMIN`.
 - See `.agents/rules/security.md` for full security constraints.
 
 ---

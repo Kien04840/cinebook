@@ -954,7 +954,8 @@ The Movie module is complete when:
   `docs/business-rules.md`   Cross-domain business rules
   `docs/api.md`              Movie public/admin API contracts
   `docs/tmdb-import.md`      TMDB import rules
-  `docs/frontend.md`         Frontend conventions
+  `.agents/rules/frontend.md` Frontend conventions & UI rules
+  `docs/ui/design-system.md`  UI tokens and design system
   `docs/use-cases/*.md`      End-to-end use cases
 
 Avoid duplicating detailed API schemas or database DDL here.

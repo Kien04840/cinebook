@@ -291,11 +291,28 @@ GET /api/v1/cinemas/{id}/auditoriums
 GET /api/v1/showtimes/{showtimeId}/seats
 ```
 
-**Response**: seats with status for that showtime (AVAILABLE / HELD / SOLD / BLOCKED, …)
+**Response**: seats with status for that showtime:
+```json
+[
+  {
+    "id": "uuid",
+    "auditoriumId": "uuid",
+    "seatTypeId": "uuid",
+    "seatTypeName": "STANDARD",
+    "priceModifier": 0.00,
+    "rowLabel": "A",
+    "seatNumber": 1,
+    "seatCode": "A01",
+    "seatStatus": "ACTIVE",
+    "availabilityStatus": "HELD",
+    "isHeldByCurrentUser": true
+  }
+]
+```
+- `availabilityStatus`: `AVAILABLE`, `HELD`, `SOLD`, `BLOCKED`.
+- `isHeldByCurrentUser`: `true` if held by the authenticated requesting user; `false` otherwise or for anonymous users.
 
-**Auth**: Public (or authenticated — decide)
-
-Admin CRUD for cinemas / auditoriums / seat-types under `/api/v1/admin/...`
+**Auth**: Public (optional Bearer token to identify current user's held seats)
 
 ---
 
@@ -334,16 +351,17 @@ POST /api/v1/bookings
 ```json
 {
   "showtimeId": "uuid",
-  "seatIds": ["uuid1", "uuid2"]
+  "seatIds": ["uuid1", "uuid2"],
+  "promotionCode": "DISCOUNT10"
 }
 ```
 
-**Response**: `201 Created`
+**Response**: `201 Created` (or `200 OK` if resuming identical active booking)
 ```json
 {
   "id": "uuid",
   "bookingCode": "CB-...",
-  "status": "HOLD",
+  "bookingStatus": "PENDING_PAYMENT",
   "holdExpiresAt": "2026-08-24T14:40:00Z",
   "totalAmount": 180000,
   "seats": [ ... ],
@@ -351,17 +369,25 @@ POST /api/v1/bookings
 }
 ```
 
-**Possible errors**:
-- 409 Conflict — one or more seats no longer available
-- 400 — invalid showtime / seats
-
-**Rules**:
-- Backend must re-check availability inside a transaction.
-- Creates `seat_holds` + `bookings` record.
+**Idempotency & Rules**:
+- If user re-submits `POST /api/v1/bookings` with the exact same showtime and seat set for which they already have an active `PENDING_PAYMENT` booking, the existing booking is returned idempotently.
+- 409 Conflict: Returned only if one or more seats are held/bought by *another* user.
 
 ---
 
-### 8.2 Get my booking
+### 8.2 Get active pending booking for showtime
+
+```http
+GET /api/v1/bookings/active?showtimeId={showtimeId}
+```
+
+**Auth**: Required (Customer)  
+**Query**: `showtimeId` (UUID)  
+**Response**: `200 OK` with `BookingDetailResponse` if current user has an active `PENDING_PAYMENT` booking with valid hold (`holdExpiresAt > now`); `null` / empty otherwise.
+
+---
+
+### 8.3 Get my booking detail
 
 ```http
 GET /api/v1/bookings/{id}
@@ -369,15 +395,16 @@ GET /api/v1/bookings/{id}
 
 **Auth**: Required (owner or admin)
 
-### 8.3 List my bookings
+### 8.4 List my bookings
 
 ```http
 GET /api/v1/bookings/me
 ```
 
-**Auth**: Required
+**Auth**: Required  
+**Query**: `status`, `page`, `size`, `sort`
 
-### 8.4 Cancel booking
+### 8.5 Cancel booking
 
 ```http
 POST /api/v1/bookings/{id}/cancel
@@ -385,17 +412,16 @@ POST /api/v1/bookings/{id}/cancel
 
 - Cancels an unpaid booking in `PENDING_PAYMENT` status and releases seat holds immediately. Paid bookings must use the Refund API (`POST /api/v1/payments/{paymentId}/refund`).
 
-
 ---
 
 ## 9. Payment
 
-### 9.1 Create payment (initiate VNPay)
+### 9.1 Create / Resume payment (initiate VNPay)
 
 ```http
 POST /api/v1/bookings/{bookingId}/payments
 ```
-**Auth**: Required (owner)
+**Auth**: Required (owner or admin)
 
 **Request** (example):
 ```json
@@ -408,14 +434,17 @@ POST /api/v1/bookings/{bookingId}/payments
 ```json
 {
   "paymentId": "uuid",
-  "paymentCode": "...",
+  "paymentCode": "PAY-20260901-...",
   "amount": 180000,
-  "paymentUrl": "https://sandbox.vnpayment.vn/...",
-  "expiresAt": "..."
+  "paymentUrl": "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?...",
+  "expiresAt": "2026-09-01T22:30:00Z"
 }
 ```
 
-Frontend redirects user to `paymentUrl`.
+**Resume / Retry Semantics**:
+- If a `Payment(PENDING)` record already exists and `booking.holdExpiresAt > now`, the existing record is reused (RESUMED) and a fresh VNPay URL is returned (HTTP 200 OK).
+- If the previous payment was `FAILED` or `CANCELLED`, a new `Payment(PENDING)` attempt is created.
+- If `booking.holdExpiresAt <= now`, the booking is lazily expired and rejected with `400 Bad Request`.
 
 ### 9.2 VNPay Return / IPN (callback)
 
@@ -446,7 +475,7 @@ GET /api/v1/payments/{id}
 POST /api/v1/payments/{paymentId}/refund
 ```
 
-**Auth**: Required (`ROLE_CUSTOMER` or `ROLE_ADMIN` - owner or admin)
+**Auth**: Required (`CUSTOMER` or `ADMIN` - owner or admin)
 
 **Request**:
 ```json
@@ -486,7 +515,7 @@ GET /api/v1/payments/{paymentId}/refund
 POST /api/v1/admin/bookings/{bookingId}/refund
 ```
 
-**Auth**: Required (`ROLE_ADMIN`)
+**Auth**: Required (`ADMIN`)
 
 **Request**:
 ```json
@@ -501,7 +530,7 @@ POST /api/v1/admin/bookings/{bookingId}/refund
 GET /api/v1/admin/refunds?status=SUCCESS&page=0&size=20
 ```
 
-**Auth**: Required (`ROLE_ADMIN`)
+**Auth**: Required (`ADMIN`)
 
 ---
 
@@ -542,7 +571,7 @@ POST /api/v1/bookings
 ```
 
 ### 10.3 Admin Promotion Endpoints
-All require `ROLE_ADMIN`:
+All require `ADMIN`:
 ```http
 POST   /api/v1/admin/promotions          // Create promotion
 GET    /api/v1/admin/promotions          // List & search promotions (page, size, status, search)
@@ -675,7 +704,7 @@ When an endpoint is implemented or its shape is finalized, update this file so i
 
 Admin-only endpoints for synchronizing data from TMDB into CineBook.
 
-All endpoints require `ROLE_ADMIN`. Covered by `/api/v1/admin/**` rule in `SecurityConfig`.
+All endpoints require `ADMIN`. Covered by `/api/v1/admin/**` rule in `SecurityConfig`.
 
 ---
 
@@ -770,7 +799,7 @@ Imports or updates a movie by its TMDB movie ID.
 
 ## 19. Admin Reporting & Dashboard API
 
-All endpoints in this section require `ROLE_ADMIN` authentication (`Authorization: Bearer <ADMIN_JWT>`).
+All endpoints in this section require `ADMIN` authentication (`Authorization: Bearer <ADMIN_JWT>`).
 
 ### 19.1 Dashboard Summary
 `GET /api/v1/admin/reports/dashboard`

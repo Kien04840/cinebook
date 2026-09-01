@@ -27,5 +27,9 @@ public class ShowtimeSeatStatusResponse {
     private String seatCode;
     private SeatStatus seatStatus;
     private SeatAvailabilityStatus availabilityStatus;
+
+    @Builder.Default
+    private Boolean isHeldByCurrentUser = false;
 }
+
 

@@ -52,7 +52,7 @@ public class MockVnPayService implements VnPayService {
         vnpParams.put("vnp_OrderType", vnPayConfig.getOrderType());
         vnpParams.put("vnp_Locale", "vn");
         vnpParams.put("vnp_ReturnUrl", vnPayConfig.getReturnUrl());
-        vnpParams.put("vnp_IpAddr", clientIp != null ? clientIp : "127.0.0.1");
+        vnpParams.put("vnp_IpAddr", sanitizeClientIp(clientIp));
 
         List<String> fieldNames = new ArrayList<>(vnpParams.keySet());
         Collections.sort(fieldNames);
@@ -63,10 +63,10 @@ public class MockVnPayService implements VnPayService {
             String fieldValue = vnpParams.get(fieldName);
             if (StringUtils.hasText(fieldValue)) {
                 try {
-                    String encodedKey = URLEncoder.encode(fieldName, StandardCharsets.US_ASCII.toString());
-                    String encodedValue = URLEncoder.encode(fieldValue, StandardCharsets.US_ASCII.toString());
+                    String encodedKey = URLEncoder.encode(fieldName, StandardCharsets.UTF_8.toString());
+                    String encodedValue = URLEncoder.encode(fieldValue, StandardCharsets.UTF_8.toString());
 
-                    hashData.append(fieldName).append('=').append(encodedValue).append('&');
+                    hashData.append(encodedKey).append('=').append(encodedValue).append('&');
                     query.append(encodedKey).append('=').append(encodedValue).append('&');
                 } catch (Exception e) {
                     log.error("[MOCK GATEWAY] Error encoding field {}: {}", fieldName, e.getMessage());
@@ -120,8 +120,9 @@ public class MockVnPayService implements VnPayService {
             String fieldValue = params.get(fieldName);
             if (StringUtils.hasText(fieldValue) && !"vnp_SecureHash".equals(fieldName) && !"vnp_SecureHashType".equals(fieldName)) {
                 try {
-                    String encodedValue = URLEncoder.encode(fieldValue, StandardCharsets.US_ASCII.toString());
-                    sb.append(fieldName).append('=').append(encodedValue).append('&');
+                    String encodedKey = URLEncoder.encode(fieldName, StandardCharsets.UTF_8.toString());
+                    String encodedValue = URLEncoder.encode(fieldValue, StandardCharsets.UTF_8.toString());
+                    sb.append(encodedKey).append('=').append(encodedValue).append('&');
                 } catch (Exception e) {
                     log.error("[MOCK GATEWAY] Error encoding field {}: {}", fieldName, e.getMessage());
                 }
@@ -144,16 +145,22 @@ public class MockVnPayService implements VnPayService {
         if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
             int commaIndex = ip.indexOf(',');
             if (commaIndex > 0) {
-                return ip.substring(0, commaIndex).trim();
+                return sanitizeClientIp(ip.substring(0, commaIndex));
             }
-            return ip.trim();
+            return sanitizeClientIp(ip);
         }
         ip = request.getHeader("X-Real-IP");
         if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            return ip.trim();
+            return sanitizeClientIp(ip);
         }
-        ip = request.getRemoteAddr();
-        return StringUtils.hasText(ip) ? ip : "127.0.0.1";
+        return sanitizeClientIp(request.getRemoteAddr());
+    }
+
+    private String sanitizeClientIp(String ip) {
+        if (!StringUtils.hasText(ip) || "0:0:0:0:0:0:0:1".equals(ip) || "::1".equals(ip) || "localhost".equalsIgnoreCase(ip) || ip.contains(":")) {
+            return "127.0.0.1";
+        }
+        return ip.trim();
     }
 
     @Override

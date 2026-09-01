@@ -38,6 +38,7 @@ public class MovieServiceImpl implements MovieService {
 
     private final MovieRepository movieRepository;
     private final GenreRepository genreRepository;
+    private final com.cinebook.repository.BookingRepository bookingRepository;
     private final MovieMapper movieMapper;
 
     @Override
@@ -222,5 +223,138 @@ public class MovieServiceImpl implements MovieService {
         movie.setDeletedAt(LocalDateTime.now());
         movie.setStatus(MovieStatus.HIDDEN);
         movieRepository.save(movie);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public com.cinebook.dto.response.MovieRecommendationResponse getMovieRecommendations(Integer limit) {
+        int maxResults = (limit != null && limit > 0 && limit <= 20) ? limit : 6;
+        String currentUserId = null;
+        try {
+            currentUserId = com.cinebook.util.SecurityUtils.getCurrentUserId();
+        } catch (Exception ignored) {
+            // Unauthenticated user
+        }
+
+        List<com.cinebook.entity.Booking> userBookings = (currentUserId != null)
+                ? bookingRepository.findByUserId(currentUserId)
+                : List.of();
+
+        List<com.cinebook.entity.Booking> relevantBookings = userBookings.stream()
+                .filter(b -> b.getBookingStatus() == com.cinebook.enums.BookingStatus.PAID
+                        || b.getBookingStatus() == com.cinebook.enums.BookingStatus.REFUNDED)
+                .toList();
+
+        Specification<Movie> activeSpec = Specification.where(MovieSpecification.isPubliclyVisible());
+        List<Movie> candidateMovies = movieRepository.findAll(activeSpec);
+
+        if (candidateMovies.isEmpty()) {
+            return com.cinebook.dto.response.MovieRecommendationResponse.builder()
+                    .explanation("Chưa có phim phù hợp")
+                    .favoriteGenres(List.of())
+                    .movies(List.of())
+                    .build();
+        }
+
+        if (relevantBookings.isEmpty()) {
+            List<MovieSummaryResponse> fallbackMovies = candidateMovies.stream()
+                    .sorted((m1, m2) -> {
+                        if (m1.getStatus() == MovieStatus.NOW_SHOWING && m2.getStatus() != MovieStatus.NOW_SHOWING) return -1;
+                        if (m1.getStatus() != MovieStatus.NOW_SHOWING && m2.getStatus() == MovieStatus.NOW_SHOWING) return 1;
+                        return m2.getReleaseDate().compareTo(m1.getReleaseDate());
+                    })
+                    .limit(maxResults)
+                    .map(movieMapper::toMovieSummaryResponse)
+                    .toList();
+
+            return com.cinebook.dto.response.MovieRecommendationResponse.builder()
+                    .explanation("Phim nổi bật đang chiếu tại rạp CineBook")
+                    .favoriteGenres(List.of())
+                    .movies(fallbackMovies)
+                    .build();
+        }
+
+        Set<String> watchedMovieIds = new HashSet<>();
+        java.util.Map<String, Integer> genreFrequency = new java.util.HashMap<>();
+
+        for (com.cinebook.entity.Booking b : relevantBookings) {
+            if (b.getShowtime() != null && b.getShowtime().getMovie() != null) {
+                Movie movie = b.getShowtime().getMovie();
+                watchedMovieIds.add(movie.getId());
+                if (movie.getMovieGenres() != null) {
+                    for (MovieGenre mg : movie.getMovieGenres()) {
+                        if (mg.getGenre() != null) {
+                            String gName = mg.getGenre().getName();
+                            genreFrequency.put(gName, genreFrequency.getOrDefault(gName, 0) + 1);
+                        }
+                    }
+                }
+            }
+        }
+
+        List<String> topFavoriteGenres = genreFrequency.entrySet().stream()
+                .sorted((e1, e2) -> e2.getValue().compareTo(e1.getValue()))
+                .limit(3)
+                .map(java.util.Map.Entry::getKey)
+                .toList();
+
+        class ScoredMovie {
+            final Movie movie;
+            final double score;
+
+            ScoredMovie(Movie movie, double score) {
+                this.movie = movie;
+                this.score = score;
+            }
+        }
+
+        List<ScoredMovie> scoredList = new java.util.ArrayList<>();
+        for (Movie m : candidateMovies) {
+            double score = 0.0;
+
+            if (m.getMovieGenres() != null) {
+                for (MovieGenre mg : m.getMovieGenres()) {
+                    if (mg.getGenre() != null) {
+                        int freq = genreFrequency.getOrDefault(mg.getGenre().getName(), 0);
+                        score += freq * 15.0;
+                    }
+                }
+            }
+
+            if (m.getStatus() == MovieStatus.NOW_SHOWING) {
+                score += 20.0;
+            } else if (m.getStatus() == MovieStatus.COMING_SOON) {
+                score += 5.0;
+            }
+
+            if (watchedMovieIds.contains(m.getId())) {
+                score -= 10.0;
+            }
+
+            scoredList.add(new ScoredMovie(m, score));
+        }
+
+        List<MovieSummaryResponse> recommended = scoredList.stream()
+                .sorted((s1, s2) -> {
+                    int scoreCmp = Double.compare(s2.score, s1.score);
+                    if (scoreCmp != 0) return scoreCmp;
+                    return s2.movie.getReleaseDate().compareTo(s1.movie.getReleaseDate());
+                })
+                .limit(maxResults)
+                .map(sm -> movieMapper.toMovieSummaryResponse(sm.movie))
+                .toList();
+
+        String explanation;
+        if (!topFavoriteGenres.isEmpty()) {
+            explanation = "Dựa trên sở thích xem phim " + String.join(", ", topFavoriteGenres) + " của bạn";
+        } else {
+            explanation = "Gợi ý phim dành riêng cho bạn";
+        }
+
+        return com.cinebook.dto.response.MovieRecommendationResponse.builder()
+                .explanation(explanation)
+                .favoriteGenres(topFavoriteGenres)
+                .movies(recommended)
+                .build();
     }
 }

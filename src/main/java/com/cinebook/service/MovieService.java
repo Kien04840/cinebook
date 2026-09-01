@@ -32,5 +32,7 @@ public interface MovieService {
     MovieDetailResponse updateMovie(String id, UpdateMovieRequest request);
 
     void deleteMovie(String id);
+
+    com.cinebook.dto.response.MovieRecommendationResponse getMovieRecommendations(Integer limit);
 }
 

@@ -28,7 +28,7 @@ It defines what the application must do, what is allowed, what is forbidden, and
 - Passwords must be hashed using BCrypt before persistence.
 - JWT expiration: **15 minutes** for Access Token, **7 days** for Refresh Token.
 - Revoked or rotated refresh tokens cannot be used to issue new access tokens.
-- User roles are `ROLE_CUSTOMER` and `ROLE_ADMIN`.
+- User roles are `CUSTOMER` and `ADMIN`.
 - A customer cannot access admin endpoints (`/api/v1/admin/**`) $\rightarrow$ `403 Forbidden`.
 - An unauthenticated user cannot access protected endpoints $\rightarrow$ `401 Unauthorized`.
 - Active user status: `ACTIVE`, `BLOCKED`. Blocked users cannot authenticate or initiate bookings.
@@ -96,11 +96,13 @@ $$\text{Booking Gross Total} = \sum \text{Ticket Gross Prices}$$
 4. Expired seat holds must not remain valid.
 5. Payment status and booking status must stay strictly consistent.
 
-### 8.2 Seat Hold
+#### 8.2 Seat Availability & Hold Rules
 - A hold is recorded in `seat_holds` with a unique constraint on `(showtime_id, seat_id)` (`uk_seat_holds_showtime_seat`).
 - Hold creation checks current availability (existing active holds + sold tickets in `VALID`/`USED` status).
 - Seat-hold duration is strictly **5 minutes** (`holdExpiresAt = now.plusMinutes(5)`).
 - Cleanup strategy: Active cleanup via `BookingCleanupTask` (scheduled every 60 seconds) plus lazy evaluation at check/creation time.
+- **Seat Map Availability & Ownership**: Availability status enum remains strictly `AVAILABLE`, `HELD`, `SOLD`, `BLOCKED`. Authenticated user ownership is indicated via `isHeldByCurrentUser: boolean`. When a customer returns to a showtime with active holds, their seats are marked `isHeldByCurrentUser = true`, allowing seamless booking resumption.
+- **Active Booking Resume**: An active `PENDING_PAYMENT` booking can be retrieved via `GET /api/v1/bookings/active?showtimeId={showtimeId}` or resumed idempotently upon re-submitting `POST /api/v1/bookings` with the identical showtime and seat set.
 
 ### 8.3 Booking Lifecycle
 ```text
@@ -122,9 +124,11 @@ PENDING_PAYMENT  ──(Payment SUCCESS)──►  PAID  ──(Refund SUCCESS)�
 - Booking becomes `PAID` only after a valid, verified IPN confirmation with response code `00`.
 - Payment amount must match the booking total (`amount == booking.totalAmount * 100` in VNPay minor units).
 
-### 9.2 Cardinality & State Consistency
+### 9.2 Cardinality, State Consistency & Payment Resume/Retry
 - **Cardinality**: `Booking 1 ─── N Payment`. A booking can have multiple payment attempts after `FAILED` or `CANCELLED` attempts.
 - **Single Active Pending Payment**: At most one payment record in `PENDING` status per booking at any time.
+- **Payment Resume (Idempotent Initiation)**: If a booking is in `PENDING_PAYMENT` and `holdExpiresAt > now`, calling `POST /api/v1/bookings/{id}/payments` when an active `PENDING` payment exists will **resume** the existing payment record (reusing the existing `Payment` row and returning a fresh, valid gateway URL) instead of rejecting with a 409 Conflict.
+- **Payment Retry**: If a previous payment attempt was `FAILED` or `CANCELLED` (e.g. user cancelled on VNPay), and the seat hold is still valid (`holdExpiresAt > now`), the customer can initiate a new payment attempt (`POST /api/v1/bookings/{id}/payments`), creating a new `Payment(PENDING)` record.
 - **Payment Statuses**: `PENDING`, `SUCCESS`, `FAILED`, `CANCELLED`, `REFUNDED`.
 - **Financial Race Condition**: If payment succeeds but IPN arrives after booking expired, `Payment` becomes `SUCCESS`, `Booking` remains `EXPIRED`, zero tickets are issued, and a critical financial exception is audit-logged for Admin refund via `POST /api/v1/admin/bookings/{bookingId}/refund`.
 

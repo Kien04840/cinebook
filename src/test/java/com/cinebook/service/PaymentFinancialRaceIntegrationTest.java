@@ -121,6 +121,9 @@ class PaymentFinancialRaceIntegrationTest {
     @Mock
     private RefundRepository refundRepository;
 
+    @Mock
+    private EmailService emailService;
+
     @Spy
     private GenreMapper genreMapper = new GenreMapper();
 
@@ -171,7 +174,8 @@ class PaymentFinancialRaceIntegrationTest {
                 bookingPromotionRepository,
                 promotionService,
                 bookingMapper,
-                promotionMapper
+                promotionMapper,
+                emailService
         );
 
         paymentService = new PaymentServiceImpl(
@@ -184,7 +188,8 @@ class PaymentFinancialRaceIntegrationTest {
                 refundRepository,
                 ticketRepository,
                 bookingMapper,
-                refundMapper
+                refundMapper,
+                emailService
         );
 
 

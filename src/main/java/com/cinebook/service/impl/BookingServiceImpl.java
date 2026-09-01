@@ -11,6 +11,7 @@ import com.cinebook.mapper.PromotionMapper;
 import com.cinebook.repository.*;
 import com.cinebook.security.UserDetailsImpl;
 import com.cinebook.service.BookingService;
+import com.cinebook.service.EmailService;
 import com.cinebook.service.PromotionService;
 import com.cinebook.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +53,7 @@ public class BookingServiceImpl implements BookingService {
     private final PromotionService promotionService;
     private final BookingMapper bookingMapper;
     private final PromotionMapper promotionMapper;
+    private final EmailService emailService;
 
 
     @Override
@@ -119,6 +121,25 @@ public class BookingServiceImpl implements BookingService {
             }
             if (seat.getStatus() != SeatStatus.ACTIVE) {
                 throw new BadRequestException("Ghế " + seat.getSeatCode() + " đang gặp sự cố (BROKEN) và không thể đặt.");
+            }
+        }
+
+        // Check if current user already has an active PENDING_PAYMENT booking for this showtime with exact same seats (Idempotency)
+        List<Booking> activeUserBookings = bookingRepository.findActiveBookingsByUserAndShowtime(user.getId(), showtime.getId(), now);
+        for (Booking activeB : activeUserBookings) {
+            List<SeatHold> userHolds = seatHoldRepository.findByBookingId(activeB.getId());
+            Set<String> userHeldSeatIds = userHolds.stream().map(h -> h.getSeat().getId()).collect(Collectors.toSet());
+            if (userHeldSeatIds.equals(uniqueSeatIds)) {
+                log.info("User {} is requesting booking for their existing active booking {}. Returning existing booking.", user.getId(), activeB.getId());
+                List<BookingSeatResponse> existingSeatResponses = buildBookingSeatResponses(activeB);
+                List<PaymentSummaryResponse> existingPaymentResponses = paymentRepository.findByBookingId(activeB.getId())
+                        .stream()
+                        .map(bookingMapper::toPaymentSummaryResponse)
+                        .toList();
+                BookingPromotionResponse existingPromoResponse = bookingPromotionRepository.findFirstByBookingId(activeB.getId())
+                        .map(promotionMapper::toBookingPromotionResponse)
+                        .orElse(null);
+                return bookingMapper.toBookingDetailResponse(activeB, existingSeatResponses, Collections.emptyList(), existingPaymentResponses, existingPromoResponse);
             }
         }
 
@@ -269,6 +290,15 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public PageResponse<BookingSummaryResponse> getAdminBookings(String q, BookingStatus status, String showtimeId, Pageable pageable) {
+        String keyword = StringUtils.hasText(q) ? q.trim() : null;
+        String stId = StringUtils.hasText(showtimeId) ? showtimeId.trim() : null;
+        Page<Booking> page = bookingRepository.findAdminBookings(keyword, status, stId, pageable);
+        return PageResponse.of(page, bookingMapper::toBookingSummaryResponse);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public BookingDetailResponse cancelBooking(String bookingId, CancelBookingRequest request) {
         Booking booking = bookingRepository.findById(bookingId)
@@ -402,6 +432,17 @@ public class BookingServiceImpl implements BookingService {
 
         seatHoldRepository.deleteByBookingId(booking.getId());
 
+        // Dispatch booking confirmation email asynchronously / safely
+        try {
+            String customerEmail = updatedBooking.getUser() != null ? updatedBooking.getUser().getEmail() : null;
+            String customerName = updatedBooking.getUser() != null ? updatedBooking.getUser().getFullName() : null;
+            if (customerEmail != null) {
+                emailService.sendBookingConfirmationEmail(customerEmail, customerName, updatedBooking, createdTickets);
+            }
+        } catch (Exception e) {
+            log.error("Failed to trigger booking confirmation email for booking {}: {}", updatedBooking.getBookingCode(), e.getMessage());
+        }
+
         List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(updatedBooking);
         List<TicketResponse> ticketResponses = createdTickets.stream()
                 .map(bookingMapper::toTicketResponse)
@@ -486,10 +527,21 @@ public class BookingServiceImpl implements BookingService {
         List<Seat> seats = seatRepository.findByAuditoriumIdOrderByRowLabelAscSeatNumberAsc(auditorium.getId());
         LocalDateTime now = LocalDateTime.now();
 
+        Optional<UserDetailsImpl> currentUserOpt = SecurityUtils.getCurrentUserDetails();
+        String currentUserId = currentUserOpt.map(UserDetailsImpl::getId).orElse(null);
+
         List<SeatHold> activeHolds = seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(showtimeId, now);
-        Set<String> heldSeatIds = activeHolds.stream()
-                .map(sh -> sh.getSeat().getId())
-                .collect(Collectors.toSet());
+        Set<String> heldSeatIds = new HashSet<>();
+        Set<String> currentUserHeldSeatIds = new HashSet<>();
+
+        for (SeatHold sh : activeHolds) {
+            heldSeatIds.add(sh.getSeat().getId());
+            if (currentUserId != null && sh.getBooking() != null && sh.getBooking().getUser() != null) {
+                if (currentUserId.equals(sh.getBooking().getUser().getId())) {
+                    currentUserHeldSeatIds.add(sh.getSeat().getId());
+                }
+            }
+        }
 
         List<Ticket> soldTickets = ticketRepository.findTicketsByShowtimeIdAndStatuses(showtimeId, SOLD_TICKET_STATUSES);
         Set<String> soldSeatIds = soldTickets.stream()
@@ -502,6 +554,7 @@ public class BookingServiceImpl implements BookingService {
         List<ShowtimeSeatStatusResponse> responses = new ArrayList<>();
         for (Seat seat : seats) {
             SeatAvailabilityStatus availabilityStatus;
+            boolean isHeldByCurrentUser = false;
 
             if (isAuditoriumBlocked || isShowtimeCancelled || seat.getStatus() != SeatStatus.ACTIVE) {
                 availabilityStatus = SeatAvailabilityStatus.BLOCKED;
@@ -509,6 +562,7 @@ public class BookingServiceImpl implements BookingService {
                 availabilityStatus = SeatAvailabilityStatus.SOLD;
             } else if (heldSeatIds.contains(seat.getId())) {
                 availabilityStatus = SeatAvailabilityStatus.HELD;
+                isHeldByCurrentUser = currentUserHeldSeatIds.contains(seat.getId());
             } else {
                 availabilityStatus = SeatAvailabilityStatus.AVAILABLE;
             }
@@ -525,18 +579,41 @@ public class BookingServiceImpl implements BookingService {
                     .seatCode(seat.getSeatCode())
                     .seatStatus(seat.getStatus())
                     .availabilityStatus(availabilityStatus)
+                    .isHeldByCurrentUser(isHeldByCurrentUser)
                     .build());
         }
 
         return responses;
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public BookingDetailResponse getActiveBookingForShowtime(String showtimeId) {
+        String currentUserId = SecurityUtils.getCurrentUserId();
+        LocalDateTime now = LocalDateTime.now();
+        List<Booking> activeBookings = bookingRepository.findActiveBookingsByUserAndShowtime(currentUserId, showtimeId, now);
+        if (activeBookings.isEmpty()) {
+            return null;
+        }
+
+        Booking activeBooking = activeBookings.get(0);
+        List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(activeBooking);
+        List<PaymentSummaryResponse> paymentResponses = paymentRepository.findByBookingId(activeBooking.getId())
+                .stream()
+                .map(bookingMapper::toPaymentSummaryResponse)
+                .toList();
+        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(activeBooking.getId())
+                .map(promotionMapper::toBookingPromotionResponse)
+                .orElse(null);
+
+        return bookingMapper.toBookingDetailResponse(activeBooking, seatResponses, Collections.emptyList(), paymentResponses, promoResponse);
+    }
+
     private void validateBookingOwnershipOrAdmin(Booking booking) {
         UserDetailsImpl currentUser = SecurityUtils.getCurrentUserDetails()
                 .orElseThrow(() -> new UnauthorizedException("User is not authenticated"));
 
-        boolean isAdmin = currentUser.getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        boolean isAdmin = currentUser.isAdmin();
 
         if (!isAdmin && !booking.getUser().getId().equals(currentUser.getId())) {
             throw new ForbiddenException("Bạn không có quyền truy cập đơn đặt vé này.");

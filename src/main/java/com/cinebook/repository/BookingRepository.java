@@ -29,6 +29,8 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
 
     Optional<Booking> findByIdAndUserId(String id, String userId);
 
+    java.util.List<Booking> findByUserId(String userId);
+
     Page<Booking> findByUserId(
             String userId,
             Pageable pageable
@@ -47,6 +49,35 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
 
     Page<Booking> findByBookingStatus(
             BookingStatus bookingStatus,
+            Pageable pageable
+    );
+
+    @Query(value = """
+        SELECT b FROM Booking b
+        JOIN FETCH b.user u
+        JOIN FETCH b.showtime s
+        JOIN FETCH s.movie m
+        JOIN FETCH s.auditorium a
+        JOIN FETCH a.cinema c
+        WHERE (:status IS NULL OR b.bookingStatus = :status)
+          AND (:showtimeId IS NULL OR b.showtime.id = :showtimeId)
+          AND (:keyword IS NULL OR LOWER(b.bookingCode) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.phone) LIKE LOWER(CONCAT('%', :keyword, '%')))
+    """, countQuery = """
+        SELECT count(b) FROM Booking b
+        WHERE (:status IS NULL OR b.bookingStatus = :status)
+          AND (:showtimeId IS NULL OR b.showtime.id = :showtimeId)
+          AND (:keyword IS NULL OR LOWER(b.bookingCode) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(b.user.email) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(b.user.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(b.user.phone) LIKE LOWER(CONCAT('%', :keyword, '%')))
+    """)
+    Page<Booking> findAdminBookings(
+            @Param("keyword") String keyword,
+            @Param("status") BookingStatus status,
+            @Param("showtimeId") String showtimeId,
             Pageable pageable
     );
 
@@ -79,5 +110,19 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
     java.math.BigDecimal findTotalBookingAmountBetween(
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
+    );
+
+    @Query("""
+        SELECT b FROM Booking b
+        WHERE b.user.id = :userId
+          AND b.showtime.id = :showtimeId
+          AND b.bookingStatus = 'PENDING_PAYMENT'
+          AND b.holdExpiresAt > :now
+        ORDER BY b.createdAt DESC
+    """)
+    List<Booking> findActiveBookingsByUserAndShowtime(
+            @Param("userId") String userId,
+            @Param("showtimeId") String showtimeId,
+            @Param("now") LocalDateTime now
     );
 }

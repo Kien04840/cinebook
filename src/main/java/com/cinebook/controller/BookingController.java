@@ -47,6 +47,15 @@ public class BookingController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(summary = "Get current user's active pending booking for a showtime (if any)")
+    @GetMapping("/active")
+    public ResponseEntity<BookingDetailResponse> getActiveBooking(
+            @RequestParam(name = "showtimeId") String showtimeId
+    ) {
+        BookingDetailResponse response = bookingService.getActiveBookingForShowtime(showtimeId);
+        return ResponseEntity.ok(response);
+    }
+
     @Operation(summary = "Get detailed booking information by ID (Owner or Admin)")
     @GetMapping("/{id}")
     public ResponseEntity<BookingDetailResponse> getBookingDetail(@PathVariable String id) {

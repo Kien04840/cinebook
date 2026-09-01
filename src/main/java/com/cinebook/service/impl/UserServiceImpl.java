@@ -77,5 +77,27 @@ public class UserServiceImpl implements UserService {
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public com.cinebook.dto.response.PageResponse<UserProfileResponse> getAdminUsers(
+            String q,
+            com.cinebook.enums.UserStatus status,
+            org.springframework.data.domain.Pageable pageable
+    ) {
+        String keyword = StringUtils.hasText(q) ? q.trim() : null;
+        org.springframework.data.domain.Page<User> page = userRepository.findAdminUsers(keyword, status, pageable);
+        return com.cinebook.dto.response.PageResponse.of(page, userMapper::toUserProfileResponse);
+    }
+
+    @Override
+    @Transactional
+    public UserProfileResponse updateUserStatus(String userId, com.cinebook.enums.UserStatus status) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+        user.setStatus(status);
+        User saved = userRepository.save(user);
+        return userMapper.toUserProfileResponse(saved);
+    }
 }
 

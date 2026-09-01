@@ -34,6 +34,19 @@ public interface UserRepository extends JpaRepository<User, String> {
             Pageable pageable
     );
 
+    @Query("""
+        SELECT u FROM User u
+        WHERE (:status IS NULL OR u.status = :status)
+          AND (:keyword IS NULL OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.phone) LIKE LOWER(CONCAT('%', :keyword, '%')))
+    """)
+    Page<User> findAdminUsers(
+            @Param("keyword") String keyword,
+            @Param("status") UserStatus status,
+            Pageable pageable
+    );
+
     long countByCreatedAtBetween(
             java.time.LocalDateTime from,
             java.time.LocalDateTime to

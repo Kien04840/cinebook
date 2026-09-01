@@ -106,6 +106,9 @@ class PaymentServiceTest {
     @Mock
     private RefundMapper refundMapper;
 
+    @Mock
+    private EmailService emailService;
+
     @InjectMocks
     private PaymentServiceImpl paymentService;
 
@@ -168,11 +171,12 @@ class PaymentServiceTest {
     }
 
     private void mockAuthentication(User user, String role) {
+        String authName = role.startsWith("ROLE_") ? role : "ROLE_" + role;
         UserDetailsImpl userDetails = UserDetailsImpl.builder()
                 .id(user.getId())
                 .email(user.getEmail())
                 .password("password")
-                .authorities(List.of(new SimpleGrantedAuthority(role)))
+                .authorities(List.of(new SimpleGrantedAuthority(authName)))
                 .build();
         SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
         securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities()));
@@ -188,14 +192,14 @@ class PaymentServiceTest {
     @Test
     @DisplayName("initiatePayment - Customer initiates payment for own booking successfully")
     void testInitiatePayment_Success() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         InitiatePaymentRequest request = new InitiatePaymentRequest(PaymentMethod.VNPAY);
         MockHttpServletRequest httpRequest = new MockHttpServletRequest();
 
         when(bookingRepository.findByIdWithLock("booking-1")).thenReturn(Optional.of(testBooking));
         when(seatHoldRepository.findByBookingId("booking-1")).thenReturn(List.of(testHold));
-        when(paymentRepository.existsByBookingIdAndPaymentStatus("booking-1", PaymentStatus.PENDING)).thenReturn(false);
+        when(paymentRepository.findByBookingId("booking-1")).thenReturn(List.of());
         when(paymentRepository.existsByPaymentCode(anyString())).thenReturn(false);
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(vnPayService.extractClientIp(httpRequest)).thenReturn("127.0.0.1");
@@ -220,7 +224,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("initiatePayment - Other customer rejected with 403 Forbidden")
     void testInitiatePayment_OtherCustomer_ThrowsForbidden() {
-        mockAuthentication(otherCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(otherCustomer, "CUSTOMER");
 
         InitiatePaymentRequest request = new InitiatePaymentRequest(PaymentMethod.VNPAY);
         MockHttpServletRequest httpRequest = new MockHttpServletRequest();
@@ -235,14 +239,14 @@ class PaymentServiceTest {
     @Test
     @DisplayName("initiatePayment - Admin allowed to initiate payment")
     void testInitiatePayment_Admin_Success() {
-        mockAuthentication(testAdmin, "ROLE_ADMIN");
+        mockAuthentication(testAdmin, "ADMIN");
 
         InitiatePaymentRequest request = new InitiatePaymentRequest(PaymentMethod.VNPAY);
         MockHttpServletRequest httpRequest = new MockHttpServletRequest();
 
         when(bookingRepository.findByIdWithLock("booking-1")).thenReturn(Optional.of(testBooking));
         when(seatHoldRepository.findByBookingId("booking-1")).thenReturn(List.of(testHold));
-        when(paymentRepository.existsByBookingIdAndPaymentStatus("booking-1", PaymentStatus.PENDING)).thenReturn(false);
+        when(paymentRepository.findByBookingId("booking-1")).thenReturn(List.of());
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(vnPayService.extractClientIp(any())).thenReturn("127.0.0.1");
         when(vnPayService.buildPaymentUrl(any(Payment.class), eq(testBooking), any())).thenReturn("http://vnpay.url");
@@ -254,7 +258,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("initiatePayment - Booking not in PENDING_PAYMENT throws 400 Bad Request")
     void testInitiatePayment_BookingAlreadyPaid_ThrowsBadRequest() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
         testBooking.setBookingStatus(BookingStatus.PAID);
 
         InitiatePaymentRequest request = new InitiatePaymentRequest(PaymentMethod.VNPAY);
@@ -268,7 +272,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("initiatePayment - Booking seat hold expired throws 400 Bad Request")
     void testInitiatePayment_HoldExpired_ThrowsBadRequest() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
         testBooking.setHoldExpiresAt(LocalDateTime.now().minusSeconds(10));
 
         InitiatePaymentRequest request = new InitiatePaymentRequest(PaymentMethod.VNPAY);
@@ -280,42 +284,79 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("initiatePayment - Existing PENDING payment throws 409 Conflict")
-    void testInitiatePayment_ExistingPendingPayment_ThrowsConflict() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+    @DisplayName("initiatePayment - Existing PENDING payment resumes without creating duplicate payment")
+    void testInitiatePayment_ExistingPendingPayment_ResumesWithoutDuplicate() {
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         InitiatePaymentRequest request = new InitiatePaymentRequest(PaymentMethod.VNPAY);
+        MockHttpServletRequest httpRequest = new MockHttpServletRequest();
+
         when(bookingRepository.findByIdWithLock("booking-1")).thenReturn(Optional.of(testBooking));
         when(seatHoldRepository.findByBookingId("booking-1")).thenReturn(List.of(testHold));
-        when(paymentRepository.existsByBookingIdAndPaymentStatus("booking-1", PaymentStatus.PENDING)).thenReturn(true);
+        when(paymentRepository.findByBookingId("booking-1")).thenReturn(List.of(testPayment));
+        when(vnPayService.extractClientIp(httpRequest)).thenReturn("127.0.0.1");
+        when(vnPayService.buildPaymentUrl(eq(testPayment), eq(testBooking), eq("127.0.0.1")))
+                .thenReturn("https://sandbox.vnpayment.vn/resumed-payment-url");
 
-        assertThatThrownBy(() -> paymentService.initiatePayment("booking-1", request, new MockHttpServletRequest()))
-                .isInstanceOf(ConflictException.class)
-                .hasMessageContaining("Đơn đặt vé đang có một phiên thanh toán đang chờ xử lý");
+        InitiatePaymentResponse response = paymentService.initiatePayment("booking-1", request, httpRequest);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getPaymentId()).isEqualTo(testPayment.getId());
+        assertThat(response.getPaymentCode()).isEqualTo(testPayment.getPaymentCode());
+        assertThat(response.getPaymentUrl()).isEqualTo("https://sandbox.vnpayment.vn/resumed-payment-url");
+
+        verify(paymentRepository, never()).saveAndFlush(any(Payment.class));
     }
 
     @Test
-    @DisplayName("initiatePayment - Previous payment FAILED allows retry")
-    void testInitiatePayment_PreviousPaymentFailed_AllowsRetry() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+    @DisplayName("initiatePayment - Previous payment FAILED allows creating new attempt")
+    void testInitiatePayment_PreviousPaymentFailed_AllowsNewAttempt() {
+        mockAuthentication(testCustomer, "CUSTOMER");
 
-        // Previous payment was FAILED
+        Payment failedPayment = new Payment();
+        failedPayment.setId("payment-failed");
+        failedPayment.setPaymentStatus(PaymentStatus.FAILED);
+        failedPayment.setAmount(new BigDecimal("180000.00"));
+
         when(bookingRepository.findByIdWithLock("booking-1")).thenReturn(Optional.of(testBooking));
         when(seatHoldRepository.findByBookingId("booking-1")).thenReturn(List.of(testHold));
-        when(paymentRepository.existsByBookingIdAndPaymentStatus("booking-1", PaymentStatus.PENDING)).thenReturn(false);
+        when(paymentRepository.findByBookingId("booking-1")).thenReturn(List.of(failedPayment));
         when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(vnPayService.extractClientIp(any())).thenReturn("127.0.0.1");
         when(vnPayService.buildPaymentUrl(any(Payment.class), eq(testBooking), any())).thenReturn("http://vnpay.url");
 
         InitiatePaymentResponse response = paymentService.initiatePayment("booking-1", new InitiatePaymentRequest(PaymentMethod.VNPAY), new MockHttpServletRequest());
         assertThat(response).isNotNull();
+        verify(paymentRepository).saveAndFlush(any(Payment.class));
+    }
+
+    @Test
+    @DisplayName("initiatePayment - Previous payment CANCELLED allows creating new attempt")
+    void testInitiatePayment_PreviousPaymentCancelled_AllowsNewAttempt() {
+        mockAuthentication(testCustomer, "CUSTOMER");
+
+        Payment cancelledPayment = new Payment();
+        cancelledPayment.setId("payment-cancelled");
+        cancelledPayment.setPaymentStatus(PaymentStatus.CANCELLED);
+        cancelledPayment.setAmount(new BigDecimal("180000.00"));
+
+        when(bookingRepository.findByIdWithLock("booking-1")).thenReturn(Optional.of(testBooking));
+        when(seatHoldRepository.findByBookingId("booking-1")).thenReturn(List.of(testHold));
+        when(paymentRepository.findByBookingId("booking-1")).thenReturn(List.of(cancelledPayment));
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(vnPayService.extractClientIp(any())).thenReturn("127.0.0.1");
+        when(vnPayService.buildPaymentUrl(any(Payment.class), eq(testBooking), any())).thenReturn("http://vnpay.url");
+
+        InitiatePaymentResponse response = paymentService.initiatePayment("booking-1", new InitiatePaymentRequest(PaymentMethod.VNPAY), new MockHttpServletRequest());
+        assertThat(response).isNotNull();
+        verify(paymentRepository).saveAndFlush(any(Payment.class));
     }
 
 
     @Test
     @DisplayName("initiatePayment - Unsupported payment method throws 400 Bad Request")
     void testInitiatePayment_UnsupportedMethod_ThrowsBadRequest() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         InitiatePaymentRequest request = new InitiatePaymentRequest(PaymentMethod.MOMO);
 
@@ -577,7 +618,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("getPaymentDetail - Customer accesses own payment successfully")
     void testGetPaymentDetail_Owner_Success() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         when(paymentRepository.findById("payment-1")).thenReturn(Optional.of(testPayment));
         PaymentSummaryResponse summary = PaymentSummaryResponse.builder()
@@ -596,7 +637,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("getPaymentDetail - Other customer throws 403 Forbidden")
     void testGetPaymentDetail_OtherCustomer_ThrowsForbidden() {
-        mockAuthentication(otherCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(otherCustomer, "CUSTOMER");
 
         when(paymentRepository.findById("payment-1")).thenReturn(Optional.of(testPayment));
 
@@ -612,7 +653,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("refundPayment - Customer full successful refund")
     void testRefundPayment_Customer_Success() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         Showtime futureShowtime = new Showtime();
         futureShowtime.setId("showtime-future");
@@ -671,7 +712,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("refundPayment - Customer refund rejected if showtime is within 2 hours")
     void testRefundPayment_Customer_ShowtimeTooClose_ThrowsBadRequest() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         Showtime soonShowtime = new Showtime();
         soonShowtime.setId("showtime-soon");
@@ -695,7 +736,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("refundPayment - Admin can refund booking even if showtime is within 2 hours")
     void testRefundPayment_Admin_CanRefundWithin2Hours() {
-        mockAuthentication(testAdmin, "ROLE_ADMIN");
+        mockAuthentication(testAdmin, "ADMIN");
 
         Showtime soonShowtime = new Showtime();
         soonShowtime.setId("showtime-soon");
@@ -737,7 +778,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("refundPayment - Rejection if tickets are already USED")
     void testRefundPayment_UsedTicket_ThrowsBadRequest() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         Showtime futureShowtime = new Showtime();
         futureShowtime.setId("showtime-future");
@@ -763,7 +804,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("refundPayment - Rejection if payment is not SUCCESS")
     void testRefundPayment_NotSuccessPayment_ThrowsBadRequest() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         testPayment.setPaymentStatus(PaymentStatus.PENDING);
 
@@ -778,7 +819,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("refundPayment - Idempotent return when payment already has SUCCESS refund")
     void testRefundPayment_AlreadyRefunded_ReturnsExistingRefund() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         testPayment.setPaymentStatus(PaymentStatus.REFUNDED);
         Refund existingRefund = new Refund();
@@ -807,7 +848,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("refundBooking - Admin refunds orphaned SUCCESS payment on EXPIRED booking")
     void testRefundBooking_Admin_OrphanedPaymentOnExpiredBooking_Success() {
-        mockAuthentication(testAdmin, "ROLE_ADMIN");
+        mockAuthentication(testAdmin, "ADMIN");
 
         testBooking.setBookingStatus(BookingStatus.EXPIRED);
         testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
@@ -848,7 +889,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("refundPayment - Gateway failure marks refund as FAILED and preserves payment")
     void testRefundPayment_GatewayFailure_MarksRefundFailed() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         Showtime futureShowtime = new Showtime();
         futureShowtime.setId("showtime-future");
@@ -887,7 +928,7 @@ class PaymentServiceTest {
     @Test
     @DisplayName("getRefundDetail - Customer views refund details successfully")
     void testGetRefundDetail_Success() {
-        mockAuthentication(testCustomer, "ROLE_CUSTOMER");
+        mockAuthentication(testCustomer, "CUSTOMER");
 
         Refund refund = new Refund();
         refund.setId("refund-1");
