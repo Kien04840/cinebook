@@ -62,6 +62,10 @@ export interface ShowtimeSeatStatusResponse {
   auditoriumId: string
   seatTypeId: string
   seatTypeName: string
+  seatTypeCode?: string
+  capacity?: number
+  colorToken?: string
+  icon?: string
   priceModifier: number
   rowLabel: string
   seatNumber: number

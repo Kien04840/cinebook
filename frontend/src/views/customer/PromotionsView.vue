@@ -10,6 +10,7 @@ import Button from '@/components/common/Button.vue'
 import Badge from '@/components/common/Badge.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
 import { useToast } from '@/composables/useToast'
 
 const { t } = useI18n()
@@ -23,6 +24,7 @@ const currentPage = ref(0)
 const totalPages = ref(0)
 const totalElements = ref(0)
 const pageSize = ref(9)
+const copiedCode = ref<string>('')
 
 async function fetchPromotions() {
   isLoading.value = true
@@ -46,7 +48,13 @@ async function fetchPromotions() {
 
 function copyPromoCode(code: string) {
   navigator.clipboard.writeText(code)
+  copiedCode.value = code
   toast.success(t('promotions.codeCopied', { code }))
+  setTimeout(() => {
+    if (copiedCode.value === code) {
+      copiedCode.value = ''
+    }
+  }, 2000)
 }
 
 function goToBooking() {
@@ -82,89 +90,110 @@ onMounted(() => {
 
     <ErrorAlert v-if="errorMessage" :message="errorMessage" @retry="fetchPromotions" />
 
-    <div v-if="isLoading" class="py-20 text-center text-slate-400">
-      <div class="inline-flex items-center gap-3">
-        <div class="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-        <span class="text-sm font-medium">{{ t('promotions.searchPlaceholder') }}...</span>
-      </div>
-    </div>
-
-    <div v-else-if="promotions.length === 0" class="py-20 text-center space-y-3">
-      <div class="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 mx-auto flex items-center justify-center text-slate-400">
-        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-        </svg>
-      </div>
-      <p class="text-base font-bold text-white">{{ t('promotions.emptyTitle') }}</p>
-      <p class="text-xs sm:text-sm text-slate-400 max-w-sm mx-auto">
-        {{ t('promotions.emptyDesc') }}
-      </p>
-    </div>
-
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <Card
-        v-for="p in promotions"
-        :key="p.id"
-        class="flex flex-col justify-between border-amber-500/20 hover:border-amber-500/50 transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/5 relative overflow-hidden group"
-      >
-        <div class="space-y-4">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="flex items-center gap-2 mb-1">
-                <span class="inline-flex items-center gap-1 font-mono text-sm font-black text-amber-400 px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30">
-                  <span>🏷️</span> {{ p.code }}
-                </span>
-                <Badge variant="success" size="sm">
-                  {{ p.discountType === 'PERCENTAGE' ? `${p.discountValue}%` : formatCurrency(p.discountValue) }}
-                </Badge>
+    <div class="relative min-h-[400px]">
+      <transition name="fade-fast" mode="out-in">
+        <!-- Skeleton Grid (Matches 3-column card grid) -->
+        <div v-if="isLoading" key="loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div
+            v-for="n in 6"
+            :key="n"
+            class="h-64 rounded-2xl bg-slate-800/80 border border-slate-700/60 p-6 flex flex-col justify-between"
+          >
+            <div class="space-y-3">
+              <div class="flex items-center gap-2">
+                <div class="w-24 h-7 rounded-lg bg-slate-700/80 animate-shimmer"></div>
+                <div class="w-16 h-6 rounded-full bg-slate-700/80 animate-shimmer"></div>
               </div>
-              <h3 class="text-base font-bold text-white group-hover:text-amber-400 transition-colors">
-                {{ p.name }}
-              </h3>
+              <div class="w-40 h-5 rounded bg-slate-700/80 animate-shimmer"></div>
+              <div class="w-full h-10 rounded bg-slate-700/50 animate-shimmer"></div>
             </div>
-          </div>
-
-          <p v-if="p.description" class="text-xs text-slate-300 line-clamp-2">
-            {{ p.description }}
-          </p>
-
-          <div class="space-y-1.5 text-xs text-slate-400 pt-3 border-t border-slate-800 font-mono">
-            <div v-if="p.minOrderAmount" class="flex justify-between">
-              <span>{{ t('promotions.minSpend', { amount: '' }) }}:</span>
-              <span class="text-slate-200 font-semibold">{{ formatCurrency(p.minOrderAmount) }}</span>
-            </div>
-            <div v-if="p.maxDiscountAmount" class="flex justify-between">
-              <span>{{ t('promotions.maxDiscount', { amount: '' }) }}:</span>
-              <span class="text-slate-200 font-semibold">{{ formatCurrency(p.maxDiscountAmount) }}</span>
-            </div>
-            <div class="flex justify-between text-slate-400">
-              <span>{{ t('promotions.expiresOn', { date: '' }) }}:</span>
-              <span class="text-amber-300">{{ formatDate(p.endAt) }}</span>
+            <div class="grid grid-cols-2 gap-2 pt-4 border-t border-slate-700/60">
+              <div class="h-8 rounded-lg bg-slate-700/70 animate-shimmer"></div>
+              <div class="h-8 rounded-lg bg-slate-700/70 animate-shimmer"></div>
             </div>
           </div>
         </div>
 
-        <template #footer>
-          <div class="pt-4 border-t border-slate-800/80 grid grid-cols-2 gap-2 w-full">
-            <Button
-              variant="secondary"
-              size="sm"
-              class="w-full justify-center font-mono text-xs"
-              @click="copyPromoCode(p.code)"
-            >
-              {{ t('promotions.copyCodeBtn') }}
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              class="w-full justify-center text-xs shadow-lg shadow-indigo-600/20"
-              @click="goToBooking"
-            >
-              {{ t('promotions.bookNowBtn') }}
-            </Button>
-          </div>
-        </template>
-      </Card>
+        <!-- Empty State -->
+        <EmptyState
+          v-else-if="promotions.length === 0"
+          key="empty"
+          :title="t('promotions.emptyTitle')"
+          :description="t('promotions.emptyDesc')"
+          :action-text="t('promotions.bookNowBtn')"
+          @action="goToBooking"
+        />
+
+        <!-- Promotions Grid -->
+        <div v-else key="content" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <Card
+            v-for="p in promotions"
+            :key="p.id"
+            class="flex flex-col justify-between border-amber-500/20 hover:border-amber-500/50 transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/5 relative overflow-hidden group"
+          >
+            <div class="space-y-4">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="inline-flex items-center gap-1 font-mono text-sm font-black text-amber-400 px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30">
+                      <span>🏷️</span> {{ p.code }}
+                    </span>
+                    <Badge variant="success" size="sm">
+                      {{ p.discountType === 'PERCENTAGE' ? `${p.discountValue}%` : formatCurrency(p.discountValue) }}
+                    </Badge>
+                  </div>
+                  <h3 class="text-base font-bold text-white group-hover:text-amber-400 transition-colors">
+                    {{ p.name }}
+                  </h3>
+                </div>
+              </div>
+
+              <p v-if="p.description" class="text-xs text-slate-300 line-clamp-2">
+                {{ p.description }}
+              </p>
+
+              <div class="space-y-1.5 text-xs text-slate-400 pt-3 border-t border-slate-800 font-mono">
+                <div v-if="p.minOrderAmount" class="flex justify-between">
+                  <span>{{ t('promotions.minSpend', { amount: '' }) }}:</span>
+                  <span class="text-slate-200 font-semibold">{{ formatCurrency(p.minOrderAmount) }}</span>
+                </div>
+                <div v-if="p.maxDiscountAmount" class="flex justify-between">
+                  <span>{{ t('promotions.maxDiscount', { amount: '' }) }}:</span>
+                  <span class="text-slate-200 font-semibold">{{ formatCurrency(p.maxDiscountAmount) }}</span>
+                </div>
+                <div class="flex justify-between text-slate-400">
+                  <span>{{ t('promotions.expiresOn', { date: '' }) }}:</span>
+                  <span class="text-amber-300">{{ formatDate(p.endAt) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <template #footer>
+              <div class="pt-4 border-t border-slate-800/80 grid grid-cols-2 gap-2 w-full">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  :class="[
+                    'w-full justify-center font-mono text-xs transition-colors',
+                    copiedCode === p.code ? 'border-emerald-500 text-emerald-400 bg-emerald-950/30' : ''
+                  ]"
+                  @click="copyPromoCode(p.code)"
+                >
+                  {{ copiedCode === p.code ? 'Đã chép ✓' : t('promotions.copyCodeBtn') }}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  class="w-full justify-center text-xs shadow-lg shadow-indigo-600/20"
+                  @click="goToBooking"
+                >
+                  {{ t('promotions.bookNowBtn') }}
+                </Button>
+              </div>
+            </template>
+          </Card>
+        </div>
+      </transition>
     </div>
 
     <Pagination

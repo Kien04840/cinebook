@@ -36,8 +36,10 @@ public class DataInitializer implements CommandLineRunner {
         Role customerRole = initRoleIfAbsent("CUSTOMER", "Default customer role");
         Role adminRole = initRoleIfAbsent("ADMIN", "System administrator role");
 
-        initSeatTypeIfAbsent("STANDARD", BigDecimal.ZERO, "Standard comfortable cinema seat");
-        initSeatTypeIfAbsent("VIP", new BigDecimal("20000.00"), "VIP premium cinema seat with extra legroom");
+        initSeatTypeIfAbsent("STANDARD", "Standard", 1, "slate", "armchair", BigDecimal.ZERO, "Standard comfortable cinema seat");
+        initSeatTypeIfAbsent("VIP", "VIP", 1, "amber", "crown", new BigDecimal("20000.00"), "VIP premium cinema seat with extra legroom");
+        initSeatTypeIfAbsent("COUPLE", "Couple", 2, "rose", "heart", new BigDecimal("50000.00"), "Double seat designed for two people with extra comfort and privacy");
+        initSeatTypeIfAbsent("PREMIUM", "Premium", 1, "indigo", "star", new BigDecimal("30000.00"), "Premium reclining seat with enhanced comfort and additional legroom");
 
         initAdminUserIfAbsent(adminRole, customerRole);
         initCustomerUserIfAbsent(customerRole);
@@ -54,15 +56,19 @@ public class DataInitializer implements CommandLineRunner {
         });
     }
 
-    private void initSeatTypeIfAbsent(String name, BigDecimal priceModifier, String description) {
-        if (!seatTypeRepository.existsByNameIgnoreCase(name)) {
+    private void initSeatTypeIfAbsent(String code, String name, int capacity, String colorToken, String icon, BigDecimal priceModifier, String description) {
+        if (!seatTypeRepository.existsByCodeIgnoreCase(code) && !seatTypeRepository.existsByNameIgnoreCase(name)) {
             SeatType seatType = new SeatType();
+            seatType.setCode(code);
             seatType.setName(name);
+            seatType.setCapacity((short) capacity);
+            seatType.setColorToken(colorToken);
+            seatType.setIcon(icon);
             seatType.setPriceModifier(priceModifier);
             seatType.setDescription(description);
             seatType.setStatus(SeatTypeStatus.ACTIVE);
             seatTypeRepository.save(seatType);
-            log.info("Initialized default seat type: {}", name);
+            log.info("Initialized default seat type: {} ({})", name, code);
         }
     }
 

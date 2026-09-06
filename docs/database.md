@@ -201,15 +201,21 @@ Promotion
 **Indexes**: `idx_auditoriums_cinema_status`, `idx_auditoriums_cinema_id`
 
 #### `seat_types`
-| Column         | Type             | Notes                        |
-|----------------|------------------|------------------------------|
-| id             | varchar(36) PK   |                              |
-| name           | varchar(100)     | UNIQUE, NOT NULL             |
-| price_modifier | decimal(12,2)    | NOT NULL, CHECK ≥ 0          |
-| description    | varchar(255)     |                              |
-| status         | varchar(20)      | NOT NULL                     |
-| created_at     | datetime         | NOT NULL                     |
-| updated_at     | datetime         | NOT NULL                     |
+| Column         | Type               | Notes                        |
+|----------------|--------------------|------------------------------|
+| id             | varchar(36) PK     | UUID                         |
+| code           | varchar(50)        | UNIQUE, NOT NULL (e.g. STANDARD, VIP, COUPLE, PREMIUM) |
+| name           | varchar(100)       | UNIQUE, NOT NULL             |
+| capacity       | smallint unsigned  | NOT NULL, default 1, CHECK > 0 (immutable if referenced by seats) |
+| color_token    | varchar(30)        | Whitelisted token (slate, amber, rose, indigo, emerald, purple, cyan, pink) |
+| icon           | varchar(50)        | Whitelisted icon identifier (armchair, crown, heart, star, sofa, sparkles, shield, gem) |
+| price_modifier | decimal(12,2)      | NOT NULL, CHECK ≥ 0          |
+| description    | varchar(255)       |                              |
+| status         | varchar(20)        | NOT NULL                     |
+| created_at     | datetime           | NOT NULL                     |
+| updated_at     | datetime           | NOT NULL                     |
+
+**Unique**: `uk_seat_types_code`, `uk_seat_types_name`
 
 #### `seats`
 | Column         | Type               | Notes                              |

@@ -201,6 +201,8 @@ public class BookingMapper {
                 .seatCode(seat.getSeatCode())
                 .seatTypeId(seatType != null ? seatType.getId() : null)
                 .seatTypeName(seatType != null ? seatType.getName() : null)
+                .seatTypeCode(seatType != null ? seatType.getCode() : null)
+                .capacity(seatType != null ? seatType.getCapacity() : (short) 1)
                 .price(price)
                 .build();
     }

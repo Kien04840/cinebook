@@ -10,6 +10,7 @@ import Button from '@/components/common/Button.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
 import ShowtimeBrowser from '@/components/showtime/ShowtimeBrowser.vue'
 import TrailerModal from '@/components/movie/TrailerModal.vue'
+import ImageWithFallback from '@/components/common/ImageWithFallback.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,109 +99,98 @@ onMounted(() => {
       <ErrorAlert :message="errorMessage" @retry="fetchMovieDetail" />
     </div>
 
-    <!-- Layout-Stable Loading Skeleton (Prevents Page Collapse and Footer Bouncing) -->
-    <div v-else-if="isLoading" class="space-y-12 animate-pulse">
-      <!-- Backdrop Hero Skeleton -->
-      <section class="relative w-full bg-slate-950 border-b border-slate-800 overflow-hidden py-12">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="w-20 h-4 rounded bg-slate-800 mb-6"></div>
-          <div class="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
-            <div class="md:col-span-4 lg:col-span-3">
-              <div class="w-full aspect-[2/3] rounded-2xl bg-slate-800"></div>
-            </div>
-            <div class="md:col-span-8 lg:col-span-9 space-y-4">
-              <div class="flex gap-2">
-                <div class="w-12 h-6 rounded bg-slate-800"></div>
-                <div class="w-20 h-6 rounded bg-slate-800"></div>
-              </div>
-              <div class="w-3/4 h-10 rounded bg-slate-800"></div>
-              <div class="w-1/3 h-5 rounded bg-slate-800"></div>
-              <div class="grid grid-cols-3 gap-4 py-4 border-y border-slate-800">
-                <div class="h-10 rounded bg-slate-800"></div>
-                <div class="h-10 rounded bg-slate-800"></div>
-                <div class="h-10 rounded bg-slate-800"></div>
-              </div>
-              <div class="w-full h-24 rounded bg-slate-800"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Showtime Section Skeleton -->
-      <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 space-y-6">
-        <div class="space-y-2">
-          <div class="w-48 h-7 rounded bg-slate-800"></div>
-          <div class="w-72 h-4 rounded bg-slate-800"></div>
-        </div>
-        <div class="flex gap-2 overflow-x-auto pb-2">
-          <div v-for="n in 7" :key="n" class="min-w-[80px] h-20 rounded-2xl bg-slate-800"></div>
-        </div>
-        <div class="h-44 rounded-2xl bg-slate-800"></div>
-      </section>
-    </div>
-
-    <!-- Movie Detail Content -->
-    <template v-else-if="movie">
-      <!-- Backdrop Hero Section (High Definition & Crisp) -->
-      <section class="relative w-full bg-slate-950 border-b border-slate-800 overflow-hidden">
-        <!-- Crisp Ambient Backdrop -->
-        <div class="absolute inset-0 z-0">
-          <img
-            v-if="movie.backdropUrl || movie.posterUrl"
-            :src="movie.backdropUrl || movie.posterUrl"
-            :alt="movie.title"
-            :class="[
-              'w-full h-full object-cover object-center transition-opacity duration-700 opacity-50',
-              backdropLoaded ? 'opacity-50' : 'opacity-0'
-            ]"
-            @load="backdropLoaded = true"
-          />
-          <div class="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/80 to-slate-900/40"></div>
-          <div class="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/70 to-transparent"></div>
-        </div>
-
-        <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-          <!-- Back Link -->
-          <button
-            type="button"
-            class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-white transition-colors mb-6 cursor-pointer focus:outline-none"
-            @click="router.back()"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            {{ t('movieDetail.back') }}
-          </button>
-
-          <!-- Main Layout: 2:3 Poster on left + Info on right -->
-          <div class="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
-            <!-- Left: Poster Column (4 cols) -->
-            <div class="md:col-span-4 lg:col-span-3 flex flex-col items-center sm:items-start">
-              <div class="w-full max-w-[280px] md:max-w-none aspect-[2/3] rounded-2xl overflow-hidden bg-slate-900 border-2 border-slate-700/80 shadow-2xl shadow-slate-950 relative">
-                <!-- Skeleton loader behind poster -->
-                <div
-                  v-if="!posterLoaded && !posterError"
-                  class="absolute inset-0 bg-slate-800 animate-pulse flex items-center justify-center"
-                ></div>
-
-                <img
-                  v-if="movie.posterUrl && !posterError"
-                  :src="movie.posterUrl"
-                  :alt="movie.title"
-                  :class="[
-                    'w-full h-full object-cover transition-opacity duration-500',
-                    posterLoaded ? 'opacity-100' : 'opacity-0'
-                  ]"
-                  @load="posterLoaded = true"
-                  @error="posterError = true"
-                />
-                <div v-else class="w-full h-full flex flex-col items-center justify-center p-6 text-center text-slate-500 bg-slate-850">
-                  <svg class="w-16 h-16 mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-                  </svg>
-                  <span class="text-xs">{{ movie.title }}</span>
+    <div class="relative min-h-[500px]">
+      <transition name="fade-fast" mode="out-in">
+        <!-- Layout-Stable Loading Skeleton (Prevents Page Collapse and Footer Bouncing) -->
+        <div v-if="isLoading" key="skeleton" class="space-y-12">
+          <!-- Backdrop Hero Skeleton -->
+          <section class="relative w-full min-h-[440px] sm:min-h-[500px] bg-slate-950 border-b border-slate-800 overflow-hidden py-12">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <div class="w-20 h-4 rounded bg-slate-800/80 animate-shimmer mb-6"></div>
+              <div class="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+                <div class="md:col-span-4 lg:col-span-3">
+                  <div class="w-full aspect-[2/3] rounded-2xl bg-slate-800/80 animate-shimmer"></div>
+                </div>
+                <div class="md:col-span-8 lg:col-span-9 space-y-4">
+                  <div class="flex gap-2">
+                    <div class="w-12 h-6 rounded bg-slate-800/80 animate-shimmer"></div>
+                    <div class="w-20 h-6 rounded bg-slate-800/80 animate-shimmer"></div>
+                  </div>
+                  <div class="w-3/4 h-10 rounded bg-slate-800/80 animate-shimmer"></div>
+                  <div class="w-1/3 h-5 rounded bg-slate-800/80 animate-shimmer"></div>
+                  <div class="grid grid-cols-3 gap-4 py-4 border-y border-slate-800">
+                    <div class="h-10 rounded bg-slate-800/80 animate-shimmer"></div>
+                    <div class="h-10 rounded bg-slate-800/80 animate-shimmer"></div>
+                    <div class="h-10 rounded bg-slate-800/80 animate-shimmer"></div>
+                  </div>
+                  <div class="w-full h-24 rounded bg-slate-800/80 animate-shimmer"></div>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <!-- Showtime Section Skeleton -->
+          <section class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 space-y-6">
+            <div class="space-y-2">
+              <div class="w-48 h-7 rounded bg-slate-800/80 animate-shimmer"></div>
+              <div class="w-72 h-4 rounded bg-slate-800/80 animate-shimmer"></div>
+            </div>
+            <div class="flex gap-2 overflow-x-auto pb-2">
+              <div v-for="n in 7" :key="n" class="min-w-[80px] h-20 rounded-2xl bg-slate-800/80 animate-shimmer"></div>
+            </div>
+            <div class="h-44 rounded-2xl bg-slate-800/80 animate-shimmer"></div>
+          </section>
+        </div>
+
+        <!-- Movie Detail Content -->
+        <div v-else-if="movie" key="content" class="space-y-12">
+          <!-- Backdrop Hero Section (High Definition & Crisp) -->
+          <section class="relative w-full min-h-[440px] sm:min-h-[500px] bg-slate-950 border-b border-slate-800 overflow-hidden">
+            <!-- Crisp Ambient Backdrop -->
+            <div class="absolute inset-0 z-0">
+              <img
+                v-if="movie.backdropUrl || movie.posterUrl"
+                :src="movie.backdropUrl || movie.posterUrl"
+                :alt="movie.title"
+                loading="eager"
+                fetchpriority="high"
+                decoding="async"
+                :class="[
+                  'w-full h-full object-cover object-center transition-opacity duration-700',
+                  backdropLoaded ? 'opacity-50' : 'opacity-0'
+                ]"
+                @load="backdropLoaded = true"
+              />
+              <div class="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/80 to-slate-900/40"></div>
+              <div class="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/70 to-transparent"></div>
+            </div>
+
+            <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+              <!-- Back Link -->
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-white transition-colors mb-6 cursor-pointer focus:outline-none"
+                @click="router.back()"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                {{ t('movieDetail.back') }}
+              </button>
+
+              <!-- Main Layout: 2:3 Poster on left + Info on right -->
+              <div class="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+                <!-- Left: Poster Column (4 cols) -->
+                <div class="md:col-span-4 lg:col-span-3 flex flex-col items-center sm:items-start">
+                  <div class="w-full max-w-[280px] md:max-w-none aspect-[2/3] rounded-2xl overflow-hidden bg-slate-900 border-2 border-slate-700/80 shadow-2xl shadow-slate-950 relative">
+                    <ImageWithFallback
+                      :src="movie.posterUrl"
+                      :alt="movie.title"
+                      aspect-ratio="2/3"
+                      eager
+                      rounded="rounded-2xl"
+                    />
+                  </div>
 
               <!-- Trailer Trigger Button below poster if trailerUrl exists -->
               <div v-if="movie.trailerUrl" class="w-full max-w-[280px] md:max-w-none mt-3.5">
@@ -324,6 +314,8 @@ onMounted(() => {
         :movie-title="movie.title"
         @close="isTrailerOpen = false"
       />
-    </template>
-  </div>
+    </div>
+  </transition>
+</div>
+</div>
 </template>

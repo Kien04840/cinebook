@@ -37,6 +37,9 @@ class SeatTypeServiceTest {
     @Mock
     private SeatTypeRepository seatTypeRepository;
 
+    @Mock
+    private com.cinebook.repository.SeatRepository seatRepository;
+
     @Spy
     private SeatTypeMapper seatTypeMapper = new SeatTypeMapper();
 
@@ -49,7 +52,11 @@ class SeatTypeServiceTest {
     void setUp() {
         sampleSeatType = new SeatType();
         sampleSeatType.setId("st-1");
+        sampleSeatType.setCode("STANDARD");
         sampleSeatType.setName("STANDARD");
+        sampleSeatType.setCapacity((short) 1);
+        sampleSeatType.setColorToken("slate");
+        sampleSeatType.setIcon("armchair");
         sampleSeatType.setPriceModifier(BigDecimal.ZERO);
         sampleSeatType.setStatus(SeatTypeStatus.ACTIVE);
     }
@@ -63,6 +70,8 @@ class SeatTypeServiceTest {
         assertNotNull(result);
         assertEquals(1, result.size());
         assertEquals("STANDARD", result.get(0).getName());
+        assertEquals("STANDARD", result.get(0).getCode());
+        assertEquals((short) 1, result.get(0).getCapacity());
     }
 
     @Test
@@ -80,12 +89,17 @@ class SeatTypeServiceTest {
     @Test
     void createSeatType_Success() {
         CreateSeatTypeRequest request = CreateSeatTypeRequest.builder()
+                .code("VIP")
                 .name("VIP")
+                .capacity((short) 1)
+                .colorToken("amber")
+                .icon("crown")
                 .priceModifier(new BigDecimal("30000.00"))
                 .description("VIP seat")
                 .status(SeatTypeStatus.ACTIVE)
                 .build();
 
+        when(seatTypeRepository.existsByCodeIgnoreCase("VIP")).thenReturn(false);
         when(seatTypeRepository.existsByNameIgnoreCase("VIP")).thenReturn(false);
         when(seatTypeRepository.save(any(SeatType.class))).thenAnswer(inv -> {
             SeatType st = inv.getArgument(0);
@@ -97,16 +111,37 @@ class SeatTypeServiceTest {
 
         assertNotNull(result);
         assertEquals("VIP", result.getName());
+        assertEquals("VIP", result.getCode());
+        assertEquals((short) 1, result.getCapacity());
+        assertEquals("amber", result.getColorToken());
+        assertEquals("crown", result.getIcon());
         assertEquals(new BigDecimal("30000.00"), result.getPriceModifier());
+    }
+
+    @Test
+    void createSeatType_DuplicateCode_ThrowsConflict() {
+        CreateSeatTypeRequest request = CreateSeatTypeRequest.builder()
+                .code("STANDARD")
+                .name("Standard Seat")
+                .capacity((short) 1)
+                .priceModifier(BigDecimal.ZERO)
+                .build();
+
+        when(seatTypeRepository.existsByCodeIgnoreCase("STANDARD")).thenReturn(true);
+
+        assertThrows(ConflictException.class, () -> seatTypeService.createSeatType(request));
     }
 
     @Test
     void createSeatType_DuplicateName_ThrowsConflict() {
         CreateSeatTypeRequest request = CreateSeatTypeRequest.builder()
+                .code("STD_NEW")
                 .name("STANDARD")
+                .capacity((short) 1)
                 .priceModifier(BigDecimal.ZERO)
                 .build();
 
+        when(seatTypeRepository.existsByCodeIgnoreCase("STD_NEW")).thenReturn(false);
         when(seatTypeRepository.existsByNameIgnoreCase("STANDARD")).thenReturn(true);
 
         assertThrows(ConflictException.class, () -> seatTypeService.createSeatType(request));
@@ -115,12 +150,17 @@ class SeatTypeServiceTest {
     @Test
     void updateSeatType_Success() {
         UpdateSeatTypeRequest request = UpdateSeatTypeRequest.builder()
+                .code("STANDARD_PLUS")
                 .name("STANDARD_PLUS")
+                .capacity((short) 1)
+                .colorToken("slate")
+                .icon("armchair")
                 .priceModifier(new BigDecimal("10000.00"))
                 .status(SeatTypeStatus.ACTIVE)
                 .build();
 
         when(seatTypeRepository.findById("st-1")).thenReturn(Optional.of(sampleSeatType));
+        when(seatTypeRepository.existsByCodeIgnoreCaseAndIdNot("STANDARD_PLUS", "st-1")).thenReturn(false);
         when(seatTypeRepository.existsByNameIgnoreCaseAndIdNot("STANDARD_PLUS", "st-1")).thenReturn(false);
         when(seatTypeRepository.save(any(SeatType.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -128,6 +168,47 @@ class SeatTypeServiceTest {
 
         assertNotNull(result);
         assertEquals("STANDARD_PLUS", result.getName());
+        assertEquals("STANDARD_PLUS", result.getCode());
+    }
+
+    @Test
+    void updateSeatType_CapacityChangeWhenReferenced_ThrowsConflict() {
+        UpdateSeatTypeRequest request = UpdateSeatTypeRequest.builder()
+                .code("STANDARD")
+                .name("STANDARD")
+                .capacity((short) 2)
+                .priceModifier(BigDecimal.ZERO)
+                .status(SeatTypeStatus.ACTIVE)
+                .build();
+
+        when(seatTypeRepository.findById("st-1")).thenReturn(Optional.of(sampleSeatType));
+        when(seatTypeRepository.existsByCodeIgnoreCaseAndIdNot("STANDARD", "st-1")).thenReturn(false);
+        when(seatTypeRepository.existsByNameIgnoreCaseAndIdNot("STANDARD", "st-1")).thenReturn(false);
+        when(seatRepository.existsBySeatTypeId("st-1")).thenReturn(true);
+
+        assertThrows(ConflictException.class, () -> seatTypeService.updateSeatType("st-1", request));
+    }
+
+    @Test
+    void updateSeatType_CapacityChangeWhenNotReferenced_Success() {
+        UpdateSeatTypeRequest request = UpdateSeatTypeRequest.builder()
+                .code("STANDARD")
+                .name("STANDARD")
+                .capacity((short) 2)
+                .priceModifier(BigDecimal.ZERO)
+                .status(SeatTypeStatus.ACTIVE)
+                .build();
+
+        when(seatTypeRepository.findById("st-1")).thenReturn(Optional.of(sampleSeatType));
+        when(seatTypeRepository.existsByCodeIgnoreCaseAndIdNot("STANDARD", "st-1")).thenReturn(false);
+        when(seatTypeRepository.existsByNameIgnoreCaseAndIdNot("STANDARD", "st-1")).thenReturn(false);
+        when(seatRepository.existsBySeatTypeId("st-1")).thenReturn(false);
+        when(seatTypeRepository.save(any(SeatType.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        SeatTypeResponse result = seatTypeService.updateSeatType("st-1", request);
+
+        assertNotNull(result);
+        assertEquals((short) 2, result.getCapacity());
     }
 
     @Test
@@ -142,7 +223,7 @@ class SeatTypeServiceTest {
 
     @Test
     void getOrCreateDefaultSeatType_StandardFallback() {
-        when(seatTypeRepository.findByNameIgnoreCase("STANDARD")).thenReturn(Optional.of(sampleSeatType));
+        when(seatTypeRepository.findByCodeIgnoreCase("STANDARD")).thenReturn(Optional.of(sampleSeatType));
 
         SeatType result = seatTypeService.getOrCreateDefaultSeatType(null);
 

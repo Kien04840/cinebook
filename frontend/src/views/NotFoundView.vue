@@ -6,8 +6,12 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div class="min-h-[60vh] flex flex-col items-center justify-center text-center px-4 py-16 space-y-6">
-    <div class="w-20 h-20 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-indigo-400 text-3xl font-black shadow-lg">
+  <div class="min-h-[65vh] flex flex-col items-center justify-center text-center px-4 py-16 space-y-6 relative overflow-hidden">
+    <div class="absolute inset-0 flex items-center justify-center pointer-events-none -z-10">
+      <div class="w-96 h-96 rounded-full bg-indigo-600/10 blur-3xl"></div>
+    </div>
+
+    <div class="w-24 h-24 rounded-3xl bg-slate-800/90 border border-slate-700 flex items-center justify-center text-indigo-400 text-3xl font-black shadow-2xl shadow-indigo-500/10">
       404
     </div>
 
@@ -21,7 +25,7 @@ const { t } = useI18n()
     </div>
 
     <router-link to="/">
-      <Button variant="primary" size="md">
+      <Button variant="primary" size="md" class="shadow-lg shadow-indigo-600/20">
         {{ t('notFound.backHome') }}
       </Button>
     </router-link>

@@ -156,31 +156,32 @@ onUnmounted(() => {
 
 <template>
   <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16 space-y-10">
-    <!-- 1. Loading Skeleton -->
-    <div v-if="isLoading" class="space-y-6 animate-pulse">
-      <div class="max-w-md mx-auto h-12 rounded-2xl bg-slate-800"></div>
-      <div class="max-w-2xl mx-auto h-64 rounded-3xl bg-slate-800"></div>
-    </div>
-
-    <!-- 2. Error in Return URL / Signature -->
-    <div v-else-if="errorMessage" class="max-w-2xl mx-auto space-y-6 text-center">
-      <ErrorAlert :message="errorMessage" />
-      <div class="flex items-center justify-center gap-3">
-        <router-link to="/movies">
-          <Button variant="secondary" size="md">{{ t('movieDetail.backToCatalog') }}</Button>
-        </router-link>
-        <router-link to="/my-bookings">
-          <Button variant="primary" size="md">{{ t('nav.myBookings') }}</Button>
-        </router-link>
+    <transition name="fade-fast" mode="out-in">
+      <!-- 1. Loading Skeleton -->
+      <div v-if="isLoading" key="loading" class="space-y-6">
+        <div class="max-w-md mx-auto h-12 rounded-2xl bg-slate-800/80 border border-slate-700/60 animate-shimmer"></div>
+        <div class="max-w-2xl mx-auto h-64 rounded-3xl bg-slate-800/80 border border-slate-700/60 animate-shimmer"></div>
       </div>
-    </div>
 
-    <!-- 3. Payment States -->
-    <template v-else>
-      <!-- STATE A: SUCCESS (Authoritative Booking PAID + Tickets) -->
-      <div v-if="isSuccess" class="space-y-8 animate-fade-in">
-        <!-- Success Hero Header Banner -->
-        <div class="p-6 sm:p-8 rounded-3xl bg-emerald-950/70 border border-emerald-500/80 text-center space-y-3 shadow-2xl shadow-emerald-950/50 print:hidden">
+      <!-- 2. Error in Return URL / Signature -->
+      <div v-else-if="errorMessage" key="error" class="max-w-2xl mx-auto space-y-6 text-center">
+        <ErrorAlert :message="errorMessage" />
+        <div class="flex items-center justify-center gap-3">
+          <router-link to="/movies">
+            <Button variant="secondary" size="md">{{ t('movieDetail.backToCatalog') }}</Button>
+          </router-link>
+          <router-link to="/my-bookings">
+            <Button variant="primary" size="md">{{ t('nav.myBookings') }}</Button>
+          </router-link>
+        </div>
+      </div>
+
+      <!-- 3. Payment States -->
+      <div v-else key="content">
+        <!-- STATE A: SUCCESS (Authoritative Booking PAID + Tickets) -->
+        <div v-if="isSuccess" class="space-y-8">
+          <!-- Success Hero Header Banner -->
+          <div class="p-6 sm:p-8 rounded-3xl bg-emerald-950/70 border border-emerald-500/80 text-center space-y-3 shadow-2xl shadow-emerald-950/50 print:hidden">
           <div class="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-400 text-emerald-400 flex items-center justify-center mx-auto text-3xl font-black shadow-lg">
             ✓
           </div>
@@ -339,6 +340,7 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-    </template>
+    </div>
+    </transition>
   </div>
 </template>

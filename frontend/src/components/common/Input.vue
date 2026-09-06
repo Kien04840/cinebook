@@ -70,13 +70,13 @@ function onInput(event: Event) {
         :aria-invalid="!!error"
         :aria-describedby="error ? errorId : (hint ? hintId : undefined)"
         :class="[
-          'w-full rounded-lg bg-slate-800 border text-slate-100 placeholder-slate-400 text-sm transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-slate-900',
+          'w-full rounded-lg bg-slate-800 border text-slate-100 placeholder-slate-400 text-sm transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-slate-900',
           $slots.prefix ? 'pl-10' : 'pl-3.5',
           $slots.suffix ? 'pr-10' : 'pr-3.5',
           'py-2',
           error
-            ? 'border-rose-500 text-rose-100 focus:border-rose-500 focus:ring-rose-500/50'
-            : 'border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/50',
+            ? 'border-rose-500 text-rose-100 focus:border-rose-500 focus-visible:ring-rose-500/50'
+            : 'border-slate-700 focus:border-indigo-500 focus-visible:ring-indigo-500/50',
           disabled ? 'opacity-50 cursor-not-allowed bg-slate-900' : '',
         ]"
         @input="onInput"
@@ -89,12 +89,14 @@ function onInput(event: Event) {
       </div>
     </div>
 
-    <p v-if="error" :id="errorId" class="text-xs text-rose-400 font-medium">
-      {{ error }}
-    </p>
-    <p v-else-if="hint" :id="hintId" class="text-xs text-slate-400">
-      {{ hint }}
-    </p>
+    <transition name="field-error">
+      <p v-if="error" :id="errorId" class="text-xs text-rose-400 font-medium">
+        {{ error }}
+      </p>
+      <p v-else-if="hint" :id="hintId" class="text-xs text-slate-400">
+        {{ hint }}
+      </p>
+    </transition>
   </div>
 </template>
 

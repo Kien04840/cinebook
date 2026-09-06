@@ -26,11 +26,23 @@ public class SeatType {
     @Column(length = 36, nullable = false, updatable = false)
     private String id;
 
+    @Column(length = 50, nullable = false, unique = true)
+    private String code;
+
     @Column(length = 100, nullable = false, unique = true)
     private String name;
 
-    @Column(name = "price_modifier", precision = 10, scale = 2, nullable = false)
+    @Column(name = "price_modifier", precision = 12, scale = 2, nullable = false)
     private BigDecimal priceModifier;
+
+    @Column(nullable = false)
+    private Short capacity = 1;
+
+    @Column(name = "color_token", length = 30)
+    private String colorToken;
+
+    @Column(length = 50)
+    private String icon;
 
     @Column(length = 255)
     private String description;
@@ -62,6 +74,10 @@ public class SeatType {
 
         if (updatedAt == null) {
             updatedAt = now;
+        }
+
+        if (capacity == null) {
+            capacity = (short) 1;
         }
     }
 

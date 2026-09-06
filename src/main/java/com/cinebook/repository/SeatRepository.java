@@ -35,4 +35,22 @@ public interface SeatRepository extends JpaRepository<Seat, String> {
     long countByAuditoriumId(String auditoriumId);
 
     long countByAuditoriumIdAndStatus(String auditoriumId, SeatStatus status);
+
+    boolean existsBySeatTypeId(String seatTypeId);
+
+    long countBySeatTypeId(String seatTypeId);
+
+    List<Seat> findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc(String auditoriumId, String rowLabel);
+
+    @org.springframework.data.jpa.repository.Query("""
+        SELECT COALESCE(SUM(st.capacity), 0)
+        FROM Seat s
+        JOIN s.seatType st
+        WHERE s.auditorium.id = :auditoriumId
+          AND s.status = :status
+    """)
+    long sumCapacityByAuditoriumIdAndStatus(
+            @org.springframework.data.repository.query.Param("auditoriumId") String auditoriumId,
+            @org.springframework.data.repository.query.Param("status") SeatStatus status
+    );
 }

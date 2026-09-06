@@ -82,10 +82,10 @@ function selectDate(iso: string) {
         role="radio"
         :aria-checked="modelValue === item.iso"
         :class="[
-          'flex flex-col items-center justify-center min-w-[72px] sm:min-w-[80px] py-2.5 px-3 rounded-2xl border transition-all duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900',
+          'flex flex-col items-center justify-center min-w-[72px] sm:min-w-[80px] py-2.5 px-3 rounded-2xl border transition-all duration-200 cursor-pointer touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900',
           modelValue === item.iso
             ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/30 scale-[1.02]'
-            : 'bg-slate-800/90 border-slate-700/80 text-slate-300 hover:bg-slate-750 hover:border-slate-600 hover:text-white',
+            : 'bg-slate-800/90 border-slate-700/80 text-slate-300 hover:bg-slate-750 hover:border-slate-600 hover:text-white active:scale-95',
         ]"
         @click="selectDate(item.iso)"
       >
@@ -112,5 +112,8 @@ function selectDate(iso: string) {
         </span>
       </button>
     </div>
+
+    <!-- Subtle Right Scroll Fade Indicator on Mobile -->
+    <div class="pointer-events-none absolute right-0 top-0 bottom-2 w-6 bg-gradient-to-l from-slate-800/90 to-transparent sm:hidden" />
   </div>
 </template>

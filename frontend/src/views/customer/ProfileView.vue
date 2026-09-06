@@ -180,100 +180,104 @@ onMounted(() => {
       </p>
     </div>
 
-    <!-- Loading State -->
-    <div v-if="isLoading" class="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-pulse">
-      <Card padding="md" class="space-y-4">
-        <div class="w-20 h-20 rounded-full bg-slate-800 mx-auto"></div>
-        <div class="h-4 w-32 bg-slate-800 mx-auto rounded"></div>
-        <div class="h-3 w-40 bg-slate-800 mx-auto rounded"></div>
-      </Card>
-      <Card padding="md" class="lg:col-span-2 space-y-4">
-        <div class="h-6 w-48 bg-slate-800 rounded"></div>
-        <div class="h-10 w-full bg-slate-800 rounded"></div>
-        <div class="h-10 w-full bg-slate-800 rounded"></div>
-      </Card>
-    </div>
+    <!-- Content / Loading with Fade Transition -->
+    <transition name="fade-fast" mode="out-in">
+      <!-- Loading State -->
+      <div v-if="isLoading" key="loading" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card padding="md" class="space-y-4">
+          <div class="w-20 h-20 rounded-full bg-slate-800 animate-shimmer mx-auto"></div>
+          <div class="h-4 w-32 bg-slate-800 animate-shimmer mx-auto rounded"></div>
+          <div class="h-3 w-40 bg-slate-800 animate-shimmer mx-auto rounded"></div>
+        </Card>
+        <Card padding="md" class="lg:col-span-2 space-y-4">
+          <div class="h-6 w-48 bg-slate-800 animate-shimmer rounded"></div>
+          <div class="h-10 w-full bg-slate-800 animate-shimmer rounded"></div>
+          <div class="h-10 w-full bg-slate-800 animate-shimmer rounded"></div>
+        </Card>
+      </div>
 
-    <div v-else class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- Left Card: User Overview -->
-      <Card padding="md" class="space-y-6 text-center h-fit">
-        <div class="flex flex-col items-center">
-          <UserAvatar
-            :src="effectiveAvatarUrl"
-            :name="profileData?.fullName"
-            size="xl"
-            bordered
-          />
+      <div v-else key="content" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Left Card: User Overview -->
+        <Card padding="md" class="space-y-6 text-center h-fit">
+          <div class="flex flex-col items-center">
+            <UserAvatar
+              :src="effectiveAvatarUrl"
+              :name="profileData?.fullName"
+              size="xl"
+              bordered
+            />
 
-          <h2 class="text-lg font-bold text-white mt-3">{{ profileData?.fullName }}</h2>
-          <p class="text-xs text-slate-400 font-mono mt-0.5">{{ profileData?.email }}</p>
+            <h2 class="text-lg font-bold text-white mt-3">{{ profileData?.fullName }}</h2>
+            <p class="text-xs text-slate-400 font-mono mt-0.5">{{ profileData?.email }}</p>
 
-          <div class="flex flex-wrap justify-center gap-1.5 mt-3">
-            <span
-              v-for="role in profileData?.roles"
-              :key="role"
+            <div class="flex flex-wrap justify-center gap-1.5 mt-3">
+              <span
+                v-for="role in profileData?.roles"
+                :key="role"
+                :class="[
+                  'px-2.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider',
+                  role === 'ADMIN'
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                    : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30',
+                ]"
+              >
+                {{ role }}
+              </span>
+            </div>
+          </div>
+
+          <div class="border-t border-slate-800 pt-4 space-y-2 text-xs text-left">
+            <div class="flex justify-between text-slate-400">
+              <span>{{ t('profile.accountStatus') }}:</span>
+              <Badge :variant="profileData?.status === 'ACTIVE' ? 'success' : 'danger'">
+                {{ profileData?.status === 'ACTIVE' ? t('status.ACTIVE') : profileData?.status }}
+              </Badge>
+            </div>
+            <div class="flex justify-between text-slate-400">
+              <span>{{ t('profile.memberSince') }}:</span>
+              <span class="text-slate-200 font-mono">{{ formatDate(profileData?.createdAt) }}</span>
+            </div>
+          </div>
+        </Card>
+
+        <!-- Right Card: Form Tabs -->
+        <Card padding="md" class="lg:col-span-2 space-y-6">
+          <!-- Tab Switcher -->
+          <div class="flex border-b border-slate-800 pb-2 gap-4">
+            <button
               :class="[
-                'px-2.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider',
-                role === 'ADMIN'
-                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                  : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30',
+                'text-sm font-semibold pb-2 border-b-2 transition-colors touch-manipulation active:scale-95',
+                activeTab === 'profile'
+                  ? 'border-indigo-500 text-indigo-400'
+                  : 'border-transparent text-slate-400 hover:text-slate-200',
               ]"
+              @click="activeTab = 'profile'"
             >
-              {{ role }}
-            </span>
+              {{ t('profile.tabProfile') }}
+            </button>
+            <button
+              :class="[
+                'text-sm font-semibold pb-2 border-b-2 transition-colors touch-manipulation active:scale-95',
+                activeTab === 'password'
+                  ? 'border-indigo-500 text-indigo-400'
+                  : 'border-transparent text-slate-400 hover:text-slate-200',
+              ]"
+              @click="activeTab = 'password'"
+            >
+              {{ t('profile.tabPassword') }}
+            </button>
           </div>
-        </div>
 
-        <div class="border-t border-slate-800 pt-4 space-y-2 text-xs text-left">
-          <div class="flex justify-between text-slate-400">
-            <span>{{ t('profile.accountStatus') }}:</span>
-            <Badge :variant="profileData?.status === 'ACTIVE' ? 'success' : 'danger'">
-              {{ profileData?.status === 'ACTIVE' ? t('status.ACTIVE') : profileData?.status }}
-            </Badge>
-          </div>
-          <div class="flex justify-between text-slate-400">
-            <span>{{ t('profile.memberSince') }}:</span>
-            <span class="text-slate-200 font-mono">{{ formatDate(profileData?.createdAt) }}</span>
-          </div>
-        </div>
-      </Card>
-
-      <!-- Right Card: Form Tabs -->
-      <Card padding="md" class="lg:col-span-2 space-y-6">
-        <!-- Tab Switcher -->
-        <div class="flex border-b border-slate-800 pb-2 gap-4">
-          <button
-            :class="[
-              'text-sm font-semibold pb-2 border-b-2 transition-colors',
-              activeTab === 'profile'
-                ? 'border-indigo-500 text-indigo-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200',
-            ]"
-            @click="activeTab = 'profile'"
-          >
-            {{ t('profile.tabProfile') }}
-          </button>
-          <button
-            :class="[
-              'text-sm font-semibold pb-2 border-b-2 transition-colors',
-              activeTab === 'password'
-                ? 'border-indigo-500 text-indigo-400'
-                : 'border-transparent text-slate-400 hover:text-slate-200',
-            ]"
-            @click="activeTab = 'password'"
-          >
-            {{ t('profile.tabPassword') }}
-          </button>
-        </div>
-
-        <!-- Profile Form -->
-        <form v-if="activeTab === 'profile'" class="space-y-4" @submit.prevent="handleUpdateProfile">
-          <Input
-            v-model="profileForm.fullName"
-            :label="t('auth.fullNameLabel')"
-            :error="profileErrors.fullName"
-            required
-          />
+          <!-- Tab Content with Transition -->
+          <transition name="fade-fast" mode="out-in">
+            <!-- Profile Form -->
+            <form v-if="activeTab === 'profile'" key="tab-profile" class="space-y-4" @submit.prevent="handleUpdateProfile">
+              <Input
+                v-model="profileForm.fullName"
+                :label="t('auth.fullNameLabel')"
+                :error="profileErrors.fullName"
+                required
+              />
 
           <Input
             v-model="profileForm.phone"
@@ -302,7 +306,7 @@ onMounted(() => {
         </form>
 
         <!-- Password Form -->
-        <form v-else class="space-y-4" @submit.prevent="handleChangePassword">
+        <form v-else key="tab-password" class="space-y-4" @submit.prevent="handleChangePassword">
           <Input
             v-model="passwordForm.currentPassword"
             :type="showPasswords ? 'text' : 'password'"
@@ -347,7 +351,9 @@ onMounted(() => {
             </Button>
           </div>
         </form>
-      </Card>
-    </div>
+          </transition>
+        </Card>
+      </div>
+    </transition>
   </div>
 </template>

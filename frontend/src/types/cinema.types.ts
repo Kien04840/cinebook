@@ -9,6 +9,10 @@ export interface SeatResponse {
   auditoriumId: string
   seatTypeId: string
   seatTypeName: string
+  seatTypeCode?: string
+  capacity?: number
+  colorToken?: string
+  icon?: string
   rowLabel: string
   seatNumber: number
   seatCode: string

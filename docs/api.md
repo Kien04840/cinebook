@@ -298,18 +298,25 @@ GET /api/v1/showtimes/{showtimeId}/seats
     "id": "uuid",
     "auditoriumId": "uuid",
     "seatTypeId": "uuid",
-    "seatTypeName": "STANDARD",
-    "priceModifier": 0.00,
-    "rowLabel": "A",
+    "seatTypeName": "Couple",
+    "seatTypeCode": "COUPLE",
+    "capacity": 2,
+    "colorToken": "rose",
+    "icon": "heart",
+    "priceModifier": 50000.00,
+    "rowLabel": "E",
     "seatNumber": 1,
-    "seatCode": "A01",
+    "seatCode": "E1",
     "seatStatus": "ACTIVE",
-    "availabilityStatus": "HELD",
-    "isHeldByCurrentUser": true
+    "availabilityStatus": "AVAILABLE",
+    "isHeldByCurrentUser": false
   }
 ]
 ```
 - `availabilityStatus`: `AVAILABLE`, `HELD`, `SOLD`, `BLOCKED`.
+- `capacity`: Number of persons accommodated (default 1, Couple seats = 2).
+- `colorToken`: Semantic UI color whitelist (`slate`, `amber`, `rose`, `indigo`, etc.).
+- `icon`: Semantic Lucide icon whitelist (`armchair`, `crown`, `heart`, etc.).
 - `isHeldByCurrentUser`: `true` if held by the authenticated requesting user; `false` otherwise or for anonymous users.
 
 **Auth**: Public (optional Bearer token to identify current user's held seats)
@@ -1237,4 +1244,86 @@ All endpoints in this section require `ADMIN` authentication (`Authorization: Be
 **Response `200 OK`:** Binary file download with headers:
 - `Content-Type`: `text/csv; charset=UTF-8` or `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
 - `Content-Disposition`: `attachment; filename="<report-name>-<timestamp>.<csv|xlsx>"`
+
+---
+
+## 20. Seat Types Management
+
+### 20.1 List Active Seat Types (Public)
+`GET /api/v1/seat-types`
+
+**Auth**: Public  
+**Response `200 OK`:** `List<SeatTypeResponse>`
+
+```json
+[
+  {
+    "id": "uuid",
+    "code": "COUPLE",
+    "name": "Couple",
+    "capacity": 2,
+    "colorToken": "rose",
+    "icon": "heart",
+    "priceModifier": 50000.00,
+    "description": "Double seat designed for two people with extra comfort and privacy.",
+    "status": "ACTIVE",
+    "createdAt": "2026-08-26T10:00:00",
+    "updatedAt": "2026-08-26T10:00:00"
+  }
+]
+```
+
+### 20.2 Admin List All Seat Types
+`GET /api/v1/admin/seat-types`
+
+**Auth**: Required (`ADMIN`)  
+**Response `200 OK`:** `List<SeatTypeResponse>`
+
+### 20.3 Admin Create Seat Type
+`POST /api/v1/admin/seat-types`
+
+**Auth**: Required (`ADMIN`)  
+**Request Body**:
+```json
+{
+  "code": "DELUXE",
+  "name": "Deluxe Recliner",
+  "capacity": 1,
+  "colorToken": "emerald",
+  "icon": "sparkles",
+  "priceModifier": 40000.00,
+  "description": "Luxury leather recliner"
+}
+```
+**Validation**:
+- `code`: required, UPPERCASE alphanumeric/underscore, unique across seat types.
+- `capacity`: required, positive integer (min 1).
+- `colorToken`: optional, must belong to allowed whitelist (`slate`, `amber`, `rose`, `indigo`, `emerald`, `purple`, `cyan`, `pink`).
+- `icon`: optional, must belong to allowed whitelist (`armchair`, `crown`, `heart`, `star`, `sofa`, `sparkles`, `shield`, `gem`).
+- `priceModifier`: required, non-negative decimal.
+
+**Response `201 Created`:** `SeatTypeResponse`
+
+### 20.4 Admin Update Seat Type
+`PUT /api/v1/admin/seat-types/{id}`
+
+**Auth**: Required (`ADMIN`)  
+**Request Body**:
+```json
+{
+  "name": "Deluxe Recliner Pro",
+  "capacity": 1,
+  "colorToken": "emerald",
+  "icon": "sparkles",
+  "priceModifier": 45000.00,
+  "description": "Upgraded luxury leather recliner",
+  "status": "ACTIVE"
+}
+```
+**Invariants**:
+- `capacity` is **immutable** if any physical seats in the system currently reference this seat type. Attempting to change `capacity` when seats exist returns `409 Conflict`.
+- `status`: `ACTIVE` or `INACTIVE`.
+
+**Response `200 OK`:** `SeatTypeResponse`
+
 

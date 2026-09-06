@@ -148,30 +148,39 @@ Do not invent additional seat-layout concepts if they are not present in the exi
 
 ---
 
-## 6. Seat Type Management
+## 6. Seat Type Management & Couple Semantics
 
-Seat types represent categories such as standard/VIP or other types already defined by the project.
+### 6.1 Seat Type Entity & Metadata
+Seat types represent physical categories with distinct capacity, visual styling, and pricing modifiers:
+- `code`: Unique UPPERCASE business code (e.g., `STANDARD`, `VIP`, `COUPLE`, `PREMIUM`).
+- `name`: Human-readable display label (e.g., "Ghế Standard", "Ghế Đôi Sweetbox").
+- `capacity`: Number of persons accommodated by this seat unit (default `1`; Couple seats have `capacity = 2`).
+- `color_token`: Semantic color theme for frontend rendering (`slate`, `amber`, `rose`, `indigo`, `emerald`, `purple`, `cyan`, `pink`).
+- `icon`: Semantic icon identifier (`armchair`, `crown`, `heart`, `star`, `sofa`, `sparkles`, `shield`, `gem`).
+- `price_modifier`: Flat surcharge added to showtime base price.
 
-Admin capabilities may include:
+### 6.2 Admin Capabilities
+An authorized administrator can:
+- View all seat types with codes, capacities, color swatches, and icons.
+- Create new seat types subject to code uniqueness and whitelist constraints.
+- Update seat type attributes (name, priceModifier, colorToken, icon, status).
+- **Capacity Immutability**: If any physical seats currently reference a seat type, its `capacity` cannot be changed via update APIs (enforced to prevent corruption of existing auditorium layouts).
 
-- View seat types
-- Create/update seat types if the existing API/domain permits it
-- Assign a seat type to a seat
-- Change a seat's type
+### 6.3 Couple Seat Layout Invariants
+When assigning seat types or generating auditorium layouts:
+- Seats with business code `COUPLE` (`capacity = 2`) must belong to the **last row** (highest alphabetical label) of the auditorium.
+- A Couple seat starting at `seatNumber` occupies horizontal track interval `[seatNumber, seatNumber + capacity - 1]`.
+- The seat interval must fit within `auditorium.columnsCount` (`seatNumber + capacity - 1 <= columnsCount`).
+- Track intervals of adjacent seats in the row must be strictly disjoint (no overlapping columns). Violations return `409 Conflict`.
 
-The implementation must preserve referential integrity between:
+The implementation preserves referential integrity between:
 
 ```text
 auditorium → seats → seat_type
 ```
 
-Seat-type pricing behavior must not be mixed into the seat entity unless explicitly required by the existing pricing model.
-
-Pricing rules are separately documented and should remain governed by:
-
-`docs/business-rules.md`
-
-and the relevant database definitions.
+Pricing rules are separately documented in `docs/business-rules.md`.
+Couple seats follow **flat pricing**: 1 Couple seat unit costs `basePrice + priceModifier` (no capacity multiplier).
 
 ---
 

@@ -21,6 +21,8 @@ public class BookingSeatResponse {
     private String seatCode;
     private String seatTypeId;
     private String seatTypeName;
+    private String seatTypeCode;
+    private Short capacity;
     private BigDecimal price;
 }
 

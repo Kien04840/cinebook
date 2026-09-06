@@ -21,6 +21,12 @@ public interface SeatTypeRepository extends JpaRepository<SeatType, String> {
 
     boolean existsByNameIgnoreCaseAndIdNot(String name, String id);
 
+    Optional<SeatType> findByCodeIgnoreCase(String code);
+
+    boolean existsByCodeIgnoreCase(String code);
+
+    boolean existsByCodeIgnoreCaseAndIdNot(String code, String id);
+
     List<SeatType> findByStatus(SeatTypeStatus status);
 
     Page<SeatType> findByStatus(SeatTypeStatus status, Pageable pageable);

@@ -128,7 +128,9 @@ class CinemaSecurityTest {
                 .andExpect(status().isOk());
 
         CreateSeatTypeRequest seatTypeRequest = CreateSeatTypeRequest.builder()
+                .code("VIP_SEC")
                 .name("VIP")
+                .capacity((short) 1)
                 .priceModifier(new BigDecimal("20000.00"))
                 .status(SeatTypeStatus.ACTIVE)
                 .build();

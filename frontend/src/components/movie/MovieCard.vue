@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { MovieSummaryResponse } from '@/types/movie.types'
 import { formatDuration, formatDate } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import Badge from '@/components/common/Badge.vue'
+import ImageWithFallback from '@/components/common/ImageWithFallback.vue'
 
 interface Props {
   movie: MovieSummaryResponse
@@ -13,17 +13,6 @@ interface Props {
 const props = defineProps<Props>()
 const router = useRouter()
 const { t, locale } = useI18n()
-
-const imageError = ref(false)
-const imageLoaded = ref(false)
-
-function handleImageError() {
-  imageError.value = true
-}
-
-function handleImageLoad() {
-  imageLoaded.value = true
-}
 
 function navigateToDetail() {
   router.push(`/movies/${props.movie.id}`)
@@ -52,43 +41,18 @@ function getStatusBadge(): { label: string; variant: 'success' | 'primary' | 'ne
 
 <template>
   <div
-    class="group relative flex flex-col rounded-2xl bg-slate-800/90 border border-slate-700/80 overflow-hidden shadow-lg hover:shadow-indigo-500/10 hover:border-slate-600 transition-all duration-300 cursor-pointer"
+    class="group relative flex flex-col rounded-2xl bg-slate-800/90 border border-slate-700/80 overflow-hidden shadow-lg hover:shadow-xl hover:shadow-indigo-500/10 hover:border-indigo-500/50 hover:-translate-y-1 transition-all duration-300 cursor-pointer"
     @click="navigateToDetail"
   >
     <!-- Poster Aspect Ratio 2:3 with smooth load transition -->
     <div class="relative w-full aspect-[2/3] bg-slate-900 overflow-hidden">
-      <!-- Loading Skeleton behind image -->
-      <div
-        v-if="!imageLoaded && !imageError"
-        class="absolute inset-0 bg-slate-800 animate-pulse flex items-center justify-center text-slate-600"
-      >
-        <svg class="w-8 h-8 opacity-40 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-      </div>
-
-      <img
-        v-if="movie.posterUrl && !imageError"
+      <ImageWithFallback
         :src="movie.posterUrl"
         :alt="movie.title"
-        :class="[
-          'w-full h-full object-cover group-hover:scale-105 transition-all duration-500',
-          imageLoaded ? 'opacity-100' : 'opacity-0'
-        ]"
-        loading="lazy"
-        @load="handleImageLoad"
-        @error="handleImageError"
+        aspect-ratio="2/3"
+        rounded="rounded-none"
+        img-class="group-hover:scale-105 transition-transform duration-500"
       />
-      <div
-        v-else
-        class="w-full h-full flex flex-col items-center justify-center p-4 text-center bg-slate-850 text-slate-500"
-      >
-        <svg class="w-12 h-12 mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-        </svg>
-        <span class="text-xs font-medium line-clamp-2 text-slate-400">{{ movie.title }}</span>
-      </div>
 
       <!-- Top Badges Overlay -->
       <div class="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-none">

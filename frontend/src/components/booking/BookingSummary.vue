@@ -178,9 +178,11 @@ watch(
           'p-4 rounded-xl border flex items-center justify-between gap-4 transition-colors',
           isHoldExpired
             ? 'bg-rose-950/60 border-rose-800 text-rose-200'
-            : holdRemainingSeconds < 60
-              ? 'bg-amber-950/70 border-amber-500 text-amber-200 animate-pulse'
-              : 'bg-indigo-950/60 border-indigo-700/80 text-indigo-200'
+            : holdRemainingSeconds <= 30
+              ? 'bg-rose-950/70 border-rose-500 text-rose-200 animate-pulse'
+              : holdRemainingSeconds < 60
+                ? 'bg-amber-950/70 border-amber-500 text-amber-200 animate-pulse'
+                : 'bg-indigo-950/60 border-indigo-700/80 text-indigo-200'
         ]"
       >
         <div class="space-y-0.5">
@@ -192,7 +194,7 @@ watch(
           </p>
         </div>
 
-        <div v-if="!isHoldExpired" class="text-2xl sm:text-3xl font-mono font-black shrink-0 text-white drop-shadow">
+        <div v-if="!isHoldExpired" class="text-2xl sm:text-3xl font-mono font-black shrink-0 text-white drop-shadow tabular-nums tracking-wider">
           {{ formattedRemainingTime }}
         </div>
       </div>
@@ -272,7 +274,7 @@ watch(
             {{ t('booking.selectedSeatsTitle', { count: selectedSeats.length }) }}
           </span>
           <span class="text-slate-400">
-            Tối đa 8 ghế
+            {{ t('booking.maxSeatsNote') }}
           </span>
         </div>
 
@@ -280,11 +282,16 @@ watch(
           {{ t('booking.noSeatsSelected') }}
         </div>
 
-        <div v-else class="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1">
+        <transition-group
+          v-else
+          tag="div"
+          name="fade-fast"
+          class="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1"
+        >
           <div
             v-for="seat in selectedSeats"
             :key="seat.id"
-            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200"
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 transition-all duration-150"
           >
             <span class="font-bold text-white">{{ seat.seatCode }}</span>
             <span class="text-[10px] text-slate-400">({{ seat.seatTypeName }})</span>
@@ -297,7 +304,7 @@ watch(
               ✕
             </button>
           </div>
-        </div>
+        </transition-group>
       </div>
 
       <!-- Promotion Code Input Section -->
@@ -306,62 +313,65 @@ watch(
           🏷️ {{ t('booking.promoInputLabel') }}
         </label>
 
-        <!-- If Promotion Applied -->
-        <div
-          v-if="validatedPromo"
-          class="flex items-center justify-between p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-600/80 text-xs"
-        >
-          <div class="space-y-0.5">
-            <div class="flex items-center gap-2">
-              <span class="font-mono font-bold text-emerald-400 uppercase tracking-wider">
-                {{ validatedPromo.code }}
-              </span>
-              <span class="text-[10px] text-emerald-300">
-                (-{{ formatCurrency(validatedPromo.discountAmount) }})
-              </span>
+        <transition name="fade-fast" mode="out-in">
+          <!-- If Promotion Applied -->
+          <div
+            v-if="validatedPromo"
+            key="applied"
+            class="flex items-center justify-between p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-600/80 text-xs"
+          >
+            <div class="space-y-0.5">
+              <div class="flex items-center gap-2">
+                <span class="font-mono font-bold text-emerald-400 uppercase tracking-wider">
+                  {{ validatedPromo.code }}
+                </span>
+                <span class="text-[10px] text-emerald-300">
+                  (-{{ formatCurrency(validatedPromo.discountAmount) }})
+                </span>
+              </div>
+              <p class="text-[10px] text-slate-400 truncate max-w-[200px]">
+                {{ validatedPromo.name }}
+              </p>
             </div>
-            <p class="text-[10px] text-slate-400 truncate max-w-[200px]">
-              {{ validatedPromo.name }}
+
+            <button
+              type="button"
+              class="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+              title="Bỏ mã giảm giá"
+              @click="removePromotion"
+            >
+              ✕
+            </button>
+          </div>
+
+          <!-- Input Box If Not Applied -->
+          <div v-else key="input" class="space-y-1.5">
+            <div class="flex items-center gap-2">
+              <input
+                id="promoCodeInput"
+                v-model="promoInput"
+                type="text"
+                class="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-xs uppercase placeholder:normal-case placeholder:font-sans placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                :placeholder="t('booking.promoPlaceholder')"
+                :disabled="selectedSeats.length === 0 || isValidatingPromo"
+                @keyup.enter="applyPromotion"
+              />
+              <Button
+                variant="secondary"
+                size="sm"
+                :disabled="selectedSeats.length === 0 || !promoInput.trim() || isValidatingPromo"
+                :loading="isValidatingPromo"
+                @click="applyPromotion"
+              >
+                {{ t('booking.applyPromoBtn') }}
+              </Button>
+            </div>
+
+            <p v-if="promoError" class="text-[11px] text-rose-400 font-medium">
+              ⚠️ {{ promoError }}
             </p>
           </div>
-
-          <button
-            type="button"
-            class="p-1 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
-            title="Bỏ mã giảm giá"
-            @click="removePromotion"
-          >
-            ✕
-          </button>
-        </div>
-
-        <!-- Input Box If Not Applied -->
-        <div v-else class="space-y-1.5">
-          <div class="flex items-center gap-2">
-            <input
-              id="promoCodeInput"
-              v-model="promoInput"
-              type="text"
-              class="flex-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-xs uppercase placeholder:normal-case placeholder:font-sans placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              :placeholder="t('booking.promoPlaceholder')"
-              :disabled="selectedSeats.length === 0 || isValidatingPromo"
-              @keyup.enter="applyPromotion"
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              :disabled="selectedSeats.length === 0 || !promoInput.trim() || isValidatingPromo"
-              :loading="isValidatingPromo"
-              @click="applyPromotion"
-            >
-              {{ t('booking.applyPromoBtn') }}
-            </Button>
-          </div>
-
-          <p v-if="promoError" class="text-[11px] text-rose-400 font-medium">
-            ⚠️ {{ promoError }}
-          </p>
-        </div>
+        </transition>
       </div>
 
       <!-- Estimated Price Preview -->

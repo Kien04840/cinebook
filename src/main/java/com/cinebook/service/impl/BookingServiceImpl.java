@@ -706,6 +706,10 @@ public class BookingServiceImpl implements BookingService {
                     .auditoriumId(auditorium.getId())
                     .seatTypeId(seatType != null ? seatType.getId() : null)
                     .seatTypeName(seatType != null ? seatType.getName() : null)
+                    .seatTypeCode(seatType != null ? seatType.getCode() : null)
+                    .capacity(seatType != null ? seatType.getCapacity() : (short) 1)
+                    .colorToken(seatType != null ? seatType.getColorToken() : null)
+                    .icon(seatType != null ? seatType.getIcon() : null)
                     .priceModifier(seatType != null ? seatType.getPriceModifier() : BigDecimal.ZERO)
                     .rowLabel(seat.getRowLabel())
                     .seatNumber(seat.getSeatNumber())
@@ -845,12 +849,15 @@ public class BookingServiceImpl implements BookingService {
 
         List<BookingTicketItemResponse> ticketItems = tickets.stream().map(t -> {
             Seat s = t.getSeat();
+            SeatType st = s != null ? s.getSeatType() : null;
             return BookingTicketItemResponse.builder()
                     .ticketId(t.getId())
                     .seatCode(s != null ? s.getSeatCode() : null)
                     .rowLabel(s != null ? s.getRowLabel() : null)
                     .seatNumber(s != null && s.getSeatNumber() != null ? s.getSeatNumber().intValue() : null)
-                    .seatTypeName(s != null && s.getSeatType() != null ? s.getSeatType().getName() : null)
+                    .seatTypeName(st != null ? st.getName() : null)
+                    .seatTypeCode(st != null ? st.getCode() : null)
+                    .capacity(st != null && st.getCapacity() != null ? st.getCapacity() : (short) 1)
                     .ticketPrice(t.getTicketPrice())
                     .ticketStatus(t.getTicketStatus())
                     .build();
@@ -947,12 +954,15 @@ public class BookingServiceImpl implements BookingService {
         List<Ticket> reloadedTickets = ticketRepository.findByBookingIdWithSeat(booking.getId());
         List<BookingTicketItemResponse> ticketItems = reloadedTickets.stream().map(t -> {
             Seat s = t.getSeat();
+            SeatType st = s != null ? s.getSeatType() : null;
             return BookingTicketItemResponse.builder()
                     .ticketId(t.getId())
                     .seatCode(s != null ? s.getSeatCode() : null)
                     .rowLabel(s != null ? s.getRowLabel() : null)
                     .seatNumber(s != null && s.getSeatNumber() != null ? s.getSeatNumber().intValue() : null)
-                    .seatTypeName(s != null && s.getSeatType() != null ? s.getSeatType().getName() : null)
+                    .seatTypeName(st != null ? st.getName() : null)
+                    .seatTypeCode(st != null ? st.getCode() : null)
+                    .capacity(st != null && st.getCapacity() != null ? st.getCapacity() : (short) 1)
                     .ticketPrice(t.getTicketPrice())
                     .ticketStatus(t.getTicketStatus())
                     .build();

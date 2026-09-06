@@ -20,6 +20,10 @@ public class SeatResponse {
     private String auditoriumId;
     private String seatTypeId;
     private String seatTypeName;
+    private String seatTypeCode;
+    private Short capacity;
+    private String colorToken;
+    private String icon;
     private BigDecimal priceModifier;
     private String rowLabel;
     private Short seatNumber;

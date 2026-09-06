@@ -91,6 +91,8 @@ public interface TicketRepository extends JpaRepository<Ticket, String> {
 
     @Query("""
         SELECT t FROM Ticket t
+        JOIN FETCH t.seat s
+        LEFT JOIN FETCH s.seatType st
         WHERE t.booking.showtime.id = :showtimeId
           AND t.ticketStatus IN :statuses
     """)

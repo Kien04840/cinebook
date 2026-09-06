@@ -252,63 +252,68 @@ onMounted(async () => {
       @retry="fetchMovies"
     />
 
-    <!-- Layout-Stable Loading Skeleton Grid -->
-    <div v-else-if="isLoading" class="space-y-6 animate-pulse">
-      <div class="flex justify-between">
-        <div class="w-36 h-4 rounded bg-slate-800"></div>
-        <div class="w-24 h-4 rounded bg-slate-800"></div>
-      </div>
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 gap-4 sm:gap-6">
-        <div
-          v-for="n in 12"
-          :key="'cat-skel-' + n"
-          class="flex flex-col rounded-2xl bg-slate-800/60 border border-slate-700/60 overflow-hidden"
-        >
-          <div class="w-full aspect-[2/3] bg-slate-800"></div>
-          <div class="p-4 space-y-2.5">
-            <div class="w-3/4 h-4 rounded bg-slate-700"></div>
-            <div class="w-1/2 h-3 rounded bg-slate-700"></div>
-            <div class="pt-2 border-t border-slate-700/60 flex justify-between">
-              <div class="w-16 h-3 rounded bg-slate-700"></div>
-              <div class="w-16 h-3 rounded bg-slate-700"></div>
+    <div class="relative min-h-[400px]">
+      <transition name="fade-fast" mode="out-in">
+        <!-- Layout-Stable Loading Skeleton Grid -->
+        <div v-if="isLoading" key="loading" class="space-y-6">
+          <div class="flex justify-between">
+            <div class="w-36 h-4 rounded bg-slate-800 animate-shimmer"></div>
+            <div class="w-24 h-4 rounded bg-slate-800 animate-shimmer"></div>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 gap-4 sm:gap-6">
+            <div
+              v-for="n in 12"
+              :key="'cat-skel-' + n"
+              class="flex flex-col rounded-2xl bg-slate-800/60 border border-slate-700/60 overflow-hidden"
+            >
+              <div class="w-full aspect-[2/3] bg-slate-800/80 animate-shimmer"></div>
+              <div class="p-4 space-y-2.5">
+                <div class="w-3/4 h-4 rounded bg-slate-700/80 animate-shimmer"></div>
+                <div class="w-1/2 h-3 rounded bg-slate-700/80 animate-shimmer"></div>
+                <div class="pt-2 border-t border-slate-700/60 flex justify-between">
+                  <div class="w-16 h-3 rounded bg-slate-700/80 animate-shimmer"></div>
+                  <div class="w-16 h-3 rounded bg-slate-700/80 animate-shimmer"></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+
+        <!-- Empty State -->
+        <EmptyState
+          v-else-if="!moviesData || moviesData.content.length === 0"
+          key="empty"
+          :title="t('movies.emptyTitle')"
+          :description="t('movies.emptyDesc')"
+          :action-text="t('movies.clearAllFiltersBtn')"
+          @action="resetAllFilters"
+        />
+
+        <!-- Movie Grid Results -->
+        <div v-else key="results" class="space-y-6">
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <span>{{ t('movies.foundCount', { count: moviesData.totalElements }) }}</span>
+            <span>{{ t('movies.pageOf', { page: moviesData.page + 1, total: moviesData.totalPages || 1 }) }}</span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 gap-4 sm:gap-6">
+            <MovieCard
+              v-for="movie in moviesData.content"
+              :key="movie.id"
+              :movie="movie"
+            />
+          </div>
+
+          <!-- Pagination -->
+          <div class="pt-6 flex justify-center">
+            <Pagination
+              :current-page="moviesData.page"
+              :total-pages="moviesData.totalPages"
+              @update:current-page="handlePageChange"
+            />
+          </div>
+        </div>
+      </transition>
     </div>
-
-    <!-- Empty State -->
-    <EmptyState
-      v-else-if="!moviesData || moviesData.content.length === 0"
-      :title="t('movies.emptyTitle')"
-      :description="t('movies.emptyDesc')"
-      :action-text="t('movies.clearAllFiltersBtn')"
-      @action="resetAllFilters"
-    />
-
-    <!-- Movie Grid Results -->
-    <template v-else>
-      <div class="flex items-center justify-between text-xs text-slate-400">
-        <span>{{ t('movies.foundCount', { count: moviesData.totalElements }) }}</span>
-        <span>{{ t('movies.pageOf', { page: moviesData.page + 1, total: moviesData.totalPages || 1 }) }}</span>
-      </div>
-
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 gap-4 sm:gap-6">
-        <MovieCard
-          v-for="movie in moviesData.content"
-          :key="movie.id"
-          :movie="movie"
-        />
-      </div>
-
-      <!-- Pagination -->
-      <div class="pt-6 flex justify-center">
-        <Pagination
-          :current-page="moviesData.page"
-          :total-pages="moviesData.totalPages"
-          @update:current-page="handlePageChange"
-        />
-      </div>
-    </template>
   </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from '@/composables/useI18n'
 
 interface Props {
@@ -22,6 +22,9 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
+const modalBox = ref<HTMLElement | null>(null)
+let previousActiveElement: HTMLElement | null = null
+
 const sizeClasses = {
   sm: 'max-w-md',
   md: 'max-w-lg',
@@ -37,19 +40,52 @@ function close() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && props.modelValue) {
+  if (!props.modelValue) return
+
+  if (e.key === 'Escape') {
     close()
+    return
+  }
+
+  // Focus trap on Tab
+  if (e.key === 'Tab' && modalBox.value) {
+    const focusable = modalBox.value.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+    if (focusable.length === 0) return
+
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault()
+      first.focus()
+    }
   }
 }
 
 watch(
   () => props.modelValue,
-  (val) => {
+  async (val) => {
     if (typeof document !== 'undefined') {
       if (val) {
+        previousActiveElement = document.activeElement as HTMLElement | null
         document.body.style.overflow = 'hidden'
+        await nextTick()
+        if (modalBox.value) {
+          const firstFocusable = modalBox.value.querySelector<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+          )
+          firstFocusable?.focus()
+        }
       } else {
         document.body.style.overflow = ''
+        if (previousActiveElement && typeof previousActiveElement.focus === 'function') {
+          previousActiveElement.focus()
+        }
       }
     }
   }
@@ -94,8 +130,9 @@ onUnmounted(() => {
         >
           <div
             v-if="modelValue"
+            ref="modalBox"
             :class="[
-              'w-full bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col my-8',
+              'w-full bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col my-8 will-change-[transform,opacity]',
               sizeClasses[size],
             ]"
             role="dialog"

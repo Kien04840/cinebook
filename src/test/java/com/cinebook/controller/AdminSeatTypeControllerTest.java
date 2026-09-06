@@ -69,14 +69,22 @@ class AdminSeatTypeControllerTest {
     @Test
     void createSeatType_Returns201() throws Exception {
         CreateSeatTypeRequest request = CreateSeatTypeRequest.builder()
+                .code("VIP")
                 .name("VIP")
+                .capacity((short) 1)
+                .colorToken("amber")
+                .icon("crown")
                 .priceModifier(new BigDecimal("20000.00"))
                 .status(SeatTypeStatus.ACTIVE)
                 .build();
 
         SeatTypeResponse response = SeatTypeResponse.builder()
                 .id("st-vip")
+                .code("VIP")
                 .name("VIP")
+                .capacity((short) 1)
+                .colorToken("amber")
+                .icon("crown")
                 .priceModifier(new BigDecimal("20000.00"))
                 .build();
 
@@ -86,20 +94,28 @@ class AdminSeatTypeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.code").value("VIP"))
+                .andExpect(jsonPath("$.capacity").value(1))
                 .andExpect(jsonPath("$.name").value("VIP"));
     }
 
     @Test
     void updateSeatType_Returns200() throws Exception {
         UpdateSeatTypeRequest request = UpdateSeatTypeRequest.builder()
+                .code("VIP")
                 .name("VIP Updated")
+                .capacity((short) 1)
+                .colorToken("amber")
+                .icon("crown")
                 .priceModifier(new BigDecimal("25000.00"))
                 .status(SeatTypeStatus.ACTIVE)
                 .build();
 
         SeatTypeResponse response = SeatTypeResponse.builder()
                 .id("st-vip")
+                .code("VIP")
                 .name("VIP Updated")
+                .capacity((short) 1)
                 .build();
 
         when(seatTypeService.updateSeatType(eq("st-vip"), any(UpdateSeatTypeRequest.class))).thenReturn(response);
@@ -108,6 +124,7 @@ class AdminSeatTypeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("VIP"))
                 .andExpect(jsonPath("$.name").value("VIP Updated"));
     }
 }

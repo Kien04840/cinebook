@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { buildSeatGrid } from '@/utils/seatGrid'
+import { getAdminSeatClass, getSeatLegendClass } from '@/utils/seatTypePresentation'
 import type {
   CinemaSummaryResponse,
   CinemaDetailResponse,
@@ -88,6 +90,24 @@ const editAuditoriumForm = ref<UpdateAuditoriumRequest>({
 const isSeatsModalOpen = ref(false)
 const selectedAuditoriumForSeats = ref<AuditoriumResponse | null>(null)
 const auditoriumSeats = ref<SeatResponse[]>([])
+const adminSeatGrid = computed(() => {
+  return buildSeatGrid(auditoriumSeats.value, selectedAuditoriumForSeats.value?.columnsCount)
+})
+const uniqueSeatTypesInAuditorium = computed(() => {
+  const map = new Map<string, { code: string; name: string; colorToken?: string; capacity?: number }>()
+  for (const s of auditoriumSeats.value) {
+    const key = s.seatTypeCode || s.seatTypeId
+    if (!map.has(key)) {
+      map.set(key, {
+        code: s.seatTypeCode || '',
+        name: s.seatTypeName || '',
+        colorToken: s.colorToken,
+        capacity: s.capacity,
+      })
+    }
+  }
+  return Array.from(map.values())
+})
 const isLoadingSeats = ref(false)
 const isUpdatingSeat = ref(false)
 
@@ -850,12 +870,20 @@ onMounted(() => {
     >
       <div class="space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800 text-xs">
-          <div class="flex items-center gap-4">
-            <span class="flex items-center gap-1.5 text-slate-300">
-              <span class="w-3 h-3 rounded bg-slate-800 border border-slate-600"></span> Standard
-            </span>
-            <span class="flex items-center gap-1.5 text-slate-300">
-              <span class="w-3 h-3 rounded bg-amber-500/20 border border-amber-500/50"></span> VIP
+          <div class="flex flex-wrap items-center gap-4">
+            <span
+              v-for="st in uniqueSeatTypesInAuditorium"
+              :key="st.code || st.name"
+              class="flex items-center gap-1.5 text-slate-300"
+            >
+              <span
+                :class="[
+                  'h-3 rounded border',
+                  (st.capacity || 1) > 1 ? 'w-5' : 'w-3',
+                  getSeatLegendClass(st.colorToken)
+                ]"
+              ></span>
+              {{ st.name }}
             </span>
             <span class="flex items-center gap-1.5 text-slate-300">
               <span class="w-3 h-3 rounded bg-rose-950 border border-rose-600"></span> Hỏng / Bảo trì
@@ -871,40 +899,70 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-else class="overflow-x-auto p-4 bg-slate-950 rounded-xl border border-slate-800 max-h-[55vh]">
-          <div class="w-full flex justify-center mb-6">
-            <div class="w-3/4 py-1 text-center text-xs font-bold text-slate-400 bg-slate-850 rounded-lg border border-slate-700 tracking-widest uppercase">
+        <div v-else class="overflow-x-auto p-4 bg-slate-950 rounded-xl border border-slate-800 max-h-[55vh] scrollbar-thin scrollbar-thumb-slate-700">
+          <div class="w-max mx-auto flex flex-col items-center gap-3">
+            <div class="w-full max-w-xl py-1 text-center text-xs font-bold text-slate-400 bg-slate-850 rounded-lg border border-slate-700 tracking-widest uppercase">
               MÀN HÌNH CHIẾU
             </div>
-          </div>
 
-          <div class="flex flex-col items-center gap-2 min-w-[500px]">
-            <div
-              v-for="row in Array.from(new Set(auditoriumSeats.map(s => s.rowLabel))).sort()"
-              :key="row"
-              class="flex items-center gap-1.5"
-            >
-              <span class="w-6 text-center text-xs font-bold text-slate-400">{{ row }}</span>
-              <div class="flex items-center gap-1.5">
-                <button
-                  v-for="seat in auditoriumSeats.filter(s => s.rowLabel === row).sort((a,b) => a.seatNumber - b.seatNumber)"
-                  :key="seat.id"
-                  type="button"
-                  :class="[
-                    'w-7 h-7 rounded text-[10px] font-bold transition-all flex items-center justify-center border',
-                    seat.status === 'BROKEN'
-                      ? 'bg-rose-950/80 border-rose-600 text-rose-300'
-                      : seat.seatTypeName === 'VIP'
-                      ? 'bg-amber-500/20 border-amber-500 text-amber-300 hover:bg-amber-500/30'
-                      : 'bg-slate-800 border-slate-600 text-slate-200 hover:bg-slate-700'
-                  ]"
-                  :title="`Ghế ${seat.seatCode} (${seat.seatTypeName}) - ${seat.status}`"
-                  @click="toggleSeatStatus(seat)"
+            <!-- Column Header -->
+            <div class="flex items-center gap-2">
+              <span class="w-6 shrink-0" aria-hidden="true"></span>
+              <div
+                class="grid gap-1.5"
+                :style="{
+                  gridTemplateColumns: `repeat(${adminSeatGrid.columnsCount}, minmax(28px, 32px))`,
+                }"
+              >
+                <div
+                  v-for="col in adminSeatGrid.columnNumbers"
+                  :key="col"
+                  class="h-6 flex items-center justify-center text-[10px] font-bold text-slate-500 select-none"
                 >
-                  {{ seat.seatNumber }}
-                </button>
+                  {{ col }}
+                </div>
               </div>
-              <span class="w-6 text-center text-xs font-bold text-slate-400">{{ row }}</span>
+              <span class="w-6 shrink-0" aria-hidden="true"></span>
+            </div>
+
+            <!-- Rows -->
+            <div
+              v-for="row in adminSeatGrid.rows"
+              :key="row.rowLabel"
+              class="flex items-center gap-2"
+            >
+              <span class="w-6 text-center text-xs font-bold text-slate-400 shrink-0">{{ row.rowLabel }}</span>
+              <div
+                class="grid gap-1.5"
+                :style="{
+                  gridTemplateColumns: `repeat(${adminSeatGrid.columnsCount}, minmax(28px, 32px))`,
+                }"
+              >
+                <template v-for="cell in row.cells" :key="cell.column">
+                  <button
+                    v-if="cell.type === 'seat' && cell.seat"
+                    :style="{ gridColumn: `span ${cell.span}` }"
+                    type="button"
+                    :class="[
+                      'h-7 px-1 rounded text-[10px] font-bold transition-all flex items-center justify-center border',
+                      cell.seat.status === 'BROKEN'
+                        ? 'bg-rose-950/80 border-rose-600 text-rose-300 hover:bg-rose-900/80'
+                        : getAdminSeatClass(cell.seat.colorToken)
+                    ]"
+                    :title="`Ghế ${cell.seat.seatCode} (${cell.seat.seatTypeName}) - ${cell.seat.status}`"
+                    @click="toggleSeatStatus(cell.seat)"
+                  >
+                    {{ cell.seat.seatNumber }}
+                  </button>
+                  <div
+                    v-else
+                    :style="{ gridColumn: `span ${cell.span}` }"
+                    class="h-7 rounded border border-dashed border-slate-800/80 bg-slate-900/20 pointer-events-none"
+                    aria-hidden="true"
+                  />
+                </template>
+              </div>
+              <span class="w-6 text-center text-xs font-bold text-slate-400 shrink-0">{{ row.rowLabel }}</span>
             </div>
           </div>
         </div>

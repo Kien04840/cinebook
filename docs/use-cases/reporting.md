@@ -42,19 +42,21 @@ With the integration of Payment V2 + Refund, financial calculations are strictly
 * **Net Tickets Sold**:
   * $\text{Net Tickets Sold} = \text{Gross Tickets Sold} - \text{Refunded Tickets}$.
 
-### 3.3 Showtime Occupancy Invariants
-* **Total Capacity**:
-  * Count of `ACTIVE` seats in the auditorium associated with the showtime:
-    $$\text{Total Capacity} = \text{COUNT}(\text{Seat}) \quad \text{where} \; \text{seat.auditorium.id} = \text{showtime.auditorium.id} \; \text{AND} \; \text{seat.status} = \text{ACTIVE}$$
-* **Occupied Seats**:
-  * Count of tickets currently holding or used for a seat:
-    $$\text{Occupied Seats} = \text{COUNT}(\text{Ticket}) \quad \text{where} \; \text{ticket.showtime.id} = \text{showtime.id} \; \text{AND} \; \text{ticket.ticketStatus} \in \{\text{VALID}, \text{USED}\}$$
-  * *Note*: `CANCELLED` tickets do NOT occupy seats.
-* **Available Seats**:
-  * $\text{Available Seats} = \max(0, \text{Total Capacity} - \text{Occupied Seats})$.
+### 3.3 Showtime Occupancy Invariants (Capacity-Weighted)
+With the introduction of Couple seats (`capacity = 2`), occupancy tracking is **capacity-weighted** to accurately measure people utilization:
+* **Total People Capacity**:
+  * Sum of people capacities of all `ACTIVE` seats in the auditorium:
+    $$\text{Total Capacity} = \sum \text{seat.seatType.capacity} \quad \text{where} \; \text{seat.auditorium.id} = \text{showtime.auditorium.id} \; \text{AND} \; \text{seat.status} = \text{ACTIVE}$$
+* **Occupied People Capacity**:
+  * Sum of people capacities of seats with valid/used tickets:
+    $$\text{Occupied People} = \sum \text{ticket.seat.seatType.capacity} \quad \text{where} \; \text{ticket.showtime.id} = \text{showtime.id} \; \text{AND} \; \text{ticket.ticketStatus} \in \{\text{VALID}, \text{USED}\}$$
+  * *Note*: `CANCELLED` tickets do NOT occupy capacity.
+* **Available Capacity**:
+  * $\text{Available Capacity} = \max(0, \text{Total Capacity} - \text{Occupied People})$.
 * **Occupancy Rate**:
-  * $\text{Occupancy Rate} = \frac{\text{Occupied Seats}}{\text{Total Capacity}} \times 100\%$ (rounded to 2 decimal places).
+  * $\text{Occupancy Rate} = \frac{\text{Occupied People}}{\text{Total Capacity}} \times 100\%$ (rounded to 2 decimal places).
   * If $\text{Total Capacity} = 0$, $\text{Occupancy Rate} = 0.00\%$.
+  * *Note*: Ticket counts and gross revenue remain unmultiplied counts and financial amounts.
 
 ### 3.4 Booking Statistics
 * Categorized by finalized `BookingStatus`:

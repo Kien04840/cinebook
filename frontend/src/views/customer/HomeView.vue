@@ -96,19 +96,33 @@ function stopHeroAutoplay() {
   }
 }
 
+function preloadNextSlide() {
+  if (featuredMovies.value.length <= 1) return
+  const nextIndex = (currentHeroIndex.value + 1) % featuredMovies.value.length
+  const nextMovie = featuredMovies.value[nextIndex]
+  const url = nextMovie?.backdropUrl || nextMovie?.posterUrl
+  if (url && typeof Image !== 'undefined') {
+    const img = new Image()
+    img.src = url
+  }
+}
+
 function nextHeroSlide() {
   if (featuredMovies.value.length === 0) return
   currentHeroIndex.value = (currentHeroIndex.value + 1) % featuredMovies.value.length
+  preloadNextSlide()
 }
 
 function prevHeroSlide() {
   if (featuredMovies.value.length === 0) return
   currentHeroIndex.value =
     (currentHeroIndex.value - 1 + featuredMovies.value.length) % featuredMovies.value.length
+  preloadNextSlide()
 }
 
 function goToHeroSlide(index: number) {
   currentHeroIndex.value = index
+  preloadNextSlide()
 }
 
 // Horizontal Scroll Carousel Helpers
@@ -154,21 +168,21 @@ onUnmounted(() => {
     <!-- 1. Hero Section: Skeleton vs Dynamic Featured Carousel -->
     <template v-if="isLoading">
       <!-- Stable Hero Skeleton -->
-      <section class="relative w-full min-h-[440px] sm:min-h-[520px] lg:min-h-[580px] bg-slate-950 flex items-end overflow-hidden border-b border-slate-800 animate-pulse">
+      <section class="relative w-full min-h-[440px] sm:min-h-[520px] lg:min-h-[580px] bg-slate-950 flex items-end overflow-hidden border-b border-slate-800">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 w-full space-y-4">
           <div class="flex items-center gap-2">
-            <div class="w-28 h-6 rounded bg-slate-800"></div>
-            <div class="w-10 h-6 rounded bg-slate-800"></div>
+            <div class="w-28 h-6 rounded bg-slate-800/80 animate-shimmer"></div>
+            <div class="w-10 h-6 rounded bg-slate-800/80 animate-shimmer"></div>
           </div>
-          <div class="w-3/4 max-w-xl h-10 sm:h-12 rounded-lg bg-slate-800"></div>
+          <div class="w-3/4 max-w-xl h-10 sm:h-12 rounded-lg bg-slate-800/80 animate-shimmer"></div>
           <div class="flex items-center gap-4">
-            <div class="w-24 h-4 rounded bg-slate-800"></div>
-            <div class="w-32 h-4 rounded bg-slate-800"></div>
-            <div class="w-20 h-4 rounded bg-slate-800"></div>
+            <div class="w-24 h-4 rounded bg-slate-800/80 animate-shimmer"></div>
+            <div class="w-32 h-4 rounded bg-slate-800/80 animate-shimmer"></div>
+            <div class="w-20 h-4 rounded bg-slate-800/80 animate-shimmer"></div>
           </div>
           <div class="pt-3 flex items-center gap-3">
-            <div class="w-48 h-12 rounded-xl bg-slate-800"></div>
-            <div class="w-32 h-12 rounded-xl bg-slate-800"></div>
+            <div class="w-48 h-12 rounded-xl bg-slate-800/80 animate-shimmer"></div>
+            <div class="w-32 h-12 rounded-xl bg-slate-800/80 animate-shimmer"></div>
           </div>
         </div>
       </section>
@@ -188,6 +202,9 @@ onUnmounted(() => {
               :key="currentFeaturedMovie.id"
               :src="currentFeaturedMovie.backdropUrl || currentFeaturedMovie.posterUrl"
               :alt="currentFeaturedMovie.title"
+              loading="eager"
+              fetchpriority="high"
+              decoding="async"
               :class="[
                 'w-full h-full object-cover object-center transition-opacity duration-700',
                 heroImagesLoaded[currentFeaturedMovie.id] ? 'opacity-90' : 'opacity-0'
@@ -314,13 +331,13 @@ onUnmounted(() => {
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
       <!-- Loading Skeleton Grids (Preserves Complete Page Layout Height) -->
       <template v-if="isLoading">
-        <section class="space-y-6 animate-pulse">
+        <section class="space-y-6">
           <div class="flex items-center justify-between border-b border-slate-800 pb-3">
             <div class="space-y-2">
-              <div class="w-44 h-7 rounded bg-slate-800"></div>
-              <div class="w-72 h-4 rounded bg-slate-800"></div>
+              <div class="w-44 h-7 rounded bg-slate-800/80 animate-shimmer"></div>
+              <div class="w-72 h-4 rounded bg-slate-800/80 animate-shimmer"></div>
             </div>
-            <div class="w-20 h-4 rounded bg-slate-800"></div>
+            <div class="w-20 h-4 rounded bg-slate-800/80 animate-shimmer"></div>
           </div>
 
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 sm:gap-6">
@@ -329,13 +346,13 @@ onUnmounted(() => {
               :key="'ns-skel-' + n"
               class="flex flex-col rounded-2xl bg-slate-800/60 border border-slate-700/60 overflow-hidden"
             >
-              <div class="w-full aspect-[2/3] bg-slate-800"></div>
+              <div class="w-full aspect-[2/3] bg-slate-800/80 animate-shimmer"></div>
               <div class="p-4 space-y-2.5">
-                <div class="w-3/4 h-4 rounded bg-slate-700"></div>
-                <div class="w-1/2 h-3 rounded bg-slate-700"></div>
+                <div class="w-3/4 h-4 rounded bg-slate-700/80 animate-shimmer"></div>
+                <div class="w-1/2 h-3 rounded bg-slate-700/80 animate-shimmer"></div>
                 <div class="pt-2 border-t border-slate-700/60 flex justify-between">
-                  <div class="w-16 h-3 rounded bg-slate-700"></div>
-                  <div class="w-16 h-3 rounded bg-slate-700"></div>
+                  <div class="w-16 h-3 rounded bg-slate-700/80 animate-shimmer"></div>
+                  <div class="w-16 h-3 rounded bg-slate-700/80 animate-shimmer"></div>
                 </div>
               </div>
             </div>

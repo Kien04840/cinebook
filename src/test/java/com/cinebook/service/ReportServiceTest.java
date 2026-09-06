@@ -225,10 +225,19 @@ class ReportServiceTest {
 
 
         when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(List.of(st1));
-        when(seatRepository.countByAuditoriumIdAndStatus(eq(aud.getId()), eq(SeatStatus.ACTIVE))).thenReturn(100L);
+        when(seatRepository.sumCapacityByAuditoriumIdAndStatus(eq(aud.getId()), eq(SeatStatus.ACTIVE))).thenReturn(100L);
+
+        SeatType stType = new SeatType();
+        stType.setCapacity((short) 1);
+        Seat s1 = new Seat();
+        s1.setSeatType(stType);
+        Seat s2 = new Seat();
+        s2.setSeatType(stType);
 
         Ticket t1 = new Ticket();
+        t1.setSeat(s1);
         Ticket t2 = new Ticket();
+        t2.setSeat(s2);
         when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(st1.getId()), any())).thenReturn(List.of(t1, t2));
 
         // Act

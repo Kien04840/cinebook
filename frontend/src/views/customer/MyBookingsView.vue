@@ -14,6 +14,8 @@ import Modal from '@/components/common/Modal.vue'
 import Button from '@/components/common/Button.vue'
 import Badge from '@/components/common/Badge.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import ImageWithFallback from '@/components/common/ImageWithFallback.vue'
 
 const toast = useToast()
 const { t } = useI18n()
@@ -305,7 +307,7 @@ onMounted(() => {
       <button
         type="button"
         :class="[
-          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap',
+          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap touch-manipulation active:scale-95',
           activeFilter === 'ALL'
             ? 'bg-indigo-600 text-white shadow-md'
             : 'bg-slate-800 text-slate-400 hover:bg-slate-750 hover:text-slate-200'
@@ -318,7 +320,7 @@ onMounted(() => {
       <button
         type="button"
         :class="[
-          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap',
+          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap touch-manipulation active:scale-95',
           activeFilter === 'PAID'
             ? 'bg-emerald-600 text-white shadow-md'
             : 'bg-slate-800 text-slate-400 hover:bg-slate-750 hover:text-slate-200'
@@ -331,7 +333,7 @@ onMounted(() => {
       <button
         type="button"
         :class="[
-          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap',
+          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap touch-manipulation active:scale-95',
           activeFilter === 'PENDING_PAYMENT'
             ? 'bg-amber-600 text-white shadow-md'
             : 'bg-slate-800 text-slate-400 hover:bg-slate-750 hover:text-slate-200'
@@ -344,7 +346,7 @@ onMounted(() => {
       <button
         type="button"
         :class="[
-          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap',
+          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap touch-manipulation active:scale-95',
           activeFilter === 'REFUNDED'
             ? 'bg-blue-600 text-white shadow-md'
             : 'bg-slate-800 text-slate-400 hover:bg-slate-750 hover:text-slate-200'
@@ -357,7 +359,7 @@ onMounted(() => {
       <button
         type="button"
         :class="[
-          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap',
+          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap touch-manipulation active:scale-95',
           activeFilter === 'CANCELLED'
             ? 'bg-rose-600 text-white shadow-md'
             : 'bg-slate-800 text-slate-400 hover:bg-slate-750 hover:text-slate-200'
@@ -370,7 +372,7 @@ onMounted(() => {
       <button
         type="button"
         :class="[
-          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap',
+          'px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap touch-manipulation active:scale-95',
           activeFilter === 'EXPIRED'
             ? 'bg-slate-700 text-white shadow-md'
             : 'bg-slate-800 text-slate-400 hover:bg-slate-750 hover:text-slate-200'
@@ -386,63 +388,75 @@ onMounted(() => {
       <ErrorAlert :message="errorMessage" @retry="fetchMyBookings" />
     </div>
 
-    <!-- Loading Skeleton -->
-    <div v-else-if="isLoading" class="space-y-4 animate-pulse">
-      <div v-for="n in 3" :key="n" class="h-40 rounded-2xl bg-slate-800/80"></div>
-    </div>
-
-    <!-- Empty State -->
-    <div
-      v-else-if="bookings.length === 0"
-      class="p-12 text-center rounded-3xl bg-slate-900 border border-slate-800 space-y-4"
-    >
-      <div class="w-16 h-16 rounded-full bg-slate-800 text-slate-500 flex items-center justify-center mx-auto text-2xl">
-        🎟️
-      </div>
-      <h3 class="text-lg font-bold text-white">{{ t('myBookings.emptyTitle') }}</h3>
-      <p class="text-xs text-slate-400 max-w-sm mx-auto">{{ t('myBookings.emptyDesc') }}</p>
-      <div class="pt-2">
-        <router-link to="/movies">
-          <Button variant="primary" size="md">{{ t('myBookings.browseMoviesBtn') }}</Button>
-        </router-link>
-      </div>
-    </div>
-
-    <!-- Bookings Cards List -->
-    <div v-else class="space-y-4">
-      <div
-        v-for="b in bookings"
-        :key="b.id"
-        class="p-5 sm:p-6 rounded-2xl bg-slate-850 border border-slate-800 hover:border-slate-700 transition-all shadow-md space-y-4"
-      >
-        <!-- Card Top Bar: Booking Code, Created Date & Status Badge -->
-        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3 text-xs">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-slate-400">{{ t('booking.bookingCode') }}:</span>
-            <span class="font-mono font-bold text-indigo-400 text-sm tracking-wide">{{ b.bookingCode }}</span>
-            <span class="text-slate-500">• {{ formatDate(b.createdAt) }}</span>
-          </div>
-
-          <Badge :variant="getStatusBadgeVariant(b.bookingStatus)" size="sm" class="font-bold">
-            {{ getStatusLabel(b.bookingStatus) }}
-          </Badge>
-        </div>
-
-        <!-- Card Body: Poster + Movie Details + Room/Seats + Price + Actions -->
-        <div class="flex flex-col sm:flex-row gap-5 items-start">
-          <!-- Left: Movie Poster -->
-          <div class="shrink-0 w-24 sm:w-28 aspect-[2/3] rounded-xl overflow-hidden bg-slate-900 border border-slate-700/80 shadow-md">
-            <img
-              v-if="b.showtime?.moviePosterUrl"
-              :src="b.showtime.moviePosterUrl"
-              :alt="b.showtime.movieTitle || 'Movie poster'"
-              class="w-full h-full object-cover"
-            />
-            <div v-else class="w-full h-full flex flex-col items-center justify-center p-2 text-center text-slate-500 text-xs bg-slate-800">
-              <span class="text-2xl">🎬</span>
-              <span class="line-clamp-2 mt-1">{{ b.showtime?.movieTitle || b.movieTitle || 'Phim' }}</span>
+    <div class="relative min-h-[400px]">
+      <transition name="fade-fast" mode="out-in">
+        <!-- Loading Skeleton -->
+        <div v-if="isLoading" key="loading" class="space-y-4">
+          <div
+            v-for="n in 3"
+            :key="n"
+            class="h-44 rounded-2xl bg-slate-850/80 border border-slate-800 p-6 flex flex-col justify-between"
+          >
+            <div class="flex items-center justify-between">
+              <div class="w-48 h-5 rounded bg-slate-800 animate-shimmer"></div>
+              <div class="w-20 h-6 rounded-full bg-slate-800 animate-shimmer"></div>
+            </div>
+            <div class="flex gap-4 items-center">
+              <div class="w-20 aspect-[2/3] rounded-xl bg-slate-800 animate-shimmer"></div>
+              <div class="flex-1 space-y-2">
+                <div class="w-3/4 h-5 rounded bg-slate-800 animate-shimmer"></div>
+                <div class="w-1/2 h-4 rounded bg-slate-800 animate-shimmer"></div>
+                <div class="w-1/3 h-4 rounded bg-slate-800 animate-shimmer"></div>
+              </div>
             </div>
           </div>
+        </div>
+
+        <!-- Empty State -->
+        <EmptyState
+          v-else-if="bookings.length === 0"
+          key="empty"
+          :title="t('myBookings.emptyTitle')"
+          :description="t('myBookings.emptyDesc')"
+        >
+          <template #action>
+            <router-link to="/movies">
+              <Button variant="primary" size="md">{{ t('myBookings.browseMoviesBtn') }}</Button>
+            </router-link>
+          </template>
+        </EmptyState>
+
+        <!-- Bookings Cards List -->
+        <div v-else key="content" class="space-y-4">
+          <div
+            v-for="b in bookings"
+            :key="b.id"
+            class="p-5 sm:p-6 rounded-2xl bg-slate-850 border border-slate-800 hover:border-slate-700 transition-all shadow-md space-y-4"
+          >
+            <!-- Card Top Bar: Booking Code, Created Date & Status Badge -->
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3 text-xs">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-slate-400">{{ t('booking.bookingCode') }}:</span>
+                <span class="font-mono font-bold text-indigo-400 text-sm tracking-wide">{{ b.bookingCode }}</span>
+                <span class="text-slate-500">• {{ formatDate(b.createdAt) }}</span>
+              </div>
+
+              <Badge :variant="getStatusBadgeVariant(b.bookingStatus)" size="sm" class="font-bold">
+                {{ getStatusLabel(b.bookingStatus) }}
+              </Badge>
+            </div>
+
+            <!-- Card Body: Poster + Movie Details + Room/Seats + Price + Actions -->
+            <div class="flex flex-col sm:flex-row gap-5 items-start">
+              <!-- Left: Movie Poster -->
+              <div class="shrink-0 w-24 sm:w-28 aspect-[2/3] rounded-xl overflow-hidden bg-slate-900 border border-slate-700/80 shadow-md">
+                <ImageWithFallback
+                  :src="b.showtime?.moviePosterUrl"
+                  :alt="b.showtime?.movieTitle || 'Movie poster'"
+                  aspect-ratio="2/3"
+                  rounded="rounded-none"
+                />
+              </div>
 
           <!-- Center: Movie, Cinema, Auditorium, Showtime, Seats -->
           <div class="flex-1 space-y-2.5 min-w-0">
@@ -578,18 +592,20 @@ onMounted(() => {
             </div>
           </div>
         </div>
-      </div>
-
-      <!-- Pagination -->
-      <Pagination
-        v-if="totalPages > 1"
-        :current-page="currentPage"
-        :total-pages="totalPages"
-        :total-elements="totalElements"
-        :page-size="10"
-        @page-change="setPage"
-      />
+        </div>
+        </div>
+      </transition>
     </div>
+
+    <!-- Pagination -->
+    <Pagination
+      v-if="totalPages > 1"
+      :current-page="currentPage"
+      :total-pages="totalPages"
+      :total-elements="totalElements"
+      :page-size="10"
+      @page-change="setPage"
+    />
 
     <!-- Electronic Ticket & Booking Detail Modal -->
     <TicketModal

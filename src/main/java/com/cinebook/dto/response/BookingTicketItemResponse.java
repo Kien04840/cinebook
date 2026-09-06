@@ -18,6 +18,8 @@ public class BookingTicketItemResponse {
     private String rowLabel;
     private Integer seatNumber;
     private String seatTypeName;
+    private String seatTypeCode;
+    private Short capacity;
     private BigDecimal ticketPrice;
     private TicketStatus ticketStatus;
 }

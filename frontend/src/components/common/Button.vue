@@ -39,11 +39,11 @@ const sizeClasses = {
     :type="type"
     :disabled="disabled || loading"
     :class="[
-      'inline-flex items-center justify-center transition-all duration-150 select-none focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900',
+      'inline-flex items-center justify-center transition-all duration-150 select-none touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900',
       variant !== 'link' && sizeClasses[size],
       variantClasses[variant],
       block ? 'w-full' : '',
-      (disabled || loading) ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer',
+      (disabled || loading) ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer active:scale-[0.98]',
     ]"
   >
     <Spinner v-if="loading" size="sm" color="text-current" />

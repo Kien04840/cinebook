@@ -137,17 +137,19 @@ async function handleRegister() {
       <p class="text-xs text-slate-400">{{ t('auth.registerSubtitle') }}</p>
     </div>
 
-    <!-- Error Alert Banner -->
-    <div
-      v-if="errorMessage"
-      class="p-3.5 rounded-xl bg-rose-950/60 border border-rose-800 text-xs text-rose-200 flex items-start gap-2.5"
-      role="alert"
-    >
-      <svg class="w-4 h-4 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-      <span>{{ errorMessage }}</span>
-    </div>
+    <!-- Error Alert Banner with Smooth Transition -->
+    <transition name="field-error">
+      <div
+        v-if="errorMessage"
+        class="p-3.5 rounded-xl bg-rose-950/60 border border-rose-800 text-xs text-rose-200 flex items-start gap-2.5"
+        role="alert"
+      >
+        <svg class="w-4 h-4 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span>{{ errorMessage }}</span>
+      </div>
+    </transition>
 
     <form class="space-y-3.5" @submit.prevent="handleRegister">
       <!-- Full Name (REQUIRED *) -->

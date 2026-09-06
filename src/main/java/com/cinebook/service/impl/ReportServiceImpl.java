@@ -390,19 +390,23 @@ public class ReportServiceImpl implements ReportService {
 
         for (Showtime s : showtimes) {
             String audId = s.getAuditorium().getId();
-            int capacity = auditoriumCapacityMap.computeIfAbsent(audId,
-                    id -> (int) seatRepository.countByAuditoriumIdAndStatus(id, SeatStatus.ACTIVE));
+            int totalCapacity = auditoriumCapacityMap.computeIfAbsent(audId,
+                    id -> (int) seatRepository.sumCapacityByAuditoriumIdAndStatus(id, SeatStatus.ACTIVE));
 
             List<Ticket> occupiedTickets = ticketRepository.findTicketsByShowtimeIdAndStatuses(
                     s.getId(), List.of(TicketStatus.VALID, TicketStatus.USED));
-            int occupiedSeats = occupiedTickets.size();
-            int availableSeats = Math.max(0, capacity - occupiedSeats);
+            int occupiedCapacity = occupiedTickets.stream()
+                    .mapToInt(t -> (t.getSeat() != null && t.getSeat().getSeatType() != null && t.getSeat().getSeatType().getCapacity() != null)
+                            ? t.getSeat().getSeatType().getCapacity()
+                            : 1)
+                    .sum();
+            int availableSeats = Math.max(0, totalCapacity - occupiedCapacity);
 
             BigDecimal occupancyRate = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-            if (capacity > 0) {
-                occupancyRate = BigDecimal.valueOf(occupiedSeats)
+            if (totalCapacity > 0) {
+                occupancyRate = BigDecimal.valueOf(occupiedCapacity)
                         .multiply(BigDecimal.valueOf(100))
-                        .divide(BigDecimal.valueOf(capacity), 2, RoundingMode.HALF_UP);
+                        .divide(BigDecimal.valueOf(totalCapacity), 2, RoundingMode.HALF_UP);
             }
 
             results.add(ShowtimeOccupancyResponse.builder()
@@ -416,8 +420,8 @@ public class ReportServiceImpl implements ReportService {
                     .startTime(s.getStartTime())
                     .endTime(s.getEndTime())
                     .format(s.getFormat())
-                    .totalCapacity(capacity)
-                    .occupiedSeats(occupiedSeats)
+                    .totalCapacity(totalCapacity)
+                    .occupiedSeats(occupiedCapacity)
                     .availableSeats(availableSeats)
                     .occupancyRate(occupancyRate)
                     .build());

@@ -85,6 +85,9 @@ Pricing for a ticket is composed of:
 $$\text{Ticket Gross Price} = \text{basePrice} + \text{priceModifier}$$
 $$\text{Booking Gross Total} = \sum \text{Ticket Gross Prices}$$
 
+> [!NOTE]
+> Pricing for Couple seats (`capacity = 2`) is **flat**: 1 Couple seat unit costs `basePrice + priceModifier` (no capacity multiplier applied).
+
 ---
 
 ## 8. Booking & Seat Hold (Critical)
@@ -95,6 +98,23 @@ $$\text{Booking Gross Total} = \sum \text{Ticket Gross Prices}$$
 3. Booking total is calculated deterministically at reservation time and stored with an immutable snapshot.
 4. Expired seat holds must not remain valid.
 5. Payment status and booking status must stay strictly consistent.
+6. **Max Seats Limit**: A customer can select at most **8 seat units** per booking (`MAX_SEATS_PER_BOOKING = 8`). Couple seats count as 1 seat unit against this limit.
+
+### 8.2 Seat Type Domain & Couple Semantics
+- **Seat Type Metadata**:
+  - `code`: UPPERCASE unique business code (`STANDARD`, `VIP`, `COUPLE`, `PREMIUM`).
+  - `capacity`: Positive smallint (default 1; Couple seats have `capacity = 2`).
+  - `color_token`: Whitelisted semantic color tokens (`slate`, `amber`, `rose`, `indigo`, `emerald`, `purple`, `cyan`, `pink`).
+  - `icon`: Whitelisted semantic icon identifier (`armchair`, `crown`, `heart`, `star`, `sofa`, `sparkles`, `shield`, `gem`).
+- **Capacity Immutability**:
+  - `capacity` cannot be modified via update APIs if any physical seats in the system currently reference that seat type (`existsBySeatTypeId`).
+- **Couple Seat Rules**:
+  - **Single Entity**: 1 physical Couple seat = 1 row in `seats`, 1 ticket in `tickets`, 1 hold in `seat_holds`, 1 seat ID in booking payload.
+  - **Auditorium Layout Invariant**: Seats with business code `COUPLE` must belong to the auditorium's last row (highest alphabetical row label), fit within `columnsCount` (`seatNumber + capacity - 1 <= columnsCount`), and not collide with any other seat span in that row (disjoint track intervals `[seatNumber, seatNumber + capacity - 1]`). Violations return `409 Conflict`.
+- **Capacity-Weighted Occupancy**:
+  - Occupancy rate is calculated as:
+    $$\text{Occupancy Rate} = \frac{\text{Occupied People Capacity}}{\text{Total Active People Capacity}} \times 100\%$$
+    where each occupied or active seat contributes its `seat_type.capacity` (e.g. 1 Couple seat = 2 people). Ticket counts and gross revenue remain unmultiplied.
 
 #### 8.2 Seat Availability & Hold Rules
 - A hold is recorded in `seat_holds` with a unique constraint on `(showtime_id, seat_id)` (`uk_seat_holds_showtime_seat`).

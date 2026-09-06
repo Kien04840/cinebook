@@ -54,15 +54,21 @@ class SeatServiceTest {
     void setUp() {
         sampleAuditorium = new Auditorium();
         sampleAuditorium.setId("aud-1");
+        sampleAuditorium.setRowsCount((short) 5);
+        sampleAuditorium.setColumnsCount((short) 8);
 
         stdType = new SeatType();
         stdType.setId("st-std");
+        stdType.setCode("STANDARD");
         stdType.setName("STANDARD");
+        stdType.setCapacity((short) 1);
         stdType.setPriceModifier(BigDecimal.ZERO);
 
         vipType = new SeatType();
         vipType.setId("st-vip");
+        vipType.setCode("VIP");
         vipType.setName("VIP");
+        vipType.setCapacity((short) 1);
         vipType.setPriceModifier(new BigDecimal("25000.00"));
 
         sampleSeat = new Seat();
@@ -97,6 +103,98 @@ class SeatServiceTest {
         assertNotNull(result);
         assertEquals("VIP", result.getSeatTypeName());
         assertEquals(new BigDecimal("25000.00"), result.getPriceModifier());
+    }
+
+    @Test
+    void updateSeatType_AssignCoupleToLastRow_Success() {
+        SeatType coupleType = new SeatType();
+        coupleType.setId("st-couple");
+        coupleType.setCode("COUPLE");
+        coupleType.setName("Couple");
+        coupleType.setCapacity((short) 2);
+
+        Seat lastRowSeat = new Seat();
+        lastRowSeat.setId("seat-e1");
+        lastRowSeat.setAuditorium(sampleAuditorium);
+        lastRowSeat.setSeatType(stdType);
+        lastRowSeat.setRowLabel("E");
+        lastRowSeat.setSeatNumber((short) 1);
+        lastRowSeat.setStatus(SeatStatus.ACTIVE);
+
+        when(seatRepository.findById("seat-e1")).thenReturn(Optional.of(lastRowSeat));
+        when(seatTypeRepository.findById("st-couple")).thenReturn(Optional.of(coupleType));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "E"))
+                .thenReturn(List.of(lastRowSeat));
+        when(seatRepository.save(any(Seat.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        SeatResponse result = seatService.updateSeatType("seat-e1", "st-couple");
+
+        assertNotNull(result);
+        assertEquals("Couple", result.getSeatTypeName());
+        assertEquals("COUPLE", result.getSeatTypeCode());
+        assertEquals((short) 2, result.getCapacity());
+    }
+
+    @Test
+    void updateSeatType_AssignCoupleNotLastRow_ThrowsConflict() {
+        SeatType coupleType = new SeatType();
+        coupleType.setId("st-couple");
+        coupleType.setCode("COUPLE");
+        coupleType.setCapacity((short) 2);
+
+        when(seatRepository.findById("seat-1")).thenReturn(Optional.of(sampleSeat)); // Row A
+        when(seatTypeRepository.findById("st-couple")).thenReturn(Optional.of(coupleType));
+
+        assertThrows(com.cinebook.exception.ConflictException.class, () ->
+                seatService.updateSeatType("seat-1", "st-couple"));
+    }
+
+    @Test
+    void updateSeatType_AssignCoupleExceedsColumns_ThrowsConflict() {
+        SeatType coupleType = new SeatType();
+        coupleType.setId("st-couple");
+        coupleType.setCode("COUPLE");
+        coupleType.setCapacity((short) 2);
+
+        Seat edgeSeat = new Seat();
+        edgeSeat.setId("seat-e8");
+        edgeSeat.setAuditorium(sampleAuditorium);
+        edgeSeat.setRowLabel("E");
+        edgeSeat.setSeatNumber((short) 8); // 8 + 2 - 1 = 9 > 8 columnsCount
+
+        when(seatRepository.findById("seat-e8")).thenReturn(Optional.of(edgeSeat));
+        when(seatTypeRepository.findById("st-couple")).thenReturn(Optional.of(coupleType));
+
+        assertThrows(com.cinebook.exception.ConflictException.class, () ->
+                seatService.updateSeatType("seat-e8", "st-couple"));
+    }
+
+    @Test
+    void updateSeatType_AssignCoupleOverlapsAnotherSeat_ThrowsConflict() {
+        SeatType coupleType = new SeatType();
+        coupleType.setId("st-couple");
+        coupleType.setCode("COUPLE");
+        coupleType.setCapacity((short) 2);
+
+        Seat e1 = new Seat();
+        e1.setId("seat-e1");
+        e1.setAuditorium(sampleAuditorium);
+        e1.setRowLabel("E");
+        e1.setSeatNumber((short) 1);
+
+        Seat e2 = new Seat();
+        e2.setId("seat-e2");
+        e2.setAuditorium(sampleAuditorium);
+        e2.setRowLabel("E");
+        e2.setSeatNumber((short) 2);
+
+        when(seatRepository.findById("seat-e1")).thenReturn(Optional.of(e1));
+        when(seatTypeRepository.findById("st-couple")).thenReturn(Optional.of(coupleType));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "E"))
+                .thenReturn(List.of(e1, e2));
+
+        assertThrows(com.cinebook.exception.ConflictException.class, () ->
+                seatService.updateSeatType("seat-e1", "st-couple"));
     }
 
     @Test

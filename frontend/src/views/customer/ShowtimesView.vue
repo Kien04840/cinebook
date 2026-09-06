@@ -12,6 +12,8 @@ import { useI18n } from '@/composables/useI18n'
 import DateSelector from '@/components/showtime/DateSelector.vue'
 import Badge from '@/components/common/Badge.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import ImageWithFallback from '@/components/common/ImageWithFallback.vue'
 
 interface MovieShowtimeGroup {
   movieId: string
@@ -376,69 +378,54 @@ onMounted(async () => {
       @retry="fetchShowtimes"
     />
 
-    <!-- Loading Skeleton Grid (Maintains stable height and layout) -->
-    <div v-else-if="isLoading" class="space-y-6 animate-pulse">
-      <div v-for="n in 3" :key="n" class="p-6 rounded-2xl bg-slate-800/60 border border-slate-700/60 flex flex-col md:flex-row gap-6">
-        <div class="w-32 aspect-[2/3] rounded-xl bg-slate-700 shrink-0"></div>
-        <div class="flex-1 space-y-4">
-          <div class="w-64 h-6 rounded bg-slate-700"></div>
-          <div class="w-36 h-4 rounded bg-slate-700"></div>
-          <div class="h-28 rounded-xl bg-slate-700/50"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Empty State -->
-    <div
-      v-else-if="groupedByMovie.length === 0"
-      class="p-16 rounded-2xl bg-slate-850/50 border border-slate-800 text-center space-y-4"
-    >
-      <div class="w-16 h-16 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center mx-auto text-slate-500">
-        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
-      </div>
-      <div class="space-y-1 max-w-md mx-auto">
-        <h3 class="text-lg font-bold text-white">{{ t('showtimesView.emptyTitle') }}</h3>
-        <p class="text-xs sm:text-sm text-slate-400">
-          {{ t('showtimesView.emptyDesc') }}
-        </p>
-      </div>
-      <button
-        type="button"
-        class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-xs font-semibold text-indigo-400 border border-slate-700 transition-colors"
-        @click="resetFilters"
-      >
-        {{ t('showtimesView.clearFilters') }}
-      </button>
-    </div>
-
-    <!-- Grouped Showtimes List (Movie -> Cinema -> Format) -->
-    <div v-else class="space-y-6">
-      <div
-        v-for="movieGroup in groupedByMovie"
-        :key="movieGroup.movieId"
-        class="p-5 sm:p-6 rounded-2xl bg-slate-800/90 border border-slate-700/80 shadow-md flex flex-col md:flex-row gap-6 items-start"
-      >
-        <!-- Left: Movie Mini Poster & Metadata -->
-        <div class="flex md:flex-col items-center md:items-start gap-4 shrink-0 w-full md:w-44">
-          <router-link
-            :to="`/movies/${movieGroup.movieId}`"
-            class="block w-28 md:w-full aspect-[2/3] rounded-xl overflow-hidden bg-slate-900 border border-slate-700 shrink-0 group relative shadow-md"
-          >
-            <img
-              v-if="movieGroup.posterUrl"
-              :src="movieGroup.posterUrl"
-              :alt="movieGroup.movieTitle"
-              class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            />
-            <div v-else class="w-full h-full flex items-center justify-center p-2 text-center text-slate-500 text-xs bg-slate-850">
-              {{ movieGroup.movieTitle }}
+    <div class="relative min-h-[400px]">
+      <transition name="fade-fast" mode="out-in">
+        <!-- Loading Skeleton Grid (Maintains stable height and layout) -->
+        <div v-if="isLoading" key="loading" class="space-y-6">
+          <div v-for="n in 3" :key="n" class="p-6 rounded-2xl bg-slate-800/60 border border-slate-700/60 flex flex-col md:flex-row gap-6">
+            <div class="w-32 aspect-[2/3] rounded-xl bg-slate-700/80 animate-shimmer shrink-0"></div>
+            <div class="flex-1 space-y-4">
+              <div class="w-64 h-6 rounded bg-slate-700/80 animate-shimmer"></div>
+              <div class="w-36 h-4 rounded bg-slate-700/80 animate-shimmer"></div>
+              <div class="h-28 rounded-xl bg-slate-700/50 animate-shimmer"></div>
             </div>
-          </router-link>
+          </div>
+        </div>
 
-          <div class="space-y-1.5 flex-1">
-            <div class="flex items-center gap-1.5">
+        <!-- Empty State -->
+        <EmptyState
+          v-else-if="groupedByMovie.length === 0"
+          key="empty"
+          :title="t('showtimesView.emptyTitle')"
+          :description="t('showtimesView.emptyDesc')"
+          :action-text="t('showtimesView.clearFilters')"
+          @action="resetFilters"
+        />
+
+        <!-- Grouped Showtimes List (Movie -> Cinema -> Format) -->
+        <div v-else key="results" class="space-y-6">
+          <div
+            v-for="movieGroup in groupedByMovie"
+            :key="movieGroup.movieId"
+            class="p-5 sm:p-6 rounded-2xl bg-slate-800/90 border border-slate-700/80 shadow-md flex flex-col md:flex-row gap-6 items-start"
+          >
+            <!-- Left: Movie Mini Poster & Metadata -->
+            <div class="flex md:flex-col items-center md:items-start gap-4 shrink-0 w-full md:w-44">
+              <router-link
+                :to="`/movies/${movieGroup.movieId}`"
+                class="block w-28 md:w-full aspect-[2/3] rounded-xl overflow-hidden bg-slate-900 border border-slate-700 shrink-0 group relative shadow-md"
+              >
+                <ImageWithFallback
+                  :src="movieGroup.posterUrl"
+                  :alt="movieGroup.movieTitle"
+                  aspect-ratio="2/3"
+                  rounded="rounded-none"
+                  img-class="group-hover:scale-105 transition-transform duration-300"
+                />
+              </router-link>
+
+              <div class="space-y-1.5 flex-1">
+                <div class="flex items-center gap-1.5">
               <Badge
                 v-if="movieGroup.ageRating"
                 :variant="getAgeRatingBadgeVariant(movieGroup.ageRating)"
@@ -523,6 +510,8 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+    </div>
+      </transition>
     </div>
   </div>
 </template>

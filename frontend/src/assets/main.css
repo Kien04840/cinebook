@@ -32,5 +32,96 @@
   .text-shadow-sm {
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   }
+
+  /* Shimmer effect for skeletons */
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  .animate-shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.06) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.8s infinite linear;
+  }
+
+  /* Conflict & error shake */
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-4px); }
+    40%, 80% { transform: translateX(4px); }
+  }
+
+  .animate-shake {
+    animation: shake 0.35s ease-in-out;
+  }
+}
+
+/* Page & View Transitions */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* Fast crossfade for skeleton -> content */
+.fade-fast-enter-active,
+.fade-fast-leave-active {
+  transition: opacity 0.15s ease-out;
+}
+
+.fade-fast-enter-from,
+.fade-fast-leave-to {
+  opacity: 0;
+}
+
+/* Form field error slide & fade */
+.field-error-enter-active {
+  transition: opacity 0.18s ease-out, transform 0.18s ease-out;
+}
+
+.field-error-leave-active {
+  transition: opacity 0.12s ease-in, transform 0.12s ease-in;
+}
+
+.field-error-enter-from,
+.field-error-leave-to {
+  opacity: 0;
+  transform: translateY(-3px);
+}
+
+/* Safe Area Utility */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Accessibility: Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 

@@ -246,7 +246,11 @@ export default {
     "soldSeat": "Đã bán",
     "blockedSeat": "Đã khóa",
     "seatAriaLabel": "Ghế {code}, loại {type}, trạng thái {status}",
-    "screenSubtitle": "Màn hình hướng này"
+    "screenSubtitle": "Màn hình hướng này",
+    "scrollHint": "Vuốt ngang để xem toàn bộ phòng chiếu",
+    "maxSeatsNote": "Tối đa 8 ghế",
+    "mobileSummary": "Tóm tắt đặt vé",
+    "viewDetails": "Chi tiết"
   },
   "paymentResult": {
     "successTitle": "Thanh Toán Thành Công!",

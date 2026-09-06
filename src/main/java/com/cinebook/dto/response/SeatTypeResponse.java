@@ -18,8 +18,12 @@ import java.time.LocalDateTime;
 public class SeatTypeResponse {
 
     private String id;
+    private String code;
     private String name;
     private BigDecimal priceModifier;
+    private Short capacity;
+    private String colorToken;
+    private String icon;
     private String description;
     private SeatTypeStatus status;
     private LocalDateTime createdAt;

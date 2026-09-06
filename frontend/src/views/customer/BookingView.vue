@@ -8,6 +8,7 @@ import bookingService from '@/services/booking.service'
 import paymentService from '@/services/payment.service'
 import { useToast } from '@/composables/useToast'
 import { useI18n } from '@/composables/useI18n'
+import { formatCurrency } from '@/utils/formatters'
 import SeatMap from '@/components/booking/SeatMap.vue'
 import SeatLegend from '@/components/booking/SeatLegend.vue'
 import BookingSummary from '@/components/booking/BookingSummary.vue'
@@ -30,6 +31,21 @@ const isSubmitting = ref<boolean>(false)
 const errorMessage = ref<string>('')
 const conflictMessage = ref<string>('')
 
+const legendSeatTypes = computed(() => {
+  const map = new Map<string, { id?: string; name: string; capacity?: number; colorToken?: string; icon?: string }>()
+  for (const s of seats.value) {
+    if (s.seatTypeName && !map.has(s.seatTypeName)) {
+      map.set(s.seatTypeName, {
+        name: s.seatTypeName,
+        capacity: s.capacity,
+        colorToken: s.colorToken,
+        icon: s.icon,
+      })
+    }
+  }
+  return Array.from(map.values())
+})
+
 // Hold State
 const createdBooking = ref<BookingDetailResponse | null>(null)
 const holdRemainingSeconds = ref<number>(0)
@@ -38,6 +54,18 @@ let countdownTimer: any = null
 
 const selectedSeatsObjects = computed<ShowtimeSeatStatusResponse[]>(() => {
   return seats.value.filter((s) => selectedSeatIds.value.includes(s.id))
+})
+
+const mobileDisplayPrice = computed<number>(() => {
+  if (createdBooking.value) {
+    return createdBooking.value.totalAmount
+  }
+  if (!showtime.value) return 0
+  const base = Number(showtime.value.basePrice) || 0
+  return selectedSeatsObjects.value.reduce((sum, s) => {
+    const mod = Number(s.priceModifier) || 0
+    return sum + (base + mod)
+  }, 0)
 })
 
 async function loadBookingData() {
@@ -236,7 +264,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8 pb-28 lg:pb-12">
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
@@ -260,73 +288,136 @@ onUnmounted(() => {
       </router-link>
     </div>
 
-    <!-- Error State -->
-    <div v-if="errorMessage" class="space-y-4">
-      <ErrorAlert :message="errorMessage" @retry="loadBookingData" />
-      <div class="text-center pt-4">
-        <router-link to="/showtimes">
-          <Button variant="secondary" size="md">{{ t('booking.backToShowtimes') }}</Button>
-        </router-link>
+    <transition name="fade-fast" mode="out-in">
+      <!-- Error State -->
+      <div v-if="errorMessage" key="error" class="space-y-4">
+        <ErrorAlert :message="errorMessage" @retry="loadBookingData" />
+        <div class="text-center pt-4">
+          <router-link to="/showtimes">
+            <Button variant="secondary" size="md">{{ t('booking.backToShowtimes') }}</Button>
+          </router-link>
+        </div>
       </div>
-    </div>
 
-    <!-- Loading Skeleton (Maintains exact page layout height) -->
-    <div v-else-if="isLoading" class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-pulse">
-      <div class="lg:col-span-8 space-y-6">
-        <div class="h-16 rounded-2xl bg-slate-800"></div>
-        <div class="h-96 rounded-2xl bg-slate-800"></div>
+      <!-- Loading Skeleton (Maintains exact page layout height) -->
+      <div v-else-if="isLoading" key="loading" class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div class="lg:col-span-8 space-y-6">
+          <div class="h-16 rounded-2xl bg-slate-800/70 border border-slate-700/60 animate-shimmer"></div>
+          <div class="h-96 rounded-2xl bg-slate-800/70 border border-slate-700/60 animate-shimmer"></div>
+        </div>
+        <div class="lg:col-span-4">
+          <div class="h-96 rounded-2xl bg-slate-800/70 border border-slate-700/60 animate-shimmer"></div>
+        </div>
       </div>
-      <div class="lg:col-span-4">
-        <div class="h-96 rounded-2xl bg-slate-800"></div>
-      </div>
-    </div>
 
-    <!-- Main Booking Experience Layout -->
-    <div v-else class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-      <!-- Left: Seat Legend & Cinema Seat Map (8 cols) -->
-      <div class="lg:col-span-8 space-y-6">
-        <!-- Conflict Alert Banner if seat conflict occurred -->
-        <div
-          v-if="conflictMessage"
-          class="p-4 rounded-2xl bg-rose-950/70 border border-rose-800 text-rose-200 text-xs flex items-start gap-3 shadow-lg animate-shake"
-        >
-          <svg class="w-5 h-5 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          <div class="space-y-0.5">
-            <p class="font-bold text-white">{{ t('booking.seatConflictTitle') }}</p>
-            <p>{{ conflictMessage }}</p>
+      <!-- Main Booking Experience Layout -->
+      <div v-else key="content" class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <!-- Left: Seat Legend & Cinema Seat Map (8 cols) -->
+        <div class="lg:col-span-8 space-y-6">
+          <!-- Conflict Alert Banner if seat conflict occurred -->
+          <div
+            v-if="conflictMessage"
+            class="p-4 rounded-2xl bg-rose-950/70 border border-rose-800 text-rose-200 text-xs flex items-start gap-3 shadow-lg animate-shake"
+          >
+            <svg class="w-5 h-5 text-rose-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div class="space-y-0.5">
+              <p class="font-bold text-white">{{ t('booking.seatConflictTitle') }}</p>
+              <p>{{ conflictMessage }}</p>
+            </div>
+          </div>
+
+          <!-- Seat Legend -->
+          <SeatLegend :seat-types="legendSeatTypes" />
+
+          <!-- Seat Map Grid -->
+          <SeatMap
+            :seats="seats"
+            :selected-seat-ids="selectedSeatIds"
+            :columns-count="showtime?.auditorium?.columnsCount"
+            :disabled="!!createdBooking || isSubmitting"
+            @toggle-seat="handleToggleSeat"
+          />
+        </div>
+
+        <!-- Right: Booking Summary & Hold Panel (4 cols) -->
+        <div class="lg:col-span-4 sticky top-24">
+          <BookingSummary
+            :showtime="showtime"
+            :selected-seats="selectedSeatsObjects"
+            :created-booking="createdBooking"
+            :is-submitting="isSubmitting"
+            :hold-remaining-seconds="holdRemainingSeconds"
+            :is-hold-expired="isHoldExpired"
+            :applied-promotion-code="appliedPromotionCode"
+            @update:promotion-code="appliedPromotionCode = $event"
+            @remove-seat="handleRemoveSeat"
+            @submit-booking="handleCreateBooking"
+            @reselect-seats="handleReselectSeats"
+            @proceed-to-payment="handleProceedToPayment"
+          />
+        </div>
+      </div>
+    </transition>
+
+    <!-- Mobile Sticky Summary Bar (Hidden on desktop lg:) -->
+    <div
+      v-if="!isLoading && !errorMessage"
+      class="fixed bottom-0 left-0 right-0 z-30 lg:hidden bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-4 py-3 pb-safe shadow-2xl transition-all duration-300"
+    >
+      <div class="max-w-md mx-auto flex items-center justify-between gap-3">
+        <!-- Left: Summary info -->
+        <div class="space-y-0.5 min-w-0">
+          <div class="flex items-center gap-1.5 truncate">
+            <span class="text-xs font-semibold text-slate-300 truncate">
+              {{ createdBooking ? createdBooking.bookingCode : (selectedSeatIds.length > 0 ? t('booking.selectedSeatsTitle', { count: selectedSeatIds.length }) : t('booking.noSeatsSelected')) }}
+            </span>
+            <span v-if="!createdBooking && selectedSeatIds.length > 0" class="text-[11px] text-slate-400 shrink-0">
+              ({{ selectedSeatsObjects.map(s => s.seatCode).join(', ') }})
+            </span>
+          </div>
+          <div class="flex items-baseline gap-1.5">
+            <span class="text-base font-black text-emerald-400">
+              {{ formatCurrency(mobileDisplayPrice) }}
+            </span>
+            <span v-if="!createdBooking && selectedSeatIds.length > 0" class="text-[10px] text-slate-500">
+              (tạm tính)
+            </span>
           </div>
         </div>
 
-        <!-- Seat Legend -->
-        <SeatLegend />
-
-        <!-- Seat Map Grid -->
-        <SeatMap
-          :seats="seats"
-          :selected-seat-ids="selectedSeatIds"
-          :disabled="!!createdBooking || isSubmitting"
-          @toggle-seat="handleToggleSeat"
-        />
-      </div>
-
-      <!-- Right: Booking Summary & Hold Panel (4 cols) -->
-      <div class="lg:col-span-4 sticky top-24">
-        <BookingSummary
-          :showtime="showtime"
-          :selected-seats="selectedSeatsObjects"
-          :created-booking="createdBooking"
-          :is-submitting="isSubmitting"
-          :hold-remaining-seconds="holdRemainingSeconds"
-          :is-hold-expired="isHoldExpired"
-          :applied-promotion-code="appliedPromotionCode"
-          @update:promotion-code="appliedPromotionCode = $event"
-          @remove-seat="handleRemoveSeat"
-          @submit-booking="handleCreateBooking"
-          @reselect-seats="handleReselectSeats"
-          @proceed-to-payment="handleProceedToPayment"
-        />
+        <!-- Right: Action CTA -->
+        <div class="shrink-0">
+          <Button
+            v-if="createdBooking && !isHoldExpired"
+            variant="primary"
+            size="md"
+            class="shadow-lg shadow-indigo-600/30"
+            @click="handleProceedToPayment"
+          >
+            {{ t('booking.proceedToPaymentBtn') }}
+          </Button>
+          <Button
+            v-else-if="createdBooking && isHoldExpired"
+            variant="secondary"
+            size="md"
+            @click="handleReselectSeats"
+          >
+            {{ t('booking.reselectSeatsBtn') }}
+          </Button>
+          <Button
+            v-else
+            variant="primary"
+            size="md"
+            :disabled="selectedSeatIds.length === 0 || isSubmitting"
+            :loading="isSubmitting"
+            class="shadow-lg shadow-indigo-600/30"
+            @click="handleCreateBooking"
+          >
+            {{ isSubmitting ? t('booking.creatingHold') : t('booking.holdSeatsBtn') }}
+          </Button>
+        </div>
       </div>
     </div>
   </div>

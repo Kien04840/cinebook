@@ -246,7 +246,11 @@ export default {
     "soldSeat": "Sold",
     "blockedSeat": "Blocked",
     "seatAriaLabel": "Seat {code}, type {type}, status {status}",
-    "screenSubtitle": "Screen this way"
+    "screenSubtitle": "Screen this way",
+    "scrollHint": "Swipe horizontally to see all seats",
+    "maxSeatsNote": "Maximum 8 seats",
+    "mobileSummary": "Booking summary",
+    "viewDetails": "Details"
   },
   "paymentResult": {
     "successTitle": "Payment Successful!",
