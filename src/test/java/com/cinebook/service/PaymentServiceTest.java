@@ -798,7 +798,68 @@ class PaymentServiceTest {
 
         assertThatThrownBy(() -> paymentService.refundPayment("payment-1", new RefundRequest("Hủy"), new MockHttpServletRequest()))
                 .isInstanceOf(BadRequestException.class)
-                .hasMessageContaining("Không thể hoàn tiền đơn hàng đã có vé được sử dụng");
+                .hasMessageContaining("Không thể hoàn tiền cho đơn hàng đã được sử dụng để vào rạp.");
+    }
+
+    @Test
+    @DisplayName("refundPayment - Rejection if payment is CANCELLED")
+    void testRefundPayment_CancelledPayment_ThrowsBadRequest() {
+        mockAuthentication(testCustomer, "CUSTOMER");
+
+        testPayment.setPaymentStatus(PaymentStatus.CANCELLED);
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> paymentService.refundPayment("payment-1", new RefundRequest("Hủy"), new MockHttpServletRequest()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Chỉ có thể hoàn tiền cho giao dịch thanh toán thành công (SUCCESS). Trạng thái hiện tại: CANCELLED");
+    }
+
+    @Test
+    @DisplayName("refundPayment - Rejection if payment is FAILED")
+    void testRefundPayment_FailedPayment_ThrowsBadRequest() {
+        mockAuthentication(testCustomer, "CUSTOMER");
+
+        testPayment.setPaymentStatus(PaymentStatus.FAILED);
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> paymentService.refundPayment("payment-1", new RefundRequest("Hủy"), new MockHttpServletRequest()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Chỉ có thể hoàn tiền cho giao dịch thanh toán thành công (SUCCESS). Trạng thái hiện tại: FAILED");
+    }
+
+    @Test
+    @DisplayName("refundPayment - Rejection if booking has partial check-in (1 USED, 1 VALID)")
+    void testRefundPayment_PartialCheckIn_ThrowsBadRequest() {
+        mockAuthentication(testCustomer, "CUSTOMER");
+
+        Showtime futureShowtime = new Showtime();
+        futureShowtime.setId("showtime-future");
+        futureShowtime.setStartTime(LocalDateTime.now().plusHours(5));
+        testBooking.setShowtime(futureShowtime);
+        testBooking.setBookingStatus(BookingStatus.PAID);
+        testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+
+        Ticket validTicket = new Ticket();
+        validTicket.setId("ticket-valid");
+        validTicket.setBooking(testBooking);
+        validTicket.setTicketStatus(TicketStatus.VALID);
+
+        Ticket usedTicket = new Ticket();
+        usedTicket.setId("ticket-used");
+        usedTicket.setBooking(testBooking);
+        usedTicket.setTicketStatus(TicketStatus.USED);
+
+        when(paymentRepository.findByIdWithLock("payment-1")).thenReturn(Optional.of(testPayment));
+        when(refundRepository.findByPaymentId("payment-1")).thenReturn(Optional.empty());
+        when(ticketRepository.findByBookingId(testBooking.getId())).thenReturn(List.of(validTicket, usedTicket));
+
+        assertThatThrownBy(() -> paymentService.refundPayment("payment-1", new RefundRequest("Hủy"), new MockHttpServletRequest()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Không thể hoàn tiền cho đơn hàng đã được sử dụng để vào rạp.");
     }
 
     @Test
@@ -814,6 +875,72 @@ class PaymentServiceTest {
         assertThatThrownBy(() -> paymentService.refundPayment("payment-1", new RefundRequest("Hủy"), new MockHttpServletRequest()))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("Chỉ có thể hoàn tiền cho giao dịch thanh toán thành công (SUCCESS)");
+    }
+
+    @Test
+    @DisplayName("refundBooking - Selects SUCCESS payment when multiple payment attempts exist")
+    void testRefundBooking_MultipleAttempts_SelectsSuccessPayment() {
+        mockAuthentication(testCustomer, "CUSTOMER");
+
+        Payment successPayment = new Payment();
+        successPayment.setId("payment-success");
+        successPayment.setBooking(testBooking);
+        successPayment.setPaymentCode("PAY-SUCCESS");
+        successPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+        successPayment.setAmount(new BigDecimal("100000.00"));
+
+        Showtime futureShowtime = new Showtime();
+        futureShowtime.setId("showtime-future");
+        futureShowtime.setStartTime(LocalDateTime.now().plusHours(5));
+        testBooking.setShowtime(futureShowtime);
+        testBooking.setBookingStatus(BookingStatus.PAID);
+
+        when(paymentRepository.findFirstByBookingIdAndPaymentStatus(testBooking.getId(), PaymentStatus.SUCCESS))
+                .thenReturn(Optional.of(successPayment));
+        when(paymentRepository.findByIdWithLock("payment-success")).thenReturn(Optional.of(successPayment));
+        when(refundRepository.findByPaymentId("payment-success")).thenReturn(Optional.empty());
+        when(ticketRepository.findByBookingId(testBooking.getId())).thenReturn(List.of());
+        when(refundRepository.existsByRefundCode(anyString())).thenReturn(false);
+        when(refundRepository.saveAndFlush(any(Refund.class))).thenAnswer(i -> i.getArgument(0));
+
+        Map<String, String> gatewaySuccess = new HashMap<>();
+        gatewaySuccess.put("vnp_ResponseCode", "00");
+        gatewaySuccess.put("vnp_ResponseId", "VNP-REFUND-MULTI");
+        when(vnPayService.refundPayment(any(), any(), any(), any())).thenReturn(gatewaySuccess);
+
+        when(refundRepository.findById(anyString())).thenAnswer(i -> {
+            Refund r = new Refund();
+            r.setId(i.getArgument(0));
+            r.setPayment(successPayment);
+            r.setAmount(successPayment.getAmount());
+            r.setRefundStatus(RefundStatus.PENDING);
+            return Optional.of(r);
+        });
+
+        RefundResponse expectedResponse = RefundResponse.builder()
+                .paymentId("payment-success")
+                .refundStatus(RefundStatus.SUCCESS)
+                .build();
+        when(refundMapper.toRefundResponse(any(Refund.class))).thenReturn(expectedResponse);
+
+        RefundResponse response = paymentService.refundBooking(testBooking.getId(), new RefundRequest("Khách đổi lịch"), new MockHttpServletRequest());
+        assertThat(response).isNotNull();
+        assertThat(response.getPaymentId()).isEqualTo("payment-success");
+    }
+
+    @Test
+    @DisplayName("refundBooking - Rejection when no SUCCESS or REFUNDED payment found")
+    void testRefundBooking_NoSuccessPayment_ThrowsBadRequest() {
+        mockAuthentication(testCustomer, "CUSTOMER");
+
+        when(paymentRepository.findFirstByBookingIdAndPaymentStatus(testBooking.getId(), PaymentStatus.SUCCESS))
+                .thenReturn(Optional.empty());
+        when(paymentRepository.findFirstByBookingIdAndPaymentStatus(testBooking.getId(), PaymentStatus.REFUNDED))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> paymentService.refundBooking(testBooking.getId(), new RefundRequest("Hủy"), new MockHttpServletRequest()))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Không tìm thấy giao dịch thanh toán thành công (SUCCESS) nào cho đơn đặt vé này.");
     }
 
     @Test

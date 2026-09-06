@@ -393,7 +393,9 @@ GET /api/v1/bookings/active?showtimeId={showtimeId}
 GET /api/v1/bookings/{id}
 ```
 
-**Auth**: Required (owner or admin)
+**Auth**: Required (owner or admin)  
+**Response**: `200 OK` with `BookingDetailResponse`.  
+**Seat History Guarantee**: The `seats` and `tickets` arrays are populated for **all 5 booking statuses** (`PENDING_PAYMENT`, `PAID`, `REFUNDED`, `CANCELLED`, `EXPIRED`). For CANCELLED and EXPIRED bookings, held seats are snapshotted into `tickets` with status `CANCELLED` prior to releasing seat holds, preserving complete seat codes and pricing in history.
 
 ### 8.4 List my bookings
 
@@ -402,7 +404,12 @@ GET /api/v1/bookings/me
 ```
 
 **Auth**: Required  
-**Query**: `status`, `page`, `size`, `sort`
+**Query**: `status`, `page`, `size`, `sort`  
+**Response**: `200 OK` with `PageResponse<BookingSummaryResponse>`.  
+**Fields**:
+- `seatCount`: number of seats in the booking.
+- `seatCodes`: `string[]` containing selected seat codes (e.g. `["A1", "A2"]`), populated across all 5 booking statuses.
+- `hasUsedTickets`: boolean flag indicating if any ticket has been checked in (`USED`).
 
 ### 8.5 Cancel booking
 
@@ -410,7 +417,167 @@ GET /api/v1/bookings/me
 POST /api/v1/bookings/{id}/cancel
 ```
 
-- Cancels an unpaid booking in `PENDING_PAYMENT` status and releases seat holds immediately. Paid bookings must use the Refund API (`POST /api/v1/payments/{paymentId}/refund`).
+- Cancels an unpaid booking in `PENDING_PAYMENT` status with active hold (`holdExpiresAt > now`).
+- Snapshots held seats into `tickets` with `TicketStatus.CANCELLED` to permanently preserve seat history for customer view.
+- Releases seat holds immediately, releases promotion quota idempotently, and marks any active `PENDING` payment attempt as `CANCELLED`.
+- If `holdExpiresAt <= now`, lazily expires the booking (status becomes `EXPIRED`, seat history snapshotted, seat holds deleted, promotion quota released) and rejects cancellation with `400 Bad Request` ("Đơn đặt vé đã hết hạn giữ chỗ và không thể hủy.").
+- Paid bookings must use the Refund API (`POST /api/v1/payments/{paymentId}/refund`). Already `CANCELLED`, `EXPIRED`, or `REFUNDED` bookings cannot be cancelled.
+
+### 8.6 Admin Verify Booking Check-In
+
+```http
+GET /api/v1/admin/bookings/verify?code={checkInCode}
+```
+
+**Auth**: Required (`ADMIN`)  
+**Query**: `code` (string, required) — Cryptographically unpredictable `checkInCode` UUIDv4.  
+**Security Boundary**: Accepts ONLY `checkInCode`. `bookingCode` MUST NOT authorize check-in.
+
+**Response**: `200 OK`
+```json
+{
+  "bookingId": "uuid",
+  "bookingCode": "CB-20260906-ABCXYZ",
+  "checkInCode": "uuid-check-in-code",
+  "bookingStatus": "PAID",
+  "customerName": "Nguyen Van A",
+  "customerEmail": "user@example.com",
+  "movieTitle": "Mai",
+  "cinemaName": "CineBook Vincom",
+  "auditoriumName": "Hall 1",
+  "startTime": "2026-09-06T19:00:00",
+  "endTime": "2026-09-06T21:15:00",
+  "tickets": [
+    {
+      "ticketId": "ticket-uuid-1",
+      "seatCode": "D5",
+      "rowLabel": "D",
+      "seatNumber": 5,
+      "seatTypeName": "VIP",
+      "ticketPrice": 110000.00,
+      "ticketStatus": "VALID"
+    },
+    {
+      "ticketId": "ticket-uuid-2",
+      "seatCode": "D6",
+      "rowLabel": "D",
+      "seatNumber": 6,
+      "seatTypeName": "VIP",
+      "ticketPrice": 110000.00,
+      "ticketStatus": "VALID"
+    }
+  ],
+  "totalTickets": 2,
+  "validTickets": 2,
+  "usedTickets": 0,
+  "checkInEligible": true,
+  "ineligibleReason": null
+}
+```
+
+### 8.7 Admin Check-In Booking (Atomic One QR Check-In)
+
+```http
+POST /api/v1/admin/bookings/check-in
+```
+
+**Auth**: Required (`ADMIN`)  
+**Request**:
+```json
+{
+  "checkInCode": "uuid-check-in-code"
+}
+```
+
+**Behavior**:
+- Atomically acquires pessimistic write lock on parent `Booking`, then locks all `Tickets` of that booking (coordinated deadlock-free order).
+- Validates booking is `PAID` and showtime is not `CANCELLED`.
+- Transitions all remaining `VALID` tickets to `USED`.
+- If all tickets in booking are already `USED`, returns `409 Conflict`.
+- Partial check-in supported: if 1 ticket was previously checked in, remaining valid tickets are checked in and response reflects `PARTIALLY_CHECKED_IN`.
+- Never transitions `CANCELLED` tickets back to `VALID/USED`.
+
+**Response**: `200 OK`
+```json
+{
+  "bookingId": "uuid",
+  "bookingCode": "CB-20260906-ABCXYZ",
+  "checkInCode": "uuid-check-in-code",
+  "result": "CHECKED_IN",
+  "checkedInAt": "2026-09-06T18:45:00",
+  "message": "Soát vé thành công cho toàn bộ 2 ghế trong đơn hàng!",
+  "movieTitle": "Mai",
+  "cinemaName": "CineBook Vincom",
+  "auditoriumName": "Hall 1",
+  "startTime": "2026-09-06T19:00:00",
+  "tickets": [ ... ],
+  "totalTickets": 2,
+  "checkedInCount": 2,
+  "alreadyUsedCount": 0
+}
+```
+
+### 8.8 Admin Verify Single Ticket (Fallback)
+
+```http
+GET /api/v1/admin/tickets/verify?code={ticketCodeOrId}
+```
+
+**Auth**: Required (`ADMIN`)  
+**Query**: `code` (string, required) — `ticketId` UUID or ticket `qrCode`.  
+**Purpose**: Fallback single-seat verification for legacy tickets or individual seat queries.
+
+**Response**: `200 OK`
+```json
+{
+  "ticketId": "ticket-uuid",
+  "bookingId": "booking-uuid",
+  "bookingCode": "CB-20260906-ABCXYZ",
+  "movieTitle": "Mai",
+  "cinemaName": "CineBook Vincom",
+  "auditoriumName": "Hall 1",
+  "startTime": "2026-09-06T19:00:00",
+  "endTime": "2026-09-06T21:15:00",
+  "seatCode": "D5",
+  "rowLabel": "D",
+  "seatNumber": 5,
+  "seatTypeName": "VIP",
+  "ticketPrice": 110000.00,
+  "ticketStatus": "VALID",
+  "checkInEligible": true,
+  "ineligibleReason": null
+}
+```
+
+### 8.9 Admin Check-In Single Ticket (Fallback)
+
+```http
+POST /api/v1/admin/tickets/{ticketId}/check-in
+```
+
+**Auth**: Required (`ADMIN`)  
+**Behavior**:
+- Atomically acquires pessimistic write lock on parent `Booking`, then locks the target `Ticket` (coordinated deadlock-free order).
+- Validates ticket is `VALID` and showtime is not `CANCELLED`.
+- Transitions ticket to `USED`.
+
+**Response**: `200 OK`
+```json
+{
+  "ticketId": "ticket-uuid",
+  "bookingCode": "CB-20260906-ABCXYZ",
+  "movieTitle": "Mai",
+  "cinemaName": "CineBook Vincom",
+  "auditoriumName": "Hall 1",
+  "seatCode": "D5",
+  "seatTypeName": "VIP",
+  "ticketPrice": 110000.00,
+  "previousStatus": "VALID",
+  "currentStatus": "USED",
+  "checkedInAt": "2026-09-06T18:45:00",
+  "message": "Soát vé thành công cho ghế D5!"
+}
+```
 
 ---
 
@@ -477,6 +644,12 @@ POST /api/v1/payments/{paymentId}/refund
 
 **Auth**: Required (`CUSTOMER` or `ADMIN` - owner or admin)
 
+**Eligibility Prerequisites**:
+- `paymentStatus` must be `SUCCESS` (cannot refund `CANCELLED` or `FAILED` payment attempts).
+- Booking status must be `PAID`.
+- Zero `USED` tickets in booking; if any ticket is `USED`, returns `400 Bad Request` ("Không thể hoàn tiền cho đơn hàng đã được sử dụng để vào rạp.").
+- Request must be submitted $\ge 2$ hours before showtime `startTime`.
+
 **Request**:
 ```json
 {
@@ -531,6 +704,35 @@ GET /api/v1/admin/refunds?status=SUCCESS&page=0&size=20
 ```
 
 **Auth**: Required (`ADMIN`)
+
+### 9.8 Simulate Demo Payment Complete (Mock Gateway Mode Only)
+
+```http
+POST /api/v1/payments/demo/complete
+```
+
+**Availability**: Only available when `cinebook.payment.gateway=mock`. Disabled / 404 in production.  
+**Auth**: Required (`CUSTOMER` or `ADMIN` - must be booking owner or admin)
+
+**Request**:
+```json
+{
+  "paymentCode": "PAY-20260906-001",
+  "responseCode": "00"
+}
+```
+*Valid `responseCode` values: `"00"` (Success), `"24"` (Customer Cancel), `"07"` (Bank / System Error).*
+
+**Response**: `200 OK`
+```json
+{
+  "paymentCode": "PAY-20260906-001",
+  "responseCode": "00",
+  "paymentStatus": "SUCCESS",
+  "redirectUrl": "/payment/result?vnp_Amount=15000000&vnp_BankCode=NCB&vnp_Command=pay&vnp_CurrCode=VND&vnp_OrderInfo=Thanh+toan+ve+xem+phim+BK-20260906-001&vnp_PayDate=20260906163000&vnp_ResponseCode=00&vnp_TmnCode=MOCK_TMN&vnp_TransactionNo=MOCK-TXN-001&vnp_TransactionStatus=00&vnp_TxnRef=PAY-20260906-001&vnp_Version=2.1.0&vnp_SecureHash=...",
+  "message": "Giao dịch thanh toán thành công."
+}
+```
 
 ---
 
@@ -601,6 +803,7 @@ All under `/api/v1/admin/...` and require Admin (or appropriate) role.
 | Pricing     | day rules, time-slot rules                    |
 | Promotions  | CRUD                                          |
 | Users       | list, lock/unlock, assign roles               |
+| Tickets / Check-In | booking verify & check-in, ticket verify & check-in |
 | Reports     | (future) bookings, revenue                    |
 
 Exact paths should follow the same resource naming as public API where possible.
@@ -660,14 +863,20 @@ Useful for deployment checks; not part of core business.
 | GET    | /api/v1/bookings/me                       | Required | My bookings                |
 | GET    | /api/v1/bookings/{id}                     | Required | Booking detail             |
 | POST   | /api/v1/bookings/{id}/cancel              | Required | Cancel booking             |
+| GET    | /api/v1/admin/bookings/verify             | Admin    | Verify booking check-in via checkInCode |
+| POST   | /api/v1/admin/bookings/check-in           | Admin    | Atomic check-in for all booking tickets |
+| GET    | /api/v1/admin/tickets/verify              | Admin    | Fallback single ticket verification |
+| POST   | /api/v1/admin/tickets/{id}/check-in       | Admin    | Fallback single ticket check-in |
 | POST   | /api/v1/bookings/{id}/payments            | Required | Initiate payment           |
 | GET/POST | /api/v1/payments/vnpay/return           | Public** | VNPay return               |
 | GET/POST | /api/v1/payments/vnpay/ipn              | Public** | VNPay IPN                  |
+| POST   | /api/v1/demo-payment/complete             | Public***| Complete Mock/Demo payment |
 | GET    | /api/v1/users/me                          | Required | Current user profile       |
 | …      | /api/v1/admin/**                          | Admin    | Management endpoints       |
 
 \* May require auth depending on final decision.  
-\*\* Protected by VNPay signature, not JWT.
+\*\* Protected by VNPay signature, not JWT.  
+\*\*\* Active only in Mock/Demo payment mode.
 
 ---
 

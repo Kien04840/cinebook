@@ -287,6 +287,7 @@ Promotion
 |----------------------|----------------|------------------------------------|
 | id                   | varchar(36) PK |                                    |
 | booking_code         | varchar(30)    | UNIQUE, NOT NULL                   |
+| check_in_code        | varchar(36)    | UNIQUE, NOT NULL (QR code credential for check-in) |
 | user_id              | varchar(36)    | FK → users, NOT NULL               |
 | showtime_id          | varchar(36)    | FK → showtimes, NOT NULL           |
 | total_amount         | decimal(12,2)  | NOT NULL, CHECK ≥ 0                |
@@ -299,7 +300,7 @@ Promotion
 | updated_at           | datetime       | NOT NULL                           |
 | version              | bigint         | optimistic lock                    |
 
-**Indexes**: user+created, showtime+status, hold_expires_at
+**Indexes**: user+created, showtime+status, hold_expires_at, `uk_bookings_check_in_code` (check_in_code)
 
 #### `seat_holds`
 | Column      | Type               | Notes                              |

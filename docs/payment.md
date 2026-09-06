@@ -129,14 +129,17 @@ All parameters and keys are encoded using **UTF-8** (`StandardCharsets.UTF_8`). 
 ## 6. Refund Processing (Payment V2)
 
 ### 6.1 Customer Refund (`POST /api/v1/payments/{paymentId}/refund`)
-- Authorized for booking owner (`CUSTOMER`).
-- Valid only for `PaymentStatus.SUCCESS` and `BookingStatus.PAID`.
+- Authorized for booking owner (`CUSTOMER`) or `ADMIN`.
+- Valid strictly for `PaymentStatus.SUCCESS` and `BookingStatus.PAID` (cannot refund `CANCELLED`, `FAILED`, or `PENDING` payment attempts).
+- Multi-Payment Attempt Selection: For bookings with multiple attempts (e.g., attempt 1 `CANCELLED`, attempt 2 `SUCCESS`), refund selects the `SUCCESS` (or `REFUNDED`) attempt; fallback to `payments[0]` is forbidden.
+- Zero `USED` Tickets Invariant: All tickets in the booking must be unused. If any ticket has `ticketStatus == USED` (even partial check-in of 1 seat), refund is strictly rejected with: `"Không thể hoàn tiền cho đơn hàng đã được sử dụng để vào rạp."`.
 - Requires current time $\ge 2$ hours before showtime `startTime`.
 - Full refund amount matching original payment amount.
 
 ### 6.2 Admin Refund (`POST /api/v1/admin/bookings/{bookingId}/refund`)
 - Authorized for `ADMIN`.
 - Allows refunding any paid booking or orphaned successful payment without the 2-hour window restriction.
+- Also strictly enforces the zero `USED` tickets invariant.
 
 ### 6.3 State Transitions upon Refund Success:
 - `Refund.refundStatus = SUCCESS`
@@ -152,3 +155,44 @@ All parameters and keys are encoded using **UTF-8** (`StandardCharsets.UTF_8`). 
 
 - **Pessimistic Locking**: `PaymentServiceImpl` uses pessimistic write locks (`SELECT ... FOR UPDATE`) on `payments` and `bookings` during IPN confirmation and refund execution to eliminate race conditions.
 - **Idempotent Webhooks**: Repeated IPN calls for an already `SUCCESS` or `FAILED` payment return `RspCode: 02` (Order already confirmed) without re-processing.
+
+---
+
+## 8. Demo Payment Flow (Mock Gateway Mode)
+
+To enable end-to-end demonstration and grading of the booking/payment flow without depending on external VNPay Sandbox merchant credentials (which can be subject to IP whitelisting or approval delays), CineBook provides a fully isolated **Demo Payment Gateway**.
+
+### 8.1 Architectural Principles & Production Safety
+- **Zero Impact on Production**: In `application.yml`, `cinebook.payment.gateway: ${PAYMENT_GATEWAY:vnpay}` defaults to live `vnpay`. `VnPayServiceImpl` is loaded with `matchIfMissing = true`.
+- **Mock Isolation**: `MockVnPayService` and `DemoPaymentController` are annotated with `@ConditionalOnProperty(name = "cinebook.payment.gateway", havingValue = "mock", matchIfMissing = false)`. In production or staging where `gateway=vnpay`, neither class is loaded into Spring ApplicationContext, and `/api/v1/payments/demo/**` endpoints do not exist (404 Not Found).
+- **Default for Local Dev**: `application-local.yml` sets `cinebook.payment.gateway: ${PAYMENT_GATEWAY:mock}`, allowing developers to run demo flows locally out of the box.
+
+### 8.2 End-to-End Flow Diagram
+```text
+Customer Browser                    Spring Boot Backend                     Database
+       │                                     │                                 │
+       │─── 1. POST /api/v1/bookings/{id}/payments ───────────────────────────>│ (Payment PENDING)
+       │<── Returns paymentUrl: /payment/demo?vnp_TxnRef=... ──────────────────│
+       │                                     │                                 │
+       │─── 2. Navigates to /payment/demo ───│                                 │
+       │    (Displays simulation buttons: 00, 24, 07)                          │
+       │                                     │                                 │
+       │─── 3. POST /api/v1/payments/demo/complete {paymentCode, responseCode} │
+       │    ├── Validates Owner / Admin      │                                 │
+       │    ├── Validates Hold Expiration    │                                 │
+       │    ├── Signs HMAC-SHA512            │                                 │
+       │    ├── Calls processIpn(...)        │                                 │
+       │    └── Calls confirmPaidBooking(...)─────────────────────────────────>│ Payment SUCCESS,
+       │                                     │                                 │ Booking PAID,
+       │<── Returns redirectUrl: /payment/result?vnp_ResponseCode=00&... ──────│ Tickets VALID
+       │                                     │                                 │
+       │─── 4. Navigates to /payment/result  │                                 │
+       │    ├── Calls GET /api/v1/payments/vnpay/return (Verifies HMAC)        │
+       │    └── Displays Electronic Tickets  │                                 │
+```
+
+### 8.3 Supported Simulation Response Codes
+- `00`: Giao dịch thành công (Payment SUCCESS, Booking PAID, Tickets VALID).
+- `24`: Khách hàng hủy giao dịch (Payment CANCELLED, seat holds released).
+- `07`: Lỗi ngân hàng / trừ tiền nghi ngờ (Payment FAILED).
+

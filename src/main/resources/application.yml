@@ -71,5 +71,13 @@ cinebook:
     gateway: ${PAYMENT_GATEWAY:vnpay}
     mock:
       refund-result: ${MOCK_REFUND_RESULT:SUCCESS}
+  scheduling:
+    enabled: ${CINEBOOK_SCHEDULING_ENABLED:true}
+  booking:
+    cleanup:
+      enabled: ${CINEBOOK_BOOKING_CLEANUP_ENABLED:true}
+      fixed-delay-ms: ${CINEBOOK_BOOKING_CLEANUP_FIXED_DELAY_MS:10000}
+      initial-delay-ms: ${CINEBOOK_BOOKING_CLEANUP_INITIAL_DELAY_MS:5000}
+      batch-size: ${CINEBOOK_BOOKING_CLEANUP_BATCH_SIZE:100}
 
 

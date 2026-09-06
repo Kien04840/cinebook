@@ -40,7 +40,7 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@ConditionalOnProperty(name = "cinebook.payment.gateway", havingValue = "vnpay")
+@ConditionalOnProperty(name = "cinebook.payment.gateway", havingValue = "vnpay", matchIfMissing = true)
 public class VnPayServiceImpl implements VnPayService {
 
     private static final String HMAC_SHA512_ALGORITHM = "HmacSHA512";

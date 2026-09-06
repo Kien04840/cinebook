@@ -180,13 +180,26 @@ Verify that:
    - Customer booking history (`GET /api/v1/bookings/me`) with pagination (`Pageable`, sort `createdAt,DESC`).
    - Customer booking detail (`GET /api/v1/bookings/{id}`) enforcing strict owner authorization (`booking.user_id == currentUserId` or `ADMIN`).
 3. **Booking Cancellation**:
-   - Customer self-cancellation of `PENDING_PAYMENT` bookings (`POST /api/v1/bookings/{id}/cancel`), updating status to `CANCELLED` and releasing held seats immediately.
+   - Customer self-cancellation of `PENDING_PAYMENT` bookings (`POST /api/v1/bookings/{id}/cancel`), updating status to `CANCELLED`, snapshotting held seats into `tickets` with status `CANCELLED`, and releasing held seats immediately.
    - Strict rejection of customer self-cancellation for `PAID` bookings (400 Bad Request).
-4. **Hold Expiration Management**:
-   - 5-minute temporary hold window.
-   - Dual cleanup strategy:
-     - Query time filter: `expires_at > CURRENT_TIMESTAMP()` (expired holds never block new holds).
-     - Spring `@Scheduled` task running every 60 seconds as housekeeping to transition expired bookings to `EXPIRED` and delete expired `seat_holds`.
+4. **Hold Expiration Management (Two-Tier Expiration Architecture)**:
+   - 5-minute temporary hold window (`hold_expires_at = expires_at = now() + 5 min`).
+   - **Tier 1 — Proactive Background Scheduler (`BookingCleanupTask`)**:
+     - Enabled via `@EnableScheduling` on `CinebookApplication`.
+     - Scheduled at configurable intervals (`cinebook.booking.cleanup.fixed-delay-ms`, default 10,000ms / 10s).
+     - Processes expired `PENDING_PAYMENT` bookings in paginated batches (`cinebook.booking.cleanup.batch-size`, default 100).
+     - Does NOT hold a method-level `@Transactional` to isolate booking failures and avoid global lock contention.
+     - Single source of truth: delegates each expired booking transition to `bookingService.expireBookingIfHoldExpired(booking)` within its own pessimistic write lock transaction (`findByIdWithLock`).
+     - Cleans up orphaned expired `seat_holds` via `bookingService.cleanupExpiredSeatHolds(now)`.
+   - **Tier 2 — On-Demand Lazy Expiration**:
+     - Evaluated on any customer or system interaction (detail view, payment init, cancel, seat map check).
+     - If `hold_expires_at <= now()`, atomically transitions to `EXPIRED` before processing the request.
+   - **Expiration Side Effects & Seat Preservation**:
+     - Snapshots held seats into `tickets` with status `CANCELLED` prior to deleting `seat_holds`, ensuring customer booking history permanently preserves selected seats.
+     - Releases held seats immediately (`seat_holds` deleted) so auditorium seat map shows them as `AVAILABLE` (`SOLD_TICKET_STATUSES = {VALID, USED}`).
+     - Cancels active `PENDING` payment attempts (transitions to `CANCELLED`).
+     - Strictly preserves historical terminal payment attempts (`SUCCESS`, `CANCELLED`, `FAILED`, `REFUNDED`).
+     - Idempotently releases promotion quota if applied (`usedCount` decremented).
 5. **Paid Conversion / Ticket Issuance (Hook for Payment Module)**:
    - Coordinate with Payment module: transition `PENDING_PAYMENT → PAID`.
    - Issue `tickets` with snapshot `ticket_price`, status `VALID`, and `qr_code = ticket.id`.
@@ -252,6 +265,7 @@ The database schema (`docs/database.md` §3.6, §3.7) defines the authoritative 
 |---|---|---|
 | `id` | `varchar(36)` | Primary Key (UUID) |
 | `booking_code` | `varchar(30)` | Unique, Not Null (e.g. `CB-20260901-ABC12`) |
+| `check_in_code` | `varchar(36)` | Unique, Not Null (UUIDv4 QR credential for gate check-in) |
 | `user_id` | `varchar(36)` | FK → `users.id`, Not Null |
 | `showtime_id` | `varchar(36)` | FK → `showtimes.id`, Not Null |
 | `total_amount` | `decimal(12,2)` | Not Null, Check `total_amount >= 0` |
@@ -268,6 +282,7 @@ The database schema (`docs/database.md` §3.6, §3.7) defines the authoritative 
 - `idx_bookings_user_created` (`user_id`, `created_at`)
 - `idx_bookings_showtime_status` (`showtime_id`, `booking_status`)
 - Unique: `uk_bookings_code` (`booking_code`)
+- Unique: `uk_bookings_check_in_code` (`check_in_code`)
 
 ### 4.2 `seat_holds`
 
@@ -721,16 +736,22 @@ When the Payment module processes gateway notifications:
 ### Behavior by Status (Locked V1)
 
 - **`PENDING_PAYMENT`**:
-  - Customer cancels reservation before payment completes.
-  - Action: Update `booking_status = 'CANCELLED'`, set `cancelled_at = now()`, set `cancelled_by_user_id`.
-  - Action: Delete associated `seat_holds` records immediately so seats are released.
-  - Return `200 OK` with updated `BookingDetailResponse`.
+  - Validates seat hold:
+    - If `hold_expires_at > now()`:
+      - Action: Update `booking_status = 'CANCELLED'`, set `cancelled_at = now()`, set `cancelled_by_user_id`, set `cancelled_reason`.
+      - Action: Delete associated `seat_holds` records immediately so seats are released.
+      - Action: Idempotently release promotion quota if a promotion was applied (`usedCount` decremented).
+      - Action: Any payment attempt in `PENDING` status for this booking is transitioned to `CANCELLED` (terminal payments `SUCCESS`, `FAILED`, `CANCELLED` remain untouched).
+      - Return `200 OK` with updated `BookingDetailResponse`.
+    - If `hold_expires_at <= now()`:
+      - Action: Lazily expires the booking via `bookingService.expireBookingIfHoldExpired(booking)` (booking becomes `EXPIRED`, seat holds deleted, promo quota released).
+      - Reject with `400 Bad Request` (`"Đơn đặt vé đã hết hạn giữ chỗ và không thể hủy."`).
 - **`PAID`**:
   - Customer self-cancellation is **STRICTLY FORBIDDEN IN V1**.
   - Request is rejected with `400 Bad Request` (`"Không thể tự hủy đơn đặt vé đã thanh toán thành công. Vui lòng liên hệ quản trị viên."`).
-  - Refunds are handled solely through Admin / Payment workflows in V2+.
-- **`EXPIRED` / `CANCELLED`**:
-  - Reject with `400 Bad Request` (`"Đơn đặt vé đã bị hủy hoặc hết hạn trước đó!"`).
+  - Refunds are handled solely through the Refund API (`POST /api/v1/payments/{paymentId}/refund`).
+- **`EXPIRED` / `CANCELLED` / `REFUNDED`**:
+  - Reject with `400 Bad Request` (`"Đơn đặt vé đã ở trạng thái " + booking.getBookingStatus() + " và không thể hủy."`).
 
 ---
 
@@ -768,6 +789,10 @@ When the Payment module processes gateway notifications:
 | `GET` | `/api/v1/bookings/me` | `CUSTOMER` | None (Pageable query) | `200 OK` (`PageResponse<BookingSummaryResponse>`) | `401` |
 | `GET` | `/api/v1/bookings/{id}` | `CUSTOMER` / `ADMIN` | None | `200 OK` (`BookingDetailResponse`) | `401`, `403`, `404` |
 | `POST` | `/api/v1/bookings/{id}/cancel` | `CUSTOMER` / `ADMIN` | `CancelBookingRequest` (optional) | `200 OK` (`BookingDetailResponse`) | `400`, `401`, `403`, `404` |
+| `GET` | `/api/v1/admin/bookings/verify?code={checkInCode}` | `ADMIN` | None (Query param `code`) | `200 OK` (`BookingVerifyResponse`) | `400`, `401`, `403`, `404` |
+| `POST` | `/api/v1/admin/bookings/check-in` | `ADMIN` | `BookingCheckInRequest` | `200 OK` (`BookingCheckInResponse`) | `400`, `401`, `403`, `404`, `409` |
+| `GET` | `/api/v1/admin/tickets/verify?code={code}` | `ADMIN` | None (Query param `code`) | `200 OK` (`TicketVerifyResponse`) | `400`, `401`, `403`, `404` |
+| `POST` | `/api/v1/admin/tickets/{ticketId}/check-in` | `ADMIN` | None (Path variable `ticketId`) | `200 OK` (`TicketCheckInResponse`) | `400`, `401`, `403`, `404`, `409` |
 
 ### 15.2 Request / Response DTO Shapes
 
@@ -955,9 +980,11 @@ User A (Thread 1)                          User B (Thread 2)
 - Mapper: `BookingMapper` (mapping Booking entity to Detail/Summary responses).
 
 ### Phase 3: Scheduled Housekeeping Task
-- Implement `BookingCleanupTask` with `@Scheduled(fixedDelay = 60000)`:
-  - Transition unpaid bookings past `hold_expires_at` to `EXPIRED`.
-  - Delete expired `seat_holds` (`expires_at <= now()`).
+- Implement `BookingCleanupTask` with `@Scheduled(fixedDelayString = "${cinebook.booking.cleanup.fixed-delay-ms:60000}", initialDelayString = "${cinebook.booking.cleanup.initial-delay-ms:5000}")`:
+  - Background execution activated by `@EnableScheduling` on `CinebookApplication`.
+  - Paginated batch query (`findExpiredBookings`) to protect memory and avoid long table locks.
+  - Per-booking failure isolation (no task-level `@Transactional`) delegating to `BookingService.expireBookingIfHoldExpired(booking)` with pessimistic locking.
+  - Cancel any pending payment attempts, release promotion quotas, and delete expired seat holds (`expires_at <= now()`).
 
 ### Phase 4: BookingService — Core Hold & Create
 - Implement `createBooking(CreateBookingRequest)`:
@@ -1098,8 +1125,12 @@ All V1 core decisions have been finalized and locked. The following items are re
 
 1. **Payment Retry Workflow (V2)**:
    - Defining the UX and retry policy for creating a second payment attempt on an existing booking (`Booking 1-N Payment`) before hold expiration.
-2. **Ticket Scanning & Gate Validation (V2)**:
-   - Ticket status transition (`VALID -> USED`) upon physical entrance validation will be defined in a future Cinema Gate / Scanner Admin API specification.
+2. **Ticket Scanning & Gate Validation (Implemented)**:
+   - Finalized and implemented via Booking-Level E-Ticket QR Check-In:
+     - Each booking is assigned a secret, cryptographically unpredictable `checkInCode` (UUIDv4) stored in `bookings.check_in_code` (UNIQUE, NOT NULL).
+     - Gate staff scans the single QR code to verify (`GET /api/v1/admin/bookings/verify?code={checkInCode}`) and atomically check in all seats (`POST /api/v1/admin/bookings/check-in`).
+     - Global pessimistic locking order: Lock parent `Booking` first, then lock all `Tickets`.
+     - Preserves `Booking 1:N Ticket` database model. Duplicate scans return `409 Conflict`. Partial check-ins are supported.
 3. **Promotion Engine Integration (V2)**:
    - Voucher validation, stacking rules, discount calculation, and `booking_promotions` snapshotting will be specified when the Promotion Management module is developed.
 4. **Dynamic Pricing Rules Integration (V2)**:

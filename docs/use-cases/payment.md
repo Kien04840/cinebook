@@ -296,7 +296,7 @@ VNPay Sandbox provides a server-to-server refund endpoint:
 | **Booking Status** | Must be `PAID` | `PAID` or orphaned `EXPIRED` | `400 Bad Request` ("Trạng thái đơn đặt vé không hợp lệ để hoàn tiền.") |
 | **Already Refunded** | Reject duplicate | Return existing refund | `409 Conflict` (or idempotent response) |
 | **Showtime Window** | $\ge 2$ hours before `startTime` | Any time | `400 Bad Request` ("Chỉ có thể hoàn tiền trước giờ chiếu ít nhất 2 tiếng.") |
-| **Ticket Usage** | Zero `USED` tickets | Zero `USED` tickets | `400 Bad Request` ("Không thể hoàn tiền đơn hàng đã có vé được sử dụng.") |
+| **Ticket Usage** | Zero `USED` tickets | Zero `USED` tickets | `400 Bad Request` ("Không thể hoàn tiền cho đơn hàng đã được sử dụng để vào rạp.") |
 | **Ownership** | Must own booking | Any booking | `403 Forbidden` |
 
 ### 7.2 Refund + Promotion Invariant
@@ -455,3 +455,20 @@ All tables (`payments`, `refunds`, `bookings`, `tickets`, `booking_promotions`, 
 1. Payment initiation, IPN webhook, return handling, and refund domain logic fully implemented following Monolith Layered Architecture.
 2. Full test suite passes (`.\mvnw.cmd clean test`) with zero failures and zero regressions across all 345+ existing tests.
 3. E2E verification confirms payment initiation, IPN confirmation, booking state update, ticket issuance, and full refund workflow via Swagger / REST API.
+
+---
+
+## 13. Demo Payment Simulation (Mock Gateway Mode)
+
+### 13.1 Purpose & Architecture
+To enable comprehensive graduation defense demos and end-to-end automated testing without external VNPay Sandbox merchant account dependencies, CineBook implements a zero-trust **Demo Payment Gateway**:
+
+- **Interface Realization**: `MockVnPayService` implements `VnPayService`, computing cryptographically valid HMAC-SHA512 signatures identical to VNPay.
+- **Authoritative Flow**: Frontend never directly mutates database states. Instead, simulation requests trigger `PaymentServiceImpl.processIpn(...)`, which enforces amount verification, idempotency checks, and delegates to `BookingServiceImpl.confirmPaidBooking(...)`.
+- **Production Isolation**: Loaded strictly when `cinebook.payment.gateway=mock` (`matchIfMissing=false`). Completely disabled and omitted from Spring context in production.
+
+### 13.2 Simulation Actions
+1. **00 - Giao dịch thành công**: Validates hold, runs real IPN logic $\rightarrow$ `Payment(SUCCESS)`, `Booking(PAID)`, tickets issued with QR code, temporary seat holds released.
+2. **24 - Khách hàng hủy giao dịch**: Updates `Payment(CANCELLED)`, releases temporary seat holds.
+3. **07 - Lỗi ngân hàng / trừ tiền nghi ngờ**: Updates `Payment(FAILED)`.
+

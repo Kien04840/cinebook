@@ -5,6 +5,8 @@ import type {
   InitiatePaymentResponse,
   PaymentResultResponse,
   PaymentSummaryResponse,
+  DemoPaymentCompleteRequest,
+  DemoPaymentCompleteResponse,
 } from '@/types/payment.types'
 import type {
   RefundRequest,
@@ -29,6 +31,16 @@ export const paymentService = {
     const response = await apiClient.get<PaymentResultResponse>('/api/v1/payments/vnpay/return', {
       params,
     })
+    return response.data
+  },
+
+  async completeDemoPayment(
+    payload: DemoPaymentCompleteRequest
+  ): Promise<DemoPaymentCompleteResponse> {
+    const response = await apiClient.post<DemoPaymentCompleteResponse>(
+      '/api/v1/payments/demo/complete',
+      payload
+    )
     return response.data
   },
 

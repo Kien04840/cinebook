@@ -13,6 +13,7 @@ import MovieDetailView from '@/views/customer/MovieDetailView.vue'
 import ShowtimesView from '@/views/customer/ShowtimesView.vue'
 import BookingView from '@/views/customer/BookingView.vue'
 import PaymentResultView from '@/views/customer/PaymentResultView.vue'
+import DemoPaymentView from '@/views/customer/DemoPaymentView.vue'
 import MyBookingsView from '@/views/customer/MyBookingsView.vue'
 import ProfileView from '@/views/customer/ProfileView.vue'
 import CinemasView from '@/views/customer/CinemasView.vue'
@@ -85,6 +86,12 @@ const routes: Array<RouteRecordRaw> = [
         name: 'booking',
         component: BookingView,
         meta: { title: 'Đặt vé xem phim', requiresAuth: true },
+      },
+      {
+        path: 'payment/demo',
+        name: 'payment-demo',
+        component: DemoPaymentView,
+        meta: { title: 'Mô phỏng thanh toán VNPay', requiresAuth: true },
       },
       {
         path: 'payment/result',

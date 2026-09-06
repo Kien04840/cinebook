@@ -22,8 +22,26 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
 
     Optional<Booking> findByBookingCode(String bookingCode);
 
-
     boolean existsByBookingCode(String bookingCode);
+
+    Optional<Booking> findByCheckInCode(String checkInCode);
+
+    boolean existsByCheckInCode(String checkInCode);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT b FROM Booking b WHERE b.checkInCode = :checkInCode")
+    Optional<Booking> findByCheckInCodeWithLock(@Param("checkInCode") String checkInCode);
+
+    @Query("""
+        SELECT b FROM Booking b
+        JOIN FETCH b.showtime s
+        JOIN FETCH s.movie m
+        JOIN FETCH s.auditorium a
+        JOIN FETCH a.cinema c
+        LEFT JOIN FETCH b.user u
+        WHERE b.checkInCode = :checkInCode
+    """)
+    Optional<Booking> findByCheckInCodeWithDetails(@Param("checkInCode") String checkInCode);
 
     boolean existsByShowtimeId(String showtimeId);
 
@@ -85,6 +103,19 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
         SELECT b FROM Booking b
         WHERE b.bookingStatus = :status
           AND b.holdExpiresAt <= :now
+        ORDER BY b.holdExpiresAt ASC
+    """)
+    Page<Booking> findExpiredBookings(
+            @Param("status") BookingStatus status,
+            @Param("now") LocalDateTime now,
+            Pageable pageable
+    );
+
+    @Query("""
+        SELECT b FROM Booking b
+        WHERE b.bookingStatus = :status
+          AND b.holdExpiresAt <= :now
+        ORDER BY b.holdExpiresAt ASC
     """)
     List<Booking> findExpiredBookings(
             @Param("status") BookingStatus status,

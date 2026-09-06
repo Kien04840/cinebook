@@ -3,6 +3,8 @@ import type { PageResponse } from '@/types/api.types'
 import type {
   BookingDetailResponse,
   BookingSummaryResponse,
+  BookingVerifyResponse,
+  BookingCheckInResponse,
   CreateBookingPayload,
   CancelBookingPayload,
 } from '@/types/booking.types'
@@ -59,6 +61,20 @@ export const bookingService = {
 
   async cancelAdminBooking(id: string, payload?: CancelBookingPayload): Promise<BookingDetailResponse> {
     const response = await apiClient.post<BookingDetailResponse>(`/api/v1/admin/bookings/${id}/cancel`, payload || {})
+    return response.data
+  },
+
+  async verifyBookingCheckIn(code: string): Promise<BookingVerifyResponse> {
+    const response = await apiClient.get<BookingVerifyResponse>('/api/v1/admin/bookings/verify', {
+      params: { code },
+    })
+    return response.data
+  },
+
+  async checkInBooking(checkInCode: string): Promise<BookingCheckInResponse> {
+    const response = await apiClient.post<BookingCheckInResponse>('/api/v1/admin/bookings/check-in', {
+      checkInCode,
+    })
     return response.data
   },
 }

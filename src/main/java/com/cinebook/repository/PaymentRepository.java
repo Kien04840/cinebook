@@ -21,7 +21,21 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
     @Query("SELECT p FROM Payment p WHERE p.id = :id")
     Optional<Payment> findByIdWithLock(@Param("id") String id);
 
-    Optional<Payment> findByPaymentCode(String paymentCode);
+    @Query("""
+        SELECT p FROM Payment p
+        JOIN FETCH p.booking b
+        JOIN FETCH b.user u
+        WHERE p.paymentCode = :paymentCode
+    """)
+    Optional<Payment> findByPaymentCode(@Param("paymentCode") String paymentCode);
+
+    @Query("""
+        SELECT p FROM Payment p
+        JOIN FETCH p.booking b
+        JOIN FETCH b.user u
+        WHERE p.paymentCode = :paymentCode
+    """)
+    Optional<Payment> findByPaymentCodeWithBookingAndUser(@Param("paymentCode") String paymentCode);
 
     boolean existsByPaymentCode(String paymentCode);
 

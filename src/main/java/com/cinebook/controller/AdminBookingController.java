@@ -1,9 +1,8 @@
 package com.cinebook.controller;
 
+import com.cinebook.dto.request.BookingCheckInRequest;
 import com.cinebook.dto.request.CancelBookingRequest;
-import com.cinebook.dto.response.BookingDetailResponse;
-import com.cinebook.dto.response.BookingSummaryResponse;
-import com.cinebook.dto.response.PageResponse;
+import com.cinebook.dto.response.*;
 import com.cinebook.enums.BookingStatus;
 import com.cinebook.service.BookingService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,16 +14,36 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-@Tag(name = "Admin Booking", description = "Administrator booking search and management endpoints")
+@Tag(name = "Admin Booking", description = "Administrator booking search, check-in, and management endpoints")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/v1/admin/bookings")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('ADMIN')")
 public class AdminBookingController {
 
     private final BookingService bookingService;
+
+    @Operation(summary = "Verify booking details and check-in eligibility by check-in code")
+    @GetMapping("/verify")
+    public ResponseEntity<BookingVerifyResponse> verifyBookingCheckIn(
+            @RequestParam(name = "code") String code
+    ) {
+        BookingVerifyResponse response = bookingService.verifyBookingCheckIn(code);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Perform atomic check-in for all eligible tickets in a booking by check-in code")
+    @PostMapping("/check-in")
+    public ResponseEntity<BookingCheckInResponse> checkInBooking(
+            @Valid @RequestBody BookingCheckInRequest request
+    ) {
+        BookingCheckInResponse response = bookingService.checkInBooking(request);
+        return ResponseEntity.ok(response);
+    }
 
     @Operation(summary = "List and search all bookings for administration")
     @GetMapping

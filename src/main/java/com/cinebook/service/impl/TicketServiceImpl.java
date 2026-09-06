@@ -9,6 +9,7 @@ import com.cinebook.enums.TicketStatus;
 import com.cinebook.exception.BadRequestException;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.ResourceNotFoundException;
+import com.cinebook.repository.BookingRepository;
 import com.cinebook.repository.TicketRepository;
 import com.cinebook.service.TicketService;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ import java.time.LocalDateTime;
 public class TicketServiceImpl implements TicketService {
 
     private final TicketRepository ticketRepository;
+    private final BookingRepository bookingRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -98,8 +100,16 @@ public class TicketServiceImpl implements TicketService {
         }
 
         String id = ticketId.trim();
-        Ticket ticket = ticketRepository.findByIdWithLock(id)
-                .or(() -> ticketRepository.findByQrCodeWithLock(id))
+        Ticket existing = ticketRepository.findById(id)
+                .or(() -> ticketRepository.findByQrCode(id))
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vé với mã: " + id));
+
+        // Coordinated locking order: Lock parent Booking first, then Ticket
+        if (existing.getBooking() != null) {
+            bookingRepository.findByIdWithLock(existing.getBooking().getId());
+        }
+
+        Ticket ticket = ticketRepository.findByIdWithLock(existing.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy vé với mã: " + id));
 
         if (ticket.getTicketStatus() == TicketStatus.USED) {

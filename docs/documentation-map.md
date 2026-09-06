@@ -1,8 +1,9 @@
 # CineBook Master Documentation & Repository Navigation Map
 
 > **Current Repository State**: Monolithic Layered Architecture (Spring Boot 4 / Java 21 + MySQL 8 + Vue 3 / Vite / TypeScript + Tailwind CSS).  
-> **Last Repository & Documentation Audit**: `2026-09-01`  
-> **Quality Gate Status**: Backend 421/421 Tests PASS, Frontend Typecheck (vue-tsc) PASS, Frontend Build PASS, 0 Broken References.
+> **Last Repository & Documentation Audit**: `2026-09-06`  
+> **Quality Gate Status**: Backend 490/490 Tests PASS, Frontend Typecheck (vue-tsc) PASS, Frontend Build PASS, 0 Broken References.  
+> **Last Repository & Documentation Audit**: `2026-09-06` (Seat History Visibility, 10s Background Expiration & Concurrency Hardening)
 
 This document is the **single authoritative entry point** and **master navigation index** for developers and AI coding agents working on the CineBook codebase. It maps the physical code layout, domain modules, full-stack tracing, and exact task routing to eliminate guesswork and context overhead.
 
@@ -53,7 +54,7 @@ CineBook/
 │   ├── main/
 │   │   ├── java/com/cinebook/              # Spring Boot backend source code
 │   │   │   ├── config/                     # Spring configuration beans (Security, CORS, Async, Swagger)
-│   │   │   ├── controller/                 # 24 REST controllers (Public & Admin)
+│   │   │   ├── controller/                 # 25 REST controllers (Public, Admin & Demo Gateway)
 │   │   │   ├── dto/                        # Request/Response data transfer objects
 │   │   │   ├── entity/                     # JPA entity definitions (Single source of truth)
 │   │   │   ├── enums/                      # Domain enumerations and status types
@@ -72,7 +73,7 @@ CineBook/
 │   │       ├── application.yml             # Primary application configuration
 │   │       └── application-test.yml        # Test profile configuration
 │   └── test/
-│       └── java/com/cinebook/              # Backend JUnit 5 & Mockito test suites (411 tests)
+│       └── java/com/cinebook/              # Backend JUnit 5 & Mockito test suites (490 tests)
 ├── AGENTS.md                               # Global AI coding rules, locked stack decisions, and priorities
 ├── mvnw / mvnw.cmd                         # Maven wrapper
 ├── pom.xml                                 # Maven backend build dependencies & plugins
@@ -90,18 +91,18 @@ $$\text{Controller} \longrightarrow \text{Service} \longrightarrow \text{Reposit
 ```text
 com.cinebook
 ├── config/                  # Cross-cutting configurations (WebSecurityConfig, OpenApiConfig, AsyncConfig)
-├── controller/              # 24 REST controllers (Thin presentation layer, DTO validation, status mapping)
-├── dto/                     # 137 Request/Response DTOs (Strict API contracts, zero JPA leaks)
+├── controller/              # 25 REST controllers (Thin presentation layer, DTO validation, status mapping, including DemoPaymentController)
+├── dto/                     # 106 Request/Response DTOs (Strict API contracts, zero JPA leaks, including check-in DTOs)
 │   └── tmdb/                # External TMDB response DTOs
 ├── entity/                  # 25 JPA Entities (Database tables, primary keys, audit timestamps, versions)
 ├── enums/                   # 22 System enums (Status codes, screen types, discount types, report formats)
 ├── exception/               # Centralized exception taxonomy (AppException, Conflict, NotFound, Unauthorized)
 ├── mapper/                  # 11 Dedicated mappers (Entity-to-DTO conversion without business logic)
 ├── repository/              # 22 Spring Data JPA interfaces (Query methods, custom JPQL, pessimistic locks)
-│   └── specification/       # Dynamic JPA Criteria specifications (MovieSpecification, ShowtimeSpecification)
+│   └── specification/       # Dynamic JPA Criteria specifications (MovieSpecification, ShowtimeSpecification, CinemaSpecification)
 ├── security/                # Stateless JWT authentication, role normalization (ROLE_ADMIN/ROLE_CUSTOMER)
 ├── service/                 # 18 Domain service interfaces
-│   ├── impl/                # 19 Service implementations (@Transactional boundaries, invariant enforcement)
+│   ├── impl/                # 19 Service implementations (@Transactional boundaries, invariant enforcement, MockVnPayService)
 │   └── scheduling/          # Smart scheduling collision detection & next-slot generator
 ├── task/                    # Background scheduler (BookingCleanupTask for seat hold housekeeping)
 ├── tmdb/                    # TMDB HTTP integration client & error handling
@@ -119,11 +120,12 @@ frontend/src
 ├── assets/                  # CSS stylesheets (Tailwind directives, custom scrollbars, animations)
 ├── components/              # Modular UI components
 │   ├── booking/             # SeatMap, SeatLegend, BookingSummary
-│   ├── common/              # Button, Input, Modal, Badge, Card, Pagination, EmptyState, ErrorAlert, Toast
+│   ├── charts/              # BarChart, DonutChart, HorizontalBarChart, LineChart
+│   ├── common/              # Button, Input, Modal, Badge, Card, Pagination, EmptyState, ErrorAlert, Toast, Spinner
 │   ├── movie/               # MovieCard, TrailerModal
 │   ├── payment/             # RefundModal, RefundDetailModal
 │   ├── showtime/            # DateSelector, ShowtimeBrowser
-│   └── ticket/              # ElectronicTicket, TicketModal
+│   └── ticket/              # ElectronicTicket (Unified Booking-Level QR Pass for all seats), TicketModal
 ├── composables/             # useI18n (bilingual reactivity), useToast (notification emitter)
 ├── layouts/                 # Page scaffolding (DefaultLayout, AdminLayout, AuthLayout)
 ├── locales/                 # Bilingual dictionary (vi.ts, en.ts) with complete key parity
@@ -132,10 +134,11 @@ frontend/src
 ├── stores/                  # Pinia stores: auth (tokens, roles, user profile), toast (alert queue)
 ├── types/                   # Strongly typed TypeScript interfaces mirroring backend DTOs
 ├── utils/                   # formatCurrency, formatDate, formatDateTime, formatTime, formatDuration, formatStatus
-└── views/                   # 25 Route views
-    ├── admin/               # 11 Admin management views (Dashboard, Movies, Showtimes, Cinemas, Bookings, Users...)
+└── views/                   # 26 Route views
+    ├── admin/               # 11 Admin management views (Dashboard, Movies, Showtimes, Cinemas, Bookings, Tickets...)
     ├── auth/                # LoginView, RegisterView
-    └── customer/            # 10 Customer views (Home, Movies, MovieDetail, Showtimes, Booking, MyBookings...)
+    ├── customer/            # 11 Customer views (Home, Movies, MovieDetail, Showtimes, Booking, MyBookings, DemoPayment...)
+    └── (Root)               # ForbiddenView, NotFoundView
 ```
 
 ---
@@ -156,9 +159,9 @@ frontend/src
 | **10. Showtime & Smart Scheduling** | `ShowtimeController`<br>`AdminShowtimeController`<br>`ShowtimeServiceImpl`<br>`ShowtimeSchedulingServiceImpl` | `ShowtimesView`<br>`AdminShowtimesView`<br>`ShowtimeBrowser.vue`<br>`showtime.service.ts` | `/api/v1/showtimes`<br>`/api/v1/showtimes/{id}`<br>`/api/v1/admin/showtimes/**`<br>`/api/v1/admin/showtimes/generate` | `showtimes`<br>`movies`<br>`auditoriums` | `docs/use-cases/showtime.md`<br>`docs/business-rules.md` §6 | **Implemented** |
 | **11. Day & Time Pricing Rules** | `PricingEngine` (in `BookingServiceImpl`) | `AdminPricingView` | Internal domain evaluation during ticket pricing calculation | `day_pricing_rules`<br>`time_slot_pricing_rules` | `docs/business-rules.md` §7<br>`docs/database.md` §3.5 | **Implemented** |
 | **12. Seat Hold Concurrency** | `BookingServiceImpl`<br>`BookingCleanupTask` | `BookingView`<br>`SeatMap.vue`<br>`booking.service.ts` | Implicitly created during `/api/v1/bookings` step; released upon expiration/cancel | `seat_holds` (Pessimistic lock, 5m TTL) | `docs/use-cases/booking.md`<br>`docs/business-rules.md` §8 | **Implemented** |
-| **13. Booking & Order Processing** | `BookingController`<br>`AdminBookingController`<br>`BookingServiceImpl` | `BookingView`<br>`MyBookingsView`<br>`AdminBookingsView`<br>`booking.service.ts` | `/api/v1/bookings`<br>`/api/v1/bookings/{id}`<br>`/api/v1/bookings/me`<br>`/api/v1/bookings/{id}/cancel`<br>`/api/v1/admin/bookings/**` | `bookings`<br>`tickets`<br>`seat_holds`<br>`booking_promotions` | `docs/use-cases/booking.md`<br>`docs/business-rules.md` §8 | **Implemented** |
-| **14. Ticket & Box Office Check-In** | `AdminTicketController`<br>`TicketServiceImpl` | `MyBookingsView` (TicketModal)<br>`AdminTicketsView`<br>`ticket.service.ts` | `/api/v1/admin/tickets/verify`<br>`/api/v1/admin/tickets/{id}/check-in` | `tickets`<br>`bookings` | `docs/use-cases/booking.md` §9<br>`docs/business-rules.md` §8.4 | **Implemented** |
-| **15. Payment (VNPay Sandbox)** | `PaymentController`<br>`PaymentServiceImpl`<br>`VnPayServiceImpl` | `BookingView`<br>`PaymentResultView`<br>`payment.service.ts` | `/api/v1/bookings/{id}/payments`<br>`/api/v1/payments/vnpay/ipn`<br>`/api/v1/payments/vnpay/return`<br>`/api/v1/payments/{id}` | `payments`<br>`bookings` | `docs/payment.md`<br>`docs/use-cases/payment.md`<br>`docs/business-rules.md` §9 | **Implemented** |
+| **13. Booking & Order Processing** | `BookingController`<br>`AdminBookingController`<br>`BookingServiceImpl` | `BookingView`<br>`MyBookingsView`<br>`AdminBookingsView`<br>`AdminTicketsView`<br>`booking.service.ts` | `/api/v1/bookings`<br>`/api/v1/bookings/{id}`<br>`/api/v1/bookings/me`<br>`/api/v1/bookings/{id}/cancel`<br>`/api/v1/admin/bookings/verify`<br>`/api/v1/admin/bookings/check-in`<br>`/api/v1/admin/bookings/**` | `bookings` (with `check_in_code`)<br>`tickets`<br>`seat_holds`<br>`booking_promotions` | `docs/use-cases/booking.md`<br>`docs/business-rules.md` §8<br>`docs/api.md` §8.6–8.7 | **Implemented** |
+| **14. Ticket & Box Office Check-In** | `AdminBookingController`<br>`AdminTicketController`<br>`BookingServiceImpl`<br>`TicketServiceImpl` | `AdminTicketsView`<br>`MyBookingsView` (TicketModal)<br>`ElectronicTicket.vue`<br>`booking.service.ts`<br>`ticket.service.ts` | Primary (Booking-level):<br>`GET /api/v1/admin/bookings/verify`<br>`POST /api/v1/admin/bookings/check-in`<br>Fallback (Single-ticket):<br>`GET /api/v1/admin/tickets/verify`<br>`POST /api/v1/admin/tickets/{id}/check-in` | `bookings` (1:N `tickets`)<br>`tickets` (status: `PENDING`, `VALID`, `USED`, `CANCELLED`) | `docs/business-rules.md` §8.4<br>`docs/use-cases/booking.md` §25<br>`docs/api.md` §8.6–8.9 | **Implemented**<br>(One Booking = One QR for all seats; Coordinated `Booking -> Ticket` pessimistic locking) |
+| **15. Payment (VNPay & Demo Gateway)** | `PaymentController`<br>`DemoPaymentController`<br>`PaymentServiceImpl`<br>`VnPayServiceImpl`<br>`MockVnPayService` | `BookingView`<br>`DemoPaymentView`<br>`PaymentResultView`<br>`payment.service.ts` | `/api/v1/bookings/{id}/payments`<br>`/api/v1/payments/vnpay/ipn`<br>`/api/v1/payments/vnpay/return`<br>`/api/v1/payments/{id}`<br>`/api/v1/demo-payment/complete` | `payments`<br>`bookings` | `docs/payment.md`<br>`docs/use-cases/payment.md`<br>`docs/business-rules.md` §9 | **Implemented** |
 | **16. Refund & Financial Cancellation** | `PaymentController`<br>`AdminPaymentController`<br>`PaymentServiceImpl` | `MyBookingsView` (RefundModal)<br>`AdminRefundsView`<br>`payment.service.ts` | `/api/v1/payments/{id}/refund`<br>`/api/v1/admin/bookings/{id}/refund`<br>`/api/v1/admin/refunds` | `refunds`<br>`payments`<br>`bookings` | `docs/payment.md`<br>`docs/use-cases/payment.md`<br>`docs/business-rules.md` §9.6 | **Implemented** |
 | **17. Promotion & Discount Vouchers** | `PromotionController`<br>`AdminPromotionController`<br>`PromotionServiceImpl` | `PromotionsView`<br>`AdminPromotionsView`<br>`BookingView`<br>`promotion.service.ts` | `/api/v1/promotions`<br>`/api/v1/promotions/validate`<br>`/api/v1/admin/promotions/**` | `promotions`<br>`booking_promotions` | `docs/use-cases/promotion.md`<br>`docs/business-rules.md` §10 | **Implemented** |
 | **18. Reporting & Analytics Dashboard** | `AdminReportController`<br>`ReportServiceImpl` | `AdminDashboardView`<br>`AdminReportsView`<br>`report.service.ts` | `/api/v1/admin/reports/dashboard`<br>`/api/v1/admin/reports/revenue`<br>`/api/v1/admin/reports/movies`<br>`/api/v1/admin/reports/cinemas`<br>`/api/v1/admin/reports/export` | Cross-table aggregations (`bookings`, `payments`, `refunds`, `tickets`) | `docs/use-cases/reporting.md`<br>`docs/use-cases/administration.md` | **Implemented** |
@@ -180,7 +183,7 @@ Before modifying or implementing features, consult this matrix to load the exact
 | **Pricing Rules & Seat Tiers** | `docs/business-rules.md` §7<br>`docs/database.md` §3.3, 3.5 | `docs/api.md` §11<br>`docs/architecture.md` §6 | `docs/use-cases/showtime.md` | `docs/tmdb-import.md`<br>`docs/payment.md` |
 | **Seat Hold & Concurrency** | `docs/use-cases/booking.md`<br>`docs/business-rules.md` §8<br>`docs/database.md` §3.6 | `docs/api.md` §8<br>`docs/architecture.md` §7.3 | `.agents/rules/backend.md` | `docs/tmdb-import.md`<br>`docs/use-cases/authentication.md` |
 | **Booking Creation & Lifecycle** | `docs/use-cases/booking.md`<br>`docs/business-rules.md` §8<br>`.agents/rules/backend.md` | `docs/api.md` §8<br>`docs/database.md` §3.6<br>`docs/architecture.md` §7 | `docs/use-cases/promotion.md` | `docs/tmdb-import.md`<br>`docs/use-cases/cinema.md` |
-| **Box Office Ticket Check-In** | `docs/use-cases/booking.md` §9<br>`docs/business-rules.md` §8.4 | `docs/api.md` §8<br>`docs/database.md` §3.6 | `docs/use-cases/administration.md` | `docs/tmdb-import.md`<br>`docs/payment.md` |
+| **Box Office Ticket Check-In** | `docs/use-cases/booking.md` §9, 25<br>`docs/business-rules.md` §8.4<br>`docs/api.md` §8.6–8.9 | `docs/database.md` §3.6<br>`docs/architecture.md` §7 | `docs/use-cases/administration.md` | `docs/tmdb-import.md`<br>`docs/payment.md` |
 | **Payment (VNPay Sandbox)** | `docs/payment.md`<br>`docs/use-cases/payment.md`<br>`docs/business-rules.md` §9<br>`.agents/rules/security.md` | `docs/database.md` §3.7<br>`docs/api.md` §9<br>`docs/architecture.md` §7.4 | `docs/testing/payment-refund-http-demo.md` | `docs/tmdb-import.md`<br>`docs/use-cases/movie.md` |
 | **Refund & Order Cancellation** | `docs/payment.md` §8<br>`docs/use-cases/payment.md`<br>`docs/business-rules.md` §9.6 | `docs/database.md` §3.7<br>`docs/api.md` §9<br>`docs/architecture.md` §7.4 | `docs/testing/payment-refund-http-demo.md` | `docs/tmdb-import.md`<br>`docs/use-cases/authentication.md` |
 | **Promotion & Voucher** | `docs/use-cases/promotion.md`<br>`docs/business-rules.md` §10 | `docs/database.md` §3.8<br>`docs/api.md` §10<br>`docs/architecture.md` §6 | `docs/use-cases/booking.md` | `docs/tmdb-import.md`<br>`docs/payment.md` |
@@ -207,9 +210,9 @@ Use this index to quickly locate source code, test suites, and documentation for
 | **Cinemas & Auditoriums** | `CinemaController.java`<br>`AdminCinemaController.java`<br>`AuditoriumController.java`<br>`AdminAuditoriumController.java` | `CinemaService.java`<br>`CinemaServiceImpl.java`<br>`AuditoriumService.java`<br>`AuditoriumServiceImpl.java` | `CinemaRepository.java`<br>`AuditoriumRepository.java`<br>`Cinema.java`<br>`Auditorium.java` | `views/customer/CinemasView.vue`<br>`views/admin/AdminCinemasView.vue`<br>`services/cinema.service.ts` | `CinemaControllerTest.java`<br>`AdminCinemaControllerTest.java`<br>`AuditoriumControllerTest.java`<br>`CinemaServiceTest.java` | `docs/use-cases/cinema.md`<br>`docs/business-rules.md` §5 |
 | **Seats & Pricing Rules** | `SeatTypeController.java`<br>`AdminSeatTypeController.java` | `SeatService.java`<br>`SeatTypeService.java`<br>`SeatServiceImpl.java`<br>`SeatTypeServiceImpl.java` | `SeatRepository.java`<br>`SeatTypeRepository.java`<br>`DayPricingRuleRepository.java`<br>`Seat.java`<br>`SeatType.java` | `views/admin/AdminPricingView.vue`<br>`components/booking/SeatMap.vue`<br>`services/seatType.service.ts` | `SeatTypeControllerTest.java`<br>`AdminSeatTypeControllerTest.java`<br>`SeatServiceTest.java`<br>`SeatTypeServiceTest.java` | `docs/business-rules.md` §5.3, §7<br>`docs/database.md` §3.3 |
 | **Showtimes & Scheduling** | `ShowtimeController.java`<br>`AdminShowtimeController.java` | `ShowtimeService.java`<br>`ShowtimeServiceImpl.java`<br>`ShowtimeSchedulingServiceImpl.java` | `ShowtimeRepository.java`<br>`ShowtimeSpecification.java`<br>`Showtime.java` | `views/customer/ShowtimesView.vue`<br>`views/admin/AdminShowtimesView.vue`<br>`services/showtime.service.ts` | `ShowtimeControllerTest.java`<br>`AdminShowtimeControllerTest.java`<br>`ShowtimeServiceTest.java`<br>`ShowtimeSchedulingServiceTest.java` | `docs/use-cases/showtime.md`<br>`docs/business-rules.md` §6 |
-| **Booking & Seat Hold** | `BookingController.java`<br>`AdminBookingController.java` | `BookingService.java`<br>`BookingServiceImpl.java`<br>`BookingCleanupTask.java` | `BookingRepository.java`<br>`SeatHoldRepository.java`<br>`TicketRepository.java`<br>`Booking.java`<br>`SeatHold.java` | `views/customer/BookingView.vue`<br>`views/customer/MyBookingsView.vue`<br>`views/admin/AdminBookingsView.vue`<br>`services/booking.service.ts` | `BookingControllerTest.java`<br>`AdminBookingControllerTest.java`<br>`BookingServiceTest.java`<br>`BookingConcurrencyTest.java`<br>`BookingCleanupTaskTest.java` | `docs/use-cases/booking.md`<br>`docs/business-rules.md` §8 |
-| **Tickets & Check-In** | `AdminTicketController.java` | `TicketService.java`<br>`TicketServiceImpl.java` | `TicketRepository.java`<br>`Ticket.java` | `views/admin/AdminTicketsView.vue`<br>`components/ticket/ElectronicTicket.vue`<br>`services/ticket.service.ts` | `TicketServiceTest.java` | `docs/use-cases/booking.md` §9<br>`docs/business-rules.md` §8.4 |
-| **Payment (VNPay)** | `PaymentController.java`<br>`AdminPaymentController.java` | `PaymentService.java`<br>`PaymentServiceImpl.java`<br>`VnPayServiceImpl.java` | `PaymentRepository.java`<br>`RefundRepository.java`<br>`Payment.java`<br>`Refund.java` | `views/customer/PaymentResultView.vue`<br>`services/payment.service.ts` | `PaymentControllerTest.java`<br>`AdminPaymentControllerTest.java`<br>`PaymentServiceTest.java`<br>`PaymentConcurrencyTest.java`<br>`VnPayServiceTest.java` | `docs/payment.md`<br>`docs/use-cases/payment.md`<br>`docs/business-rules.md` §9 |
+| **Booking & Seat Hold** | `BookingController.java`<br>`AdminBookingController.java` | `BookingService.java`<br>`BookingServiceImpl.java`<br>`BookingCleanupTask.java` | `BookingRepository.java`<br>`SeatHoldRepository.java`<br>`TicketRepository.java`<br>`Booking.java` (`check_in_code`)<br>`SeatHold.java` | `views/customer/BookingView.vue`<br>`views/customer/MyBookingsView.vue`<br>`views/admin/AdminBookingsView.vue`<br>`views/admin/AdminTicketsView.vue`<br>`services/booking.service.ts` | `BookingControllerTest.java`<br>`AdminBookingControllerTest.java`<br>`BookingServiceTest.java`<br>`BookingConcurrencyTest.java`<br>`BookingCleanupTaskTest.java` | `docs/use-cases/booking.md`<br>`docs/business-rules.md` §8<br>`docs/api.md` §8.6–8.7 |
+| **Tickets & Check-In** | `AdminBookingController.java`<br>`AdminTicketController.java` | `BookingService.java`<br>`TicketService.java`<br>`BookingServiceImpl.java`<br>`TicketServiceImpl.java` | `BookingRepository.java`<br>`TicketRepository.java`<br>`Booking.java`<br>`Ticket.java` | `views/admin/AdminTicketsView.vue`<br>`components/ticket/ElectronicTicket.vue`<br>`components/ticket/TicketModal.vue`<br>`services/booking.service.ts`<br>`services/ticket.service.ts` | `BookingServiceTest.java`<br>`AdminBookingControllerTest.java`<br>`TicketServiceTest.java`<br>`AdminTicketControllerTest.java` | `docs/business-rules.md` §8.4<br>`docs/use-cases/booking.md` §25<br>`docs/api.md` §8.6–8.9 |
+| **Payment (VNPay & Demo)** | `PaymentController.java`<br>`DemoPaymentController.java`<br>`AdminPaymentController.java` | `PaymentService.java`<br>`PaymentServiceImpl.java`<br>`VnPayServiceImpl.java`<br>`MockVnPayService.java` | `PaymentRepository.java`<br>`RefundRepository.java`<br>`Payment.java`<br>`Refund.java` | `views/customer/BookingView.vue`<br>`views/customer/DemoPaymentView.vue`<br>`views/customer/PaymentResultView.vue`<br>`services/payment.service.ts` | `PaymentControllerTest.java`<br>`DemoPaymentControllerTest.java`<br>`DemoPaymentIntegrationTest.java`<br>`AdminPaymentControllerTest.java`<br>`PaymentServiceTest.java`<br>`PaymentConcurrencyTest.java`<br>`VnPayServiceTest.java` | `docs/payment.md`<br>`docs/use-cases/payment.md`<br>`docs/business-rules.md` §9 |
 | **Refunds** | `PaymentController.java`<br>`AdminPaymentController.java` | `PaymentService.java`<br>`PaymentServiceImpl.java` | `RefundRepository.java`<br>`PaymentRepository.java`<br>`Refund.java` | `views/admin/AdminRefundsView.vue`<br>`components/payment/RefundModal.vue`<br>`services/payment.service.ts` | `PaymentRefundIntegrationTest.java`<br>`PaymentFinancialRaceIntegrationTest.java` | `docs/payment.md` §8<br>`docs/use-cases/payment.md` |
 | **Promotions** | `PromotionController.java`<br>`AdminPromotionController.java` | `PromotionService.java`<br>`PromotionServiceImpl.java` | `PromotionRepository.java`<br>`BookingPromotionRepository.java`<br>`Promotion.java` | `views/customer/PromotionsView.vue`<br>`views/admin/AdminPromotionsView.vue`<br>`services/promotion.service.ts` | `PromotionControllerTest.java`<br>`AdminPromotionControllerTest.java`<br>`PromotionServiceTest.java`<br>`PromotionConcurrencyTest.java` | `docs/use-cases/promotion.md`<br>`docs/business-rules.md` §10 |
 | **Reports & Dashboard** | `AdminReportController.java` | `ReportService.java`<br>`ReportServiceImpl.java` | Native SQL Aggregation in `ReportServiceImpl.java` | `views/admin/AdminDashboardView.vue`<br>`views/admin/AdminReportsView.vue`<br>`services/report.service.ts` | `AdminReportControllerTest.java`<br>`ReportServiceTest.java`<br>`ReportSecurityTest.java` | `docs/use-cases/reporting.md`<br>`docs/use-cases/administration.md` |
@@ -305,6 +308,78 @@ Tracing major business journeys from customer action to database persistence:
    GET /api/v1/payments/vnpay/return?vnp_...
        ↓
    PaymentController.processReturn() -> Displays Electronic Ticket & QRCode
+
+6. Booking-Level E-Ticket QR Check-In Flow (One QR for Multiple Seats):
+   Customer App:
+   PaymentResultView.vue / MyBookingsView.vue -> TicketModal.vue -> ElectronicTicket.vue
+       ↓
+   Renders single E-Ticket pass displaying all seats (e.g. D5, D6) and one QR code (derived from `booking.checkInCode`)
+       ↓
+   Cinema Gate Staff / Box Office:
+   AdminTicketsView.vue (Camera Scanner or manual input of `checkInCode`)
+       ↓
+   booking.service.ts -> verifyBookingCheckIn(checkInCode)
+       ↓
+   GET /api/v1/admin/bookings/verify?code={checkInCode} (Strictly rejects bookingCode)
+       ↓
+   AdminBookingController.verifyBooking() -> BookingServiceImpl.verifyBookingCheckIn()
+       ├── Lookup booking by checkInCode (404 if not found)
+       ├── Validate booking status == PAID
+       ├── Validate showtime status != CANCELLED
+       └── Return BookingVerifyResponse (movie, auditorium, showtime, seat list, checkInEligible)
+       ↓
+   Gate Staff confirms check-in:
+   booking.service.ts -> checkInBooking({ checkInCode })
+       ↓
+   POST /api/v1/admin/bookings/check-in (Accepts ONLY checkInCode)
+       ↓
+   AdminBookingController.checkInBooking() -> BookingServiceImpl.checkInBooking() [@Transactional]
+       ├── Lock parent Booking first: SELECT ... FOR UPDATE
+       ├── Lock all Tickets of the booking: SELECT ... FOR UPDATE (Coordinated deadlock-free order)
+       ├── Validate booking is PAID and showtime is not CANCELLED
+       ├── If all tickets in booking already USED -> throw ConflictException (Double-scan protection)
+       ├── Transition all remaining VALID tickets -> USED
+       └── Return BookingCheckInResponse (result: CHECKED_IN / PARTIALLY_CHECKED_IN, counts)
+
+7. Customer Refund Flow (Multi-Payment Attempt Safe):
+   MyBookingsView.vue -> isRefundEligible (Checks: PAID, >= 2h before showtime, !hasUsedTickets)
+       ↓
+   handleConfirmRefund() -> Fetch booking detail -> Find paymentStatus === 'SUCCESS' (Strict, no payments[0] fallback)
+       ↓
+   POST /api/v1/payments/{successPaymentId}/refund
+       ↓
+   PaymentController.refundPayment() -> PaymentServiceImpl.refundPayment()
+       ├── validateAndCreatePendingRefund() [@Transactional]
+       │     ├── Lock Payment: SELECT ... FOR UPDATE
+       │     ├── Validate status == SUCCESS (reject CANCELLED/FAILED)
+       │     ├── Validate booking == PAID and showtime >= 2h away
+       │     ├── Validate zero USED tickets (reject if any ticket USED)
+       │     └── Save Refund(PENDING)
+       ├── Call VNPay refund API (outside DB transaction)
+       └── completeRefundTransaction() [@Transactional]
+             ├── Update Refund -> SUCCESS
+             ├── Update Payment -> REFUNDED
+             ├── BookingServiceImpl.processBookingRefund()
+             │     ├── Update Booking -> REFUNDED
+             │     ├── Update all Tickets -> CANCELLED (seats released immediately)
+             │     └── Delete seat_holds
+             └── Send refund email (Async EmailService)
+
+8. Booking Cancellation & Single-Source-of-Truth Expiration Flow:
+   MyBookingsView.vue -> openCancelConfirmModal() -> executeCancelBooking()
+       ↓
+   POST /api/v1/bookings/{id}/cancel
+       ↓
+   BookingController.cancelBooking() -> BookingServiceImpl.cancelBooking() [@Transactional]
+       ├── If hold expired (holdExpiresAt <= now):
+       │     Call expireBookingIfHoldExpired() -> Booking EXPIRED, holds deleted, promo released
+       │     Throw 400 Bad Request ("Đơn đặt vé đã hết hạn giữ chỗ và không thể hủy.")
+       ├── If PENDING_PAYMENT and hold valid (holdExpiresAt > now):
+       │     Update Booking -> CANCELLED
+       │     Delete seat_holds
+       │     Idempotently release promotion quota
+       │     Update any PENDING payments for booking -> CANCELLED
+       └── Return updated BookingDetailResponse
 ```
 
 ---
@@ -337,14 +412,14 @@ docs/use-cases/*.md (Detailed domain user journeys)
 
 | Documentation Area | Status | Verification Summary | Last Verified |
 |---|---|---|---|
-| **Repository Structure** | `UP TO DATE` | Matches physical Java 21, Vue 3, Maven, and directory structure. | `2026-09-01` |
-| **Backend Architecture** | `UP TO DATE` | Classic Layered Architecture (Controller → Service → Repository → DB) fully documented. | `2026-09-01` |
-| **Frontend Architecture** | `UP TO DATE` | Vue 3 Composition API, Pinia, Tailwind CSS, 25 views documented. | `2026-09-01` |
-| **Domain Inventory** | `UP TO DATE` | All 18 domains audited and verified against actual implementations. | `2026-09-01` |
-| **API Documentation (`docs/api.md`)** | `UP TO DATE` | Core endpoints documented; 104 controller endpoints active across public and admin controllers. | `2026-09-01` |
-| **Database Documentation (`docs/database.md`)** | `UP TO DATE` | 25 JPA entities match MySQL tables, constraints, and PK strategies. | `2026-09-01` |
-| **Business Rules (`docs/business-rules.md`)** | `UP TO DATE` | 10 business domains with invariant rules matching service implementations. | `2026-09-01` |
-| **Internal Path References** | `VERIFIED` | 384/384 internal markdown path references valid (0 broken links). | `2026-09-01` |
+| **Repository Structure** | `UP TO DATE` | Matches physical Java 21, Vue 3, Maven, 25 REST controllers, 26 views. | `2026-09-06` |
+| **Backend Architecture** | `UP TO DATE` | Classic Layered Architecture (Controller → Service → Repository → DB) fully documented. | `2026-09-06` |
+| **Frontend Architecture** | `UP TO DATE` | Vue 3 Composition API, Pinia, Tailwind CSS, 26 route views, 27 components documented. | `2026-09-06` |
+| **Domain Inventory** | `UP TO DATE` | All 18 domains audited and verified against actual implementations; 452/452 tests PASS. | `2026-09-06` |
+| **API Documentation (`docs/api.md`)** | `UP TO DATE` | Core endpoints documented; 110 controller endpoints active across public, admin, and demo controllers. | `2026-09-06` |
+| **Database Documentation (`docs/database.md`)** | `UP TO DATE` | 25 JPA entities match MySQL tables, constraints, and PK strategies; `bookings.check_in_code` verified. | `2026-09-06` |
+| **Business Rules (`docs/business-rules.md`)** | `UP TO DATE` | 10 business domains with invariant rules matching service implementations; §8.4 Booking QR check-in documented. | `2026-09-06` |
+| **Internal Path References** | `VERIFIED` | 384/384 internal markdown path references valid (0 broken links). | `2026-09-06` |
 
 ### Known Implementation Nuances (For AI & Developers)
 1. **Role Normalization**:
@@ -360,4 +435,13 @@ docs/use-cases/*.md (Detailed domain user journeys)
    - Housekeeping is triggered by Spring Task scheduler (`@Scheduled`) in `BookingCleanupTask.java`.
 4. **VNPay Sandbox Cryptography**:
    - Server-side signature generation and verification uses HMAC-SHA512.
-   - IPN endpoint `/api/v1/payments/vnpay/ipn` handles both GET and POST requests.
+   - IPN endpoint `/api/v1/payments/vnpay/ipn` handles both GET and POST requests.
+5. **Booking Code vs Check-In Code Security Boundary**:
+   - `bookingCode` (e.g. `CB-20260906-ABCXYZ`) is a public customer reference for lookup and order display; it **MUST NOT** authorize gate check-in.
+   - `checkInCode` (cryptographically unpredictable UUIDv4 stored in `bookings.check_in_code`) is the unguessable ticket credential encoded into the QR code.
+   - Endpoints `GET /api/v1/admin/bookings/verify` and `POST /api/v1/admin/bookings/check-in` accept **ONLY** `checkInCode` with zero fallback to `bookingCode`.
+6. **Coordinated Pessimistic Locking Order (`Booking -> Ticket`)**:
+   - To eliminate deadlocks between concurrent booking check-in (`BookingServiceImpl.checkInBooking`) and individual ticket check-in (`TicketServiceImpl.checkInTicket`), all check-in workflows lock in the strict global order: parent `Booking` first (`SELECT ... FOR UPDATE`), then child `Tickets` (`SELECT ... FOR UPDATE`).
+7. **Demo Payment Gateway & Mock Sandbox Mode**:
+   - When running without live VNPay Sandbox credentials, setting `vnpay.mock-gateway=true` enables `MockVnPayService` and the `/api/v1/demo-payment/complete` endpoint.
+   - Routes through `DemoPaymentView.vue` and executes authoritative server-side IPN processing (`processIpn -> confirmPaidBooking`) with authentic HMAC-SHA512 checksums, generating tickets and booking `checkInCode` seamlessly.

@@ -16,6 +16,19 @@ public interface TicketRepository extends JpaRepository<Ticket, String> {
 
     List<Ticket> findByBookingId(String bookingId);
 
+    @Query("""
+        SELECT t FROM Ticket t
+        JOIN FETCH t.seat s
+        LEFT JOIN FETCH s.seatType st
+        WHERE t.booking.id = :bookingId
+        ORDER BY s.rowLabel ASC, s.seatNumber ASC
+    """)
+    List<Ticket> findByBookingIdWithSeat(@Param("bookingId") String bookingId);
+
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT t FROM Ticket t WHERE t.booking.id = :bookingId")
+    List<Ticket> findByBookingIdWithLock(@Param("bookingId") String bookingId);
+
     Optional<Ticket> findByQrCode(String qrCode);
 
     @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)

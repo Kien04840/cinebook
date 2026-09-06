@@ -9,6 +9,7 @@ import com.cinebook.enums.TicketStatus;
 import com.cinebook.exception.BadRequestException;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.ResourceNotFoundException;
+import com.cinebook.repository.BookingRepository;
 import com.cinebook.repository.TicketRepository;
 import com.cinebook.service.impl.TicketServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +34,9 @@ class TicketServiceTest {
 
     @Mock
     private TicketRepository ticketRepository;
+
+    @Mock
+    private BookingRepository bookingRepository;
 
     @InjectMocks
     private TicketServiceImpl ticketService;
@@ -132,6 +136,8 @@ class TicketServiceTest {
     @Test
     @DisplayName("checkInTicket - Valid ticket atomic transition to USED succeeds")
     void testCheckInTicket_Valid_TransitionsToUsed() {
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(sampleTicket));
+        when(bookingRepository.findByIdWithLock("booking-1")).thenReturn(Optional.of(sampleBooking));
         when(ticketRepository.findByIdWithLock("ticket-1")).thenReturn(Optional.of(sampleTicket));
         when(ticketRepository.saveAndFlush(any(Ticket.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -143,6 +149,7 @@ class TicketServiceTest {
         assertThat(response.getMessage()).contains("Soát vé thành công");
         assertThat(sampleTicket.getTicketStatus()).isEqualTo(TicketStatus.USED);
 
+        verify(bookingRepository).findByIdWithLock("booking-1");
         verify(ticketRepository).saveAndFlush(sampleTicket);
     }
 
@@ -150,6 +157,8 @@ class TicketServiceTest {
     @DisplayName("checkInTicket - Already USED ticket throws ConflictException (double scan protection)")
     void testCheckInTicket_AlreadyUsed_ThrowsConflict() {
         sampleTicket.setTicketStatus(TicketStatus.USED);
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(sampleTicket));
+        when(bookingRepository.findByIdWithLock("booking-1")).thenReturn(Optional.of(sampleBooking));
         when(ticketRepository.findByIdWithLock("ticket-1")).thenReturn(Optional.of(sampleTicket));
 
         assertThatThrownBy(() -> ticketService.checkInTicket("ticket-1"))
@@ -163,6 +172,8 @@ class TicketServiceTest {
     @DisplayName("checkInTicket - Cancelled ticket throws BadRequestException")
     void testCheckInTicket_Cancelled_ThrowsBadRequest() {
         sampleTicket.setTicketStatus(TicketStatus.CANCELLED);
+        when(ticketRepository.findById("ticket-1")).thenReturn(Optional.of(sampleTicket));
+        when(bookingRepository.findByIdWithLock("booking-1")).thenReturn(Optional.of(sampleBooking));
         when(ticketRepository.findByIdWithLock("ticket-1")).thenReturn(Optional.of(sampleTicket));
 
         assertThatThrownBy(() -> ticketService.checkInTicket("ticket-1"))

@@ -133,4 +133,72 @@ class AdminBookingControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.bookingStatus").value("CANCELLED"));
     }
+
+    @Test
+    void verifyBookingCheckIn_Returns200() throws Exception {
+        com.cinebook.dto.response.BookingVerifyResponse response = com.cinebook.dto.response.BookingVerifyResponse.builder()
+                .bookingId("b-1")
+                .bookingCode("CB-20260901-ABCDEF")
+                .checkInCode("chk-code-123")
+                .bookingStatus(BookingStatus.PAID)
+                .movieTitle("Mai")
+                .cinemaName("CineBook Vincom")
+                .auditoriumName("Auditorium 1")
+                .totalTickets(2)
+                .validTickets(2)
+                .usedTickets(0)
+                .checkInEligible(true)
+                .build();
+
+        when(bookingService.verifyBookingCheckIn("chk-code-123")).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/admin/bookings/verify")
+                        .param("code", "chk-code-123"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bookingId").value("b-1"))
+                .andExpect(jsonPath("$.checkInCode").value("chk-code-123"))
+                .andExpect(jsonPath("$.checkInEligible").value(true))
+                .andExpect(jsonPath("$.validTickets").value(2));
+    }
+
+    @Test
+    void checkInBooking_Returns200() throws Exception {
+        com.cinebook.dto.request.BookingCheckInRequest request = com.cinebook.dto.request.BookingCheckInRequest.builder()
+                .checkInCode("chk-code-123")
+                .build();
+
+        com.cinebook.dto.response.BookingCheckInResponse response = com.cinebook.dto.response.BookingCheckInResponse.builder()
+                .bookingId("b-1")
+                .bookingCode("CB-20260901-ABCDEF")
+                .checkInCode("chk-code-123")
+                .result("CHECKED_IN")
+                .checkedInAt(LocalDateTime.now())
+                .message("Soát vé thành công cho toàn bộ 2 ghế trong đơn hàng!")
+                .totalTickets(2)
+                .checkedInCount(2)
+                .alreadyUsedCount(0)
+                .build();
+
+        when(bookingService.checkInBooking(any(com.cinebook.dto.request.BookingCheckInRequest.class))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/admin/bookings/check-in")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.bookingId").value("b-1"))
+                .andExpect(jsonPath("$.result").value("CHECKED_IN"))
+                .andExpect(jsonPath("$.checkedInCount").value(2));
+    }
+
+    @Test
+    void checkInBooking_BlankCode_Returns400() throws Exception {
+        com.cinebook.dto.request.BookingCheckInRequest request = com.cinebook.dto.request.BookingCheckInRequest.builder()
+                .checkInCode("")
+                .build();
+
+        mockMvc.perform(post("/api/v1/admin/bookings/check-in")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
 }

@@ -42,6 +42,15 @@ public class Booking {
     )
     private String bookingCode;
 
+    @Column(
+        name = "check_in_code",
+        length = 36,
+        nullable = false,
+        unique = true,
+        updatable = false
+    )
+    private String checkInCode;
+
 @ManyToOne(fetch = FetchType.LAZY, optional = false)
 @JoinColumn(
     name = "user_id",
@@ -124,6 +133,10 @@ private String cancelledReason;
     protected void onCreate() {
         if (id == null) {
             id = UUID.randomUUID().toString();
+        }
+
+        if (checkInCode == null) {
+            checkInCode = UUID.randomUUID().toString();
         }
 
         LocalDateTime now = LocalDateTime.now();

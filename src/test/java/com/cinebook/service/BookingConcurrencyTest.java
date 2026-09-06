@@ -449,4 +449,97 @@ class BookingConcurrencyTest {
 
         assertEquals(1, ticketSaveCount.get(), "Tickets must only be saved once (idempotent confirmation)");
     }
+
+    @Test
+    void testConcurrentBookingCheckIn_GuaranteesAtMostOneSuccess() throws Exception {
+        Booking booking = new Booking();
+        booking.setId("booking-concurrent-checkin");
+        booking.setBookingCode("CB-CONCURRENT-CHK");
+        booking.setCheckInCode("chk-concurrent-uuid");
+        booking.setBookingStatus(BookingStatus.PAID);
+        booking.setShowtime(sampleShowtime);
+        booking.setUser(userA);
+
+        Ticket ticket1 = new Ticket();
+        ticket1.setId("ticket-c-1");
+        ticket1.setTicketStatus(TicketStatus.VALID);
+        ticket1.setTicketPrice(new BigDecimal("100000.00"));
+        ticket1.setSeat(seatA1);
+
+        Ticket ticket2 = new Ticket();
+        ticket2.setId("ticket-c-2");
+        ticket2.setTicketStatus(TicketStatus.VALID);
+        ticket2.setTicketPrice(new BigDecimal("100000.00"));
+        ticket2.setSeat(seatA2);
+
+        List<Ticket> tickets = Collections.synchronizedList(new ArrayList<>(List.of(ticket1, ticket2)));
+
+        java.util.concurrent.locks.ReentrantLock pessimisticLock = new java.util.concurrent.locks.ReentrantLock();
+        when(bookingRepository.findByCheckInCodeWithLock("chk-concurrent-uuid")).thenAnswer(i -> {
+            pessimisticLock.lock();
+            return Optional.of(booking);
+        });
+        when(ticketRepository.findByBookingIdWithLock("booking-concurrent-checkin")).thenAnswer(i -> {
+            return tickets.stream().map(t -> {
+                Ticket copy = new Ticket();
+                copy.setId(t.getId());
+                copy.setTicketStatus(t.getTicketStatus());
+                copy.setTicketPrice(t.getTicketPrice());
+                copy.setSeat(t.getSeat());
+                return copy;
+            }).toList();
+        });
+        when(ticketRepository.findByBookingIdWithSeat("booking-concurrent-checkin")).thenAnswer(i -> tickets);
+
+        AtomicInteger successfulCheckIns = new AtomicInteger(0);
+        AtomicInteger conflictExceptions = new AtomicInteger(0);
+
+        doAnswer(i -> {
+            List<Ticket> savedTickets = i.getArgument(0);
+            for (Ticket saved : savedTickets) {
+                for (Ticket orig : tickets) {
+                    if (orig.getId().equals(saved.getId())) {
+                        orig.setTicketStatus(saved.getTicketStatus());
+                    }
+                }
+            }
+            return savedTickets;
+        }).when(ticketRepository).saveAllAndFlush(anyList());
+
+        int threadCount = 4;
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch doneLatch = new CountDownLatch(threadCount);
+
+        com.cinebook.dto.request.BookingCheckInRequest request = com.cinebook.dto.request.BookingCheckInRequest.builder()
+                .checkInCode("chk-concurrent-uuid")
+                .build();
+
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                try {
+                    startLatch.await();
+                    bookingService.checkInBooking(request);
+                    successfulCheckIns.incrementAndGet();
+                } catch (ConflictException ce) {
+                    conflictExceptions.incrementAndGet();
+                } catch (Exception ignored) {
+                } finally {
+                    if (pessimisticLock.isHeldByCurrentThread()) {
+                        pessimisticLock.unlock();
+                    }
+                    doneLatch.countDown();
+                }
+            });
+        }
+
+        startLatch.countDown();
+        assertTrue(doneLatch.await(5, TimeUnit.SECONDS));
+        executor.shutdown();
+
+        assertEquals(1, successfulCheckIns.get(), "Exactly one concurrent check-in should succeed");
+        assertEquals(threadCount - 1, conflictExceptions.get(), "Other concurrent requests must receive ConflictException");
+        assertEquals(TicketStatus.USED, ticket1.getTicketStatus());
+        assertEquals(TicketStatus.USED, ticket2.getTicketStatus());
+    }
 }

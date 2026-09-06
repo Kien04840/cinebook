@@ -9,6 +9,7 @@ import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Getter
 @Setter
@@ -24,6 +25,8 @@ public class BookingSummaryResponse {
     private LocalDateTime holdExpiresAt;
     private LocalDateTime createdAt;
     private Integer seatCount;
+    private List<String> seatCodes;
+    private Boolean hasUsedTickets;
     private ShowtimeSummaryResponse showtime;
     private UserSummaryResponse user;
 }

@@ -223,14 +223,9 @@ onUnmounted(() => {
             </Button>
           </div>
 
-          <!-- Ticket Cards List -->
-          <div class="space-y-6">
-            <ElectronicTicket
-              v-for="tkt in bookingDetail?.tickets"
-              :key="tkt.id"
-              :ticket="tkt"
-              :booking="bookingDetail"
-            />
+          <!-- Unified Electronic Ticket Pass (One QR for multiple seats) -->
+          <div v-if="bookingDetail" class="flex justify-center">
+            <ElectronicTicket :booking="bookingDetail" />
           </div>
         </div>
 

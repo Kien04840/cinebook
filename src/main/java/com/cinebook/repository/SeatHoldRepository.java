@@ -67,6 +67,7 @@ public interface SeatHoldRepository
             @Param("bookingId") String bookingId
     );
 
+    @org.springframework.transaction.annotation.Transactional
     @Modifying
     @Query("""
         DELETE FROM SeatHold sh

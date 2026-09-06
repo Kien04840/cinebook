@@ -1,15 +1,16 @@
 package com.cinebook.service;
 
+import com.cinebook.dto.request.BookingCheckInRequest;
 import com.cinebook.dto.request.CancelBookingRequest;
 import com.cinebook.dto.request.CreateBookingRequest;
-import com.cinebook.dto.response.BookingDetailResponse;
-import com.cinebook.dto.response.BookingSummaryResponse;
-import com.cinebook.dto.response.PageResponse;
-import com.cinebook.dto.response.ShowtimeSeatStatusResponse;
+import com.cinebook.dto.response.*;
 import com.cinebook.enums.BookingStatus;
 import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDateTime;
 import java.util.List;
+
+import com.cinebook.entity.Booking;
 
 public interface BookingService {
 
@@ -29,6 +30,12 @@ public interface BookingService {
 
     List<ShowtimeSeatStatusResponse> getShowtimeSeatAvailability(String showtimeId);
     BookingDetailResponse getActiveBookingForShowtime(String showtimeId);
+
+    BookingVerifyResponse verifyBookingCheckIn(String checkInCode);
+    BookingCheckInResponse checkInBooking(BookingCheckInRequest request);
+
+    Booking expireBookingIfHoldExpired(Booking booking);
+    int cleanupExpiredSeatHolds(LocalDateTime now);
 }
 
 

@@ -20,6 +20,7 @@ public class BookingDetailResponse {
 
     private String id;
     private String bookingCode;
+    private String checkInCode;
     private BookingStatus bookingStatus;
     private BigDecimal totalAmount;
     private BigDecimal grossAmount;

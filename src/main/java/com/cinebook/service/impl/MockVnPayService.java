@@ -19,17 +19,25 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@ConditionalOnProperty(name = "cinebook.payment.gateway", havingValue = "mock", matchIfMissing = true)
+@ConditionalOnProperty(name = "cinebook.payment.gateway", havingValue = "mock", matchIfMissing = false)
 public class MockVnPayService implements VnPayService {
 
     private static final String HMAC_SHA512_ALGORITHM = "HmacSHA512";
 
     private final VnPayConfig vnPayConfig;
+
+    @Value("${cinebook.frontend-url:http://localhost:5173}")
+    private String frontendUrl;
+
+    @Value("${cinebook.payment.mock.payment-url:}")
+    private String mockPaymentUrl;
 
     @Value("${cinebook.payment.mock.refund-result:SUCCESS}")
     private String mockRefundResult;
@@ -53,6 +61,17 @@ public class MockVnPayService implements VnPayService {
         vnpParams.put("vnp_Locale", "vn");
         vnpParams.put("vnp_ReturnUrl", vnPayConfig.getReturnUrl());
         vnpParams.put("vnp_IpAddr", sanitizeClientIp(clientIp));
+        vnpParams.put("bookingId", booking.getId());
+        vnpParams.put("bookingCode", booking.getBookingCode());
+
+        LocalDateTime now = LocalDateTime.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+        vnpParams.put("vnp_CreateDate", now.format(formatter));
+
+        LocalDateTime expireTime = booking.getHoldExpiresAt() != null
+                ? booking.getHoldExpiresAt()
+                : now.plusMinutes(5);
+        vnpParams.put("vnp_ExpireDate", expireTime.format(formatter));
 
         List<String> fieldNames = new ArrayList<>(vnpParams.keySet());
         Collections.sort(fieldNames);
@@ -85,7 +104,11 @@ public class MockVnPayService implements VnPayService {
         String secureHash = hmacSha512(secretKey, hashData.toString());
         query.append("&vnp_SecureHash=").append(secureHash);
 
-        return vnPayConfig.getPaymentUrl() + "?" + query;
+        String baseUrl = StringUtils.hasText(mockPaymentUrl)
+                ? mockPaymentUrl
+                : (StringUtils.hasText(frontendUrl) ? frontendUrl.replaceAll("/+$", "") + "/payment/demo" : "http://localhost:5173/payment/demo");
+
+        return baseUrl + "?" + query;
     }
 
     @Override

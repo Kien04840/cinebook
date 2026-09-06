@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 @Component
 public class BookingMapper {
@@ -32,11 +33,23 @@ public class BookingMapper {
             return null;
         }
 
+        boolean hasUsedTickets = false;
         int seatCount = 0;
+        List<String> seatCodes = Collections.emptyList();
         if (booking.getTickets() != null && !booking.getTickets().isEmpty()) {
             seatCount = booking.getTickets().size();
+            hasUsedTickets = booking.getTickets().stream()
+                    .anyMatch(t -> t.getTicketStatus() == com.cinebook.enums.TicketStatus.USED);
+            seatCodes = booking.getTickets().stream()
+                    .map(t -> t.getSeat() != null ? t.getSeat().getSeatCode() : null)
+                    .filter(Objects::nonNull)
+                    .toList();
         } else if (booking.getSeatHolds() != null && !booking.getSeatHolds().isEmpty()) {
             seatCount = booking.getSeatHolds().size();
+            seatCodes = booking.getSeatHolds().stream()
+                    .map(sh -> sh.getSeat() != null ? sh.getSeat().getSeatCode() : null)
+                    .filter(Objects::nonNull)
+                    .toList();
         }
 
         ShowtimeSummaryResponse showtimeSummary = booking.getShowtime() != null
@@ -60,6 +73,8 @@ public class BookingMapper {
                 .holdExpiresAt(booking.getHoldExpiresAt())
                 .createdAt(booking.getCreatedAt())
                 .seatCount(seatCount)
+                .seatCodes(seatCodes)
+                .hasUsedTickets(hasUsedTickets)
                 .showtime(showtimeSummary)
                 .user(userSummary)
                 .build();
@@ -114,6 +129,7 @@ public class BookingMapper {
         return BookingDetailResponse.builder()
                 .id(booking.getId())
                 .bookingCode(booking.getBookingCode())
+                .checkInCode(booking.getCheckInCode())
                 .bookingStatus(booking.getBookingStatus())
                 .totalAmount(booking.getTotalAmount())
                 .grossAmount(grossAmount)

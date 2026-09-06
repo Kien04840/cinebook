@@ -123,18 +123,15 @@ public class PaymentServiceImpl implements PaymentService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        if (booking.getHoldExpiresAt() != null && booking.getHoldExpiresAt().isBefore(now)) {
-            // Lazy expiration: mark booking EXPIRED and clean up seat holds
-            booking.setBookingStatus(BookingStatus.EXPIRED);
-            bookingRepository.save(booking);
-            seatHoldRepository.deleteByBookingId(booking.getId());
+        if (booking.getHoldExpiresAt() != null && !booking.getHoldExpiresAt().isAfter(now)) {
+            // Lazy expiration: mark booking EXPIRED and clean up seat holds & release promo quota
+            bookingService.expireBookingIfHoldExpired(booking);
             throw new BadRequestException("Đơn đặt vé đã hết hạn giữ chỗ.");
         }
 
         List<SeatHold> holds = seatHoldRepository.findByBookingId(booking.getId());
         if (holds.isEmpty()) {
-            booking.setBookingStatus(BookingStatus.EXPIRED);
-            bookingRepository.save(booking);
+            bookingService.expireBookingIfHoldExpired(booking);
             throw new BadRequestException("Không tìm thấy thông tin giữ chỗ cho đơn đặt vé này hoặc giữ chỗ đã hết hạn.");
         }
 
@@ -182,6 +179,7 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public IpnResponse processIpn(Map<String, String> params) {
         if (params == null || params.isEmpty()) {
             return new IpnResponse("97", "Invalid Checksum");
@@ -365,8 +363,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         Payment payment = paymentRepository.findFirstByBookingIdAndPaymentStatus(bookingId, PaymentStatus.SUCCESS)
                 .or(() -> paymentRepository.findFirstByBookingIdAndPaymentStatus(bookingId, PaymentStatus.REFUNDED))
-                .or(() -> paymentRepository.findFirstByBookingIdOrderByCreatedAtDesc(bookingId))
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy giao dịch thanh toán cho đơn đặt vé với id: " + bookingId));
+                .orElseThrow(() -> new BadRequestException("Không tìm thấy giao dịch thanh toán thành công (SUCCESS) nào cho đơn đặt vé này."));
 
         return refundPayment(payment.getId(), request, httpRequest);
     }
@@ -418,7 +415,7 @@ public class PaymentServiceImpl implements PaymentService {
         List<Ticket> tickets = ticketRepository.findByBookingId(booking.getId());
         boolean hasUsedTickets = tickets.stream().anyMatch(t -> t.getTicketStatus() == TicketStatus.USED);
         if (hasUsedTickets) {
-            throw new BadRequestException("Không thể hoàn tiền đơn hàng đã có vé được sử dụng.");
+            throw new BadRequestException("Không thể hoàn tiền cho đơn hàng đã được sử dụng để vào rạp.");
         }
 
         Refund refund;

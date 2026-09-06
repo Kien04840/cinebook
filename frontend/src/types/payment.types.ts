@@ -29,11 +29,22 @@ export interface PaymentSummaryResponse {
   paymentCode: string
   amount: number
   paymentMethod: PaymentMethod
-  status: PaymentStatus
+  paymentStatus: PaymentStatus
+  status?: PaymentStatus
   createdAt: string
   paidAt?: string
   gatewayTransactionId?: string
 }
 
+export interface DemoPaymentCompleteRequest {
+  paymentCode: string
+  responseCode: '00' | '07' | '24'
+}
 
-
+export interface DemoPaymentCompleteResponse {
+  paymentCode: string
+  responseCode: string
+  paymentStatus: PaymentStatus
+  redirectUrl: string
+  message: string
+}

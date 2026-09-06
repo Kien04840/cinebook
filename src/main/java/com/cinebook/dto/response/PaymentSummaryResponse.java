@@ -27,6 +27,11 @@ public class PaymentSummaryResponse {
     private LocalDateTime paidAt;
     private LocalDateTime createdAt;
     private RefundResponse refund;
+
+    @com.fasterxml.jackson.annotation.JsonProperty("status")
+    public PaymentStatus getStatus() {
+        return this.paymentStatus;
+    }
 }
 
 

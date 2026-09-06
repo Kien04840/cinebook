@@ -1,5 +1,6 @@
 package com.cinebook.service.impl;
 
+import com.cinebook.dto.request.BookingCheckInRequest;
 import com.cinebook.dto.request.CancelBookingRequest;
 import com.cinebook.dto.request.CreateBookingRequest;
 import com.cinebook.dto.response.*;
@@ -254,12 +255,133 @@ public class BookingServiceImpl implements BookingService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(rollbackFor = Exception.class)
+    public Booking expireBookingIfHoldExpired(Booking booking) {
+        if (booking == null) {
+            return null;
+        }
+        if (booking.getBookingStatus() != BookingStatus.PENDING_PAYMENT) {
+            return booking;
+        }
+
+        // Acquire pessimistic write lock and refresh latest DB state if ID is present
+        Booking targetBooking = booking;
+        if (booking.getId() != null) {
+            targetBooking = bookingRepository.findByIdWithLock(booking.getId()).orElse(booking);
+        }
+
+        // Re-check after locking to guarantee idempotency and avoid race conditions
+        if (targetBooking.getBookingStatus() != BookingStatus.PENDING_PAYMENT) {
+            return targetBooking;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (targetBooking.getHoldExpiresAt() != null && !targetBooking.getHoldExpiresAt().isAfter(now)) {
+            targetBooking.setBookingStatus(BookingStatus.EXPIRED);
+            Booking saved = bookingRepository.save(targetBooking);
+            Booking updatedBooking = (saved != null) ? saved : targetBooking;
+
+            // Preserve seat history for expired booking before holds are deleted
+            snapshotHeldSeatsAsCancelledTickets(updatedBooking);
+
+            seatHoldRepository.deleteByBookingId(targetBooking.getId());
+            releasePromotionQuotaIfApplied(targetBooking.getId());
+
+            // Cancel any active pending payment attempts while strictly preserving terminal payment states
+            cancelPendingPaymentsForBooking(targetBooking.getId());
+
+            log.info("Successfully expired booking: code={}, id={}", updatedBooking.getBookingCode(), updatedBooking.getId());
+            return updatedBooking;
+        }
+        return targetBooking;
+    }
+
+    private void cancelPendingPaymentsForBooking(String bookingId) {
+        List<Payment> pendingPayments = paymentRepository.findByBookingId(bookingId).stream()
+                .filter(p -> p.getPaymentStatus() == PaymentStatus.PENDING)
+                .toList();
+        for (Payment p : pendingPayments) {
+            p.setPaymentStatus(PaymentStatus.CANCELLED);
+        }
+        if (!pendingPayments.isEmpty()) {
+            paymentRepository.saveAll(pendingPayments);
+            log.info("Cancelled {} pending payment(s) for booking {}", pendingPayments.size(), bookingId);
+        }
+    }
+
+    private void releasePromotionQuotaIfApplied(String bookingId) {
+        List<BookingPromotion> bookingPromotions = bookingPromotionRepository.findByBookingId(bookingId);
+        for (BookingPromotion bp : bookingPromotions) {
+            Promotion promo = promotionRepository.findByIdWithLock(bp.getPromotion().getId()).orElse(null);
+            if (promo != null && promo.getUsedCount() > 0) {
+                promo.setUsedCount(promo.getUsedCount() - 1);
+                promotionRepository.save(promo);
+                log.info("Released promotion quota for promo {}: new usedCount={}", promo.getCode(), promo.getUsedCount());
+            }
+        }
+    }
+
+    private void snapshotHeldSeatsAsCancelledTickets(Booking booking) {
+        if (booking == null || booking.getId() == null) {
+            return;
+        }
+        List<Ticket> existingTickets = ticketRepository.findByBookingId(booking.getId());
+        if (!existingTickets.isEmpty()) {
+            return;
+        }
+
+        List<SeatHold> holds = seatHoldRepository.findByBookingId(booking.getId());
+        if (holds.isEmpty()) {
+            return;
+        }
+
+        BigDecimal basePrice = (booking.getShowtime() != null && booking.getShowtime().getBasePrice() != null)
+                ? booking.getShowtime().getBasePrice()
+                : BigDecimal.ZERO;
+
+        List<Ticket> cancelledTickets = new ArrayList<>();
+        for (SeatHold hold : holds) {
+            Seat seat = hold.getSeat();
+            BigDecimal modifier = (seat != null && seat.getSeatType() != null && seat.getSeatType().getPriceModifier() != null)
+                    ? seat.getSeatType().getPriceModifier()
+                    : BigDecimal.ZERO;
+
+            String ticketId = UUID.randomUUID().toString();
+            Ticket ticket = new Ticket();
+            ticket.setId(ticketId);
+            ticket.setBooking(booking);
+            ticket.setSeat(seat);
+            ticket.setTicketPrice(basePrice.add(modifier));
+            ticket.setTicketStatus(TicketStatus.CANCELLED);
+            ticket.setQrCode(ticketId);
+            cancelledTickets.add(ticket);
+        }
+
+        try {
+            ticketRepository.saveAllAndFlush(cancelledTickets);
+            log.info("Saved {} cancelled ticket snapshot(s) for booking {}", cancelledTickets.size(), booking.getBookingCode());
+        } catch (Exception ex) {
+            log.warn("Failed to save cancelled ticket snapshots for booking {}: {}", booking.getBookingCode(), ex.getMessage());
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int cleanupExpiredSeatHolds(LocalDateTime now) {
+        return seatHoldRepository.deleteExpiredHolds(now);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public BookingDetailResponse getBookingDetail(String bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt vé với id: " + bookingId));
 
         validateBookingOwnershipOrAdmin(booking);
+
+        if (booking.getBookingStatus() == BookingStatus.PENDING_PAYMENT) {
+            booking = expireBookingIfHoldExpired(booking);
+        }
 
         List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(booking);
         List<TicketResponse> ticketResponses = ticketRepository.findByBookingId(booking.getId())
@@ -301,7 +423,8 @@ public class BookingServiceImpl implements BookingService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BookingDetailResponse cancelBooking(String bookingId, CancelBookingRequest request) {
-        Booking booking = bookingRepository.findById(bookingId)
+        Booking booking = bookingRepository.findByIdWithLock(bookingId)
+                .or(() -> bookingRepository.findById(bookingId))
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt vé với id: " + bookingId));
 
         validateBookingOwnershipOrAdmin(booking);
@@ -314,30 +437,40 @@ public class BookingServiceImpl implements BookingService {
             throw new BadRequestException("Đơn đặt vé đã ở trạng thái " + booking.getBookingStatus() + " và không thể hủy.");
         }
 
+        if (booking.getBookingStatus() != BookingStatus.PENDING_PAYMENT) {
+            throw new BadRequestException("Chỉ có thể hủy đơn đặt vé đang chờ thanh toán.");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (booking.getHoldExpiresAt() != null && !booking.getHoldExpiresAt().isAfter(now)) {
+            expireBookingIfHoldExpired(booking);
+            throw new BadRequestException("Đơn đặt vé đã hết hạn giữ chỗ và không thể hủy.");
+        }
+
         UserDetailsImpl currentUser = SecurityUtils.getCurrentUserDetails()
                 .orElseThrow(() -> new UnauthorizedException("User is not authenticated"));
         User cancellingUser = userRepository.findById(currentUser.getId()).orElse(null);
 
         booking.setBookingStatus(BookingStatus.CANCELLED);
-        booking.setCancelledAt(LocalDateTime.now());
+        booking.setCancelledAt(now);
         booking.setCancelledByUser(cancellingUser);
         if (request != null && StringUtils.hasText(request.getReason())) {
             booking.setCancelledReason(request.getReason().trim());
         }
 
-        bookingRepository.save(booking);
+        Booking saved = bookingRepository.save(booking);
+        Booking updatedBooking = (saved != null) ? saved : booking;
+
+        // Preserve seat history for cancelled booking before holds are deleted
+        snapshotHeldSeatsAsCancelledTickets(updatedBooking);
+
         seatHoldRepository.deleteByBookingId(booking.getId());
 
         // Idempotent quota release for PENDING_PAYMENT booking cancellation
-        List<BookingPromotion> bookingPromotions = bookingPromotionRepository.findByBookingId(booking.getId());
-        for (BookingPromotion bp : bookingPromotions) {
-            Promotion promo = promotionRepository.findByIdWithLock(bp.getPromotion().getId()).orElse(null);
-            if (promo != null && promo.getUsedCount() > 0) {
-                promo.setUsedCount(promo.getUsedCount() - 1);
-                promotionRepository.save(promo);
-                log.info("Released promotion quota for promo {}: new usedCount={}", promo.getCode(), promo.getUsedCount());
-            }
-        }
+        releasePromotionQuotaIfApplied(booking.getId());
+
+        // Cancel any pending payment attempts for this booking
+        cancelPendingPaymentsForBooking(booking.getId());
 
         List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(booking);
         List<TicketResponse> ticketResponses = ticketRepository.findByBookingId(booking.getId())
@@ -475,7 +608,7 @@ public class BookingServiceImpl implements BookingService {
         List<Ticket> tickets = ticketRepository.findByBookingId(booking.getId());
         boolean hasUsedTickets = tickets.stream().anyMatch(t -> t.getTicketStatus() == TicketStatus.USED);
         if (hasUsedTickets) {
-            throw new BadRequestException("Không thể hoàn tiền đơn hàng đã có vé được sử dụng.");
+            throw new BadRequestException("Không thể hoàn tiền cho đơn hàng đã được sử dụng để vào rạp.");
         }
 
         booking.setBookingStatus(BookingStatus.REFUNDED);
@@ -664,5 +797,194 @@ public class BookingServiceImpl implements BookingService {
         } while (bookingRepository.existsByBookingCode(code));
 
         return code;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public BookingVerifyResponse verifyBookingCheckIn(String checkInCode) {
+        if (!StringUtils.hasText(checkInCode)) {
+            throw new BadRequestException("Mã soát vé không được để trống.");
+        }
+
+        String code = checkInCode.trim();
+        Booking booking = bookingRepository.findByCheckInCodeWithDetails(code)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt vé với mã soát vé: " + code));
+
+        List<Ticket> tickets = ticketRepository.findByBookingIdWithSeat(booking.getId());
+
+        boolean isEligible = true;
+        String ineligibleReason = null;
+
+        if (booking.getBookingStatus() == BookingStatus.CANCELLED) {
+            isEligible = false;
+            ineligibleReason = "Đơn đặt vé đã bị hủy.";
+        } else if (booking.getBookingStatus() == BookingStatus.REFUNDED) {
+            isEligible = false;
+            ineligibleReason = "Đơn đặt vé đã hoàn tiền.";
+        } else if (booking.getBookingStatus() == BookingStatus.EXPIRED) {
+            isEligible = false;
+            ineligibleReason = "Đơn đặt vé đã hết hạn thanh toán.";
+        } else if (booking.getBookingStatus() != BookingStatus.PAID) {
+            isEligible = false;
+            ineligibleReason = "Đơn đặt vé chưa hoàn tất thanh toán (trạng thái: " + booking.getBookingStatus() + ").";
+        } else if (booking.getShowtime() != null && booking.getShowtime().getStatus() == ShowtimeStatus.CANCELLED) {
+            isEligible = false;
+            ineligibleReason = "Suất chiếu đã bị hủy.";
+        } else {
+            long validCount = tickets.stream().filter(t -> t.getTicketStatus() == TicketStatus.VALID).count();
+            long usedCount = tickets.stream().filter(t -> t.getTicketStatus() == TicketStatus.USED).count();
+            if (validCount == 0) {
+                isEligible = false;
+                if (usedCount > 0) {
+                    ineligibleReason = "Tất cả các vé trong đơn hàng đã được sử dụng trước đó.";
+                } else {
+                    ineligibleReason = "Không có vé hợp lệ để soát trong đơn hàng này.";
+                }
+            }
+        }
+
+        List<BookingTicketItemResponse> ticketItems = tickets.stream().map(t -> {
+            Seat s = t.getSeat();
+            return BookingTicketItemResponse.builder()
+                    .ticketId(t.getId())
+                    .seatCode(s != null ? s.getSeatCode() : null)
+                    .rowLabel(s != null ? s.getRowLabel() : null)
+                    .seatNumber(s != null && s.getSeatNumber() != null ? s.getSeatNumber().intValue() : null)
+                    .seatTypeName(s != null && s.getSeatType() != null ? s.getSeatType().getName() : null)
+                    .ticketPrice(t.getTicketPrice())
+                    .ticketStatus(t.getTicketStatus())
+                    .build();
+        }).toList();
+
+        Showtime showtime = booking.getShowtime();
+        Movie movie = showtime != null ? showtime.getMovie() : null;
+        Auditorium auditorium = showtime != null ? showtime.getAuditorium() : null;
+        Cinema cinema = auditorium != null ? auditorium.getCinema() : null;
+        User customer = booking.getUser();
+
+        int totalTickets = tickets.size();
+        int validTickets = (int) tickets.stream().filter(t -> t.getTicketStatus() == TicketStatus.VALID).count();
+        int usedTickets = (int) tickets.stream().filter(t -> t.getTicketStatus() == TicketStatus.USED).count();
+
+        return BookingVerifyResponse.builder()
+                .bookingId(booking.getId())
+                .bookingCode(booking.getBookingCode())
+                .checkInCode(booking.getCheckInCode())
+                .bookingStatus(booking.getBookingStatus())
+                .customerName(customer != null ? customer.getFullName() : null)
+                .customerEmail(customer != null ? customer.getEmail() : null)
+                .customerPhone(customer != null ? customer.getPhone() : null)
+                .movieTitle(movie != null ? movie.getTitle() : null)
+                .moviePosterUrl(movie != null ? movie.getPosterUrl() : null)
+                .cinemaName(cinema != null ? cinema.getName() : null)
+                .auditoriumName(auditorium != null ? auditorium.getName() : null)
+                .startTime(showtime != null ? showtime.getStartTime() : null)
+                .endTime(showtime != null ? showtime.getEndTime() : null)
+                .tickets(ticketItems)
+                .totalTickets(totalTickets)
+                .validTickets(validTickets)
+                .usedTickets(usedTickets)
+                .checkInEligible(isEligible)
+                .ineligibleReason(ineligibleReason)
+                .build();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public BookingCheckInResponse checkInBooking(BookingCheckInRequest request) {
+        if (request == null || !StringUtils.hasText(request.getCheckInCode())) {
+            throw new BadRequestException("Mã soát vé không được để trống.");
+        }
+
+        String code = request.getCheckInCode().trim();
+
+        // 1. Lock parent booking first to maintain consistent global lock ordering (Booking -> Ticket)
+        Booking booking = bookingRepository.findByCheckInCodeWithLock(code)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt vé với mã soát vé: " + code));
+
+        // 2. Lock tickets for this booking
+        List<Ticket> tickets = ticketRepository.findByBookingIdWithLock(booking.getId());
+
+        // 3. Validate booking & showtime status
+        if (booking.getBookingStatus() == BookingStatus.CANCELLED) {
+            throw new BadRequestException("Đơn đặt vé đã bị hủy, không thể thực hiện soát vé.");
+        }
+        if (booking.getBookingStatus() == BookingStatus.REFUNDED) {
+            throw new BadRequestException("Đơn đặt vé đã hoàn tiền, không thể thực hiện soát vé.");
+        }
+        if (booking.getBookingStatus() == BookingStatus.EXPIRED) {
+            throw new BadRequestException("Đơn đặt vé đã hết hạn thanh toán.");
+        }
+        if (booking.getBookingStatus() != BookingStatus.PAID) {
+            throw new BadRequestException("Đơn đặt vé chưa hoàn tất thanh toán (trạng thái: " + booking.getBookingStatus() + ").");
+        }
+        if (booking.getShowtime() != null && booking.getShowtime().getStatus() == ShowtimeStatus.CANCELLED) {
+            throw new BadRequestException("Suất chiếu đã bị hủy.");
+        }
+
+        List<Ticket> validTickets = tickets.stream()
+                .filter(t -> t.getTicketStatus() == TicketStatus.VALID)
+                .toList();
+        long alreadyUsedCount = tickets.stream()
+                .filter(t -> t.getTicketStatus() == TicketStatus.USED)
+                .count();
+
+        if (validTickets.isEmpty()) {
+            if (alreadyUsedCount > 0) {
+                throw new ConflictException("Tất cả các vé trong đơn đặt này đã được soát trước đó. Không thể soát lại!");
+            }
+            throw new BadRequestException("Không có vé hợp lệ để soát trong đơn đặt vé này.");
+        }
+
+        for (Ticket t : validTickets) {
+            t.setTicketStatus(TicketStatus.USED);
+        }
+        ticketRepository.saveAllAndFlush(validTickets);
+
+        log.info("Booking {} (code: {}) checked in: {} ticket(s) marked USED, {} previously USED",
+                booking.getId(), booking.getBookingCode(), validTickets.size(), alreadyUsedCount);
+
+        List<Ticket> reloadedTickets = ticketRepository.findByBookingIdWithSeat(booking.getId());
+        List<BookingTicketItemResponse> ticketItems = reloadedTickets.stream().map(t -> {
+            Seat s = t.getSeat();
+            return BookingTicketItemResponse.builder()
+                    .ticketId(t.getId())
+                    .seatCode(s != null ? s.getSeatCode() : null)
+                    .rowLabel(s != null ? s.getRowLabel() : null)
+                    .seatNumber(s != null && s.getSeatNumber() != null ? s.getSeatNumber().intValue() : null)
+                    .seatTypeName(s != null && s.getSeatType() != null ? s.getSeatType().getName() : null)
+                    .ticketPrice(t.getTicketPrice())
+                    .ticketStatus(t.getTicketStatus())
+                    .build();
+        }).toList();
+
+        Showtime showtime = booking.getShowtime();
+        Movie movie = showtime != null ? showtime.getMovie() : null;
+        Auditorium auditorium = showtime != null ? showtime.getAuditorium() : null;
+        Cinema cinema = auditorium != null ? auditorium.getCinema() : null;
+
+        String message;
+        if (alreadyUsedCount > 0) {
+            message = String.format("Soát thành công %d vé còn lại (trước đó đã soát %d vé).", validTickets.size(), alreadyUsedCount);
+        } else {
+            message = String.format("Soát vé thành công cho toàn bộ %d ghế trong đơn hàng!", validTickets.size());
+        }
+
+        return BookingCheckInResponse.builder()
+                .bookingId(booking.getId())
+                .bookingCode(booking.getBookingCode())
+                .checkInCode(booking.getCheckInCode())
+                .result(alreadyUsedCount > 0 ? "PARTIALLY_CHECKED_IN" : "CHECKED_IN")
+                .checkedInAt(LocalDateTime.now())
+                .message(message)
+                .movieTitle(movie != null ? movie.getTitle() : null)
+                .cinemaName(cinema != null ? cinema.getName() : null)
+                .auditoriumName(auditorium != null ? auditorium.getName() : null)
+                .startTime(showtime != null ? showtime.getStartTime() : null)
+                .tickets(ticketItems)
+                .totalTickets(reloadedTickets.size())
+                .checkedInCount(validTickets.size())
+                .alreadyUsedCount((int) alreadyUsedCount)
+                .build();
     }
 }

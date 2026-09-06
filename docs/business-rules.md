@@ -100,7 +100,7 @@ $$\text{Booking Gross Total} = \sum \text{Ticket Gross Prices}$$
 - A hold is recorded in `seat_holds` with a unique constraint on `(showtime_id, seat_id)` (`uk_seat_holds_showtime_seat`).
 - Hold creation checks current availability (existing active holds + sold tickets in `VALID`/`USED` status).
 - Seat-hold duration is strictly **5 minutes** (`holdExpiresAt = now.plusMinutes(5)`).
-- Cleanup strategy: Active cleanup via `BookingCleanupTask` (scheduled every 60 seconds) plus lazy evaluation at check/creation time.
+- Cleanup strategy: Active cleanup via `BookingCleanupTask` (scheduled every 10 seconds, configurable via `cinebook.booking.cleanup.fixed-delay-ms: 10000`) plus lazy evaluation at check/creation time.
 - **Seat Map Availability & Ownership**: Availability status enum remains strictly `AVAILABLE`, `HELD`, `SOLD`, `BLOCKED`. Authenticated user ownership is indicated via `isHeldByCurrentUser: boolean`. When a customer returns to a showtime with active holds, their seats are marked `isHeldByCurrentUser = true`, allowing seamless booking resumption.
 - **Active Booking Resume**: An active `PENDING_PAYMENT` booking can be retrieved via `GET /api/v1/bookings/active?showtimeId={showtimeId}` or resumed idempotently upon re-submitting `POST /api/v1/bookings` with the identical showtime and seat set.
 
@@ -112,7 +112,47 @@ PENDING_PAYMENT  ──(Payment SUCCESS)──►  PAID  ──(Refund SUCCESS)�
        └──(User/Admin Cancel)────────►  CANCELLED
 ```
 - A booking moves to `PAID` only when payment is verified as successful via authoritative IPN callback.
-- Tickets (`ticket_status = VALID`) are generated only upon transition to `PAID`.
+- Tickets (`ticket_status = VALID`) are generated upon transition to `PAID`.
+- **Seat History Preservation Across All Statuses**:
+  - Before `seat_holds` are deleted during cancellation or expiration, held seats are snapshotted into `tickets` records with `ticketStatus = TicketStatus.CANCELLED`.
+  - This guarantees that **all 5 booking statuses** (`PENDING_PAYMENT`, `PAID`, `REFUNDED`, `CANCELLED`, `EXPIRED`) permanently preserve their selected seats in both Booking Detail (`seats` and `tickets`) and Booking History (`seatCodes`).
+  - **Auditorium Seat Availability Invariant**: Sold ticket statuses on the auditorium seat map are strictly defined as `SOLD_TICKET_STATUSES = Set.of(VALID, USED)`. Therefore, snapshotting tickets as `CANCELLED` preserves historical seat visibility while immediately freeing seats on the auditorium seat map as `AVAILABLE` and re-bookable.
+- **Cancellation Rules**:
+  - `POST /api/v1/bookings/{id}/cancel` is allowed ONLY for bookings in `PENDING_PAYMENT` status with a valid seat hold (`holdExpiresAt > now`).
+  - If `holdExpiresAt <= now`, the booking lazily transitions to `EXPIRED` (snapshotting seats, deleting seat holds, and releasing promotion quota) and cancellation is rejected (`400 Bad Request`).
+  - Upon successful cancellation, booking status becomes `CANCELLED`, held seats are snapshotted as `CANCELLED` tickets, seat holds are deleted, any active `PENDING` payment attempt transitions to `CANCELLED`, and promotion quota is released idempotently.
+  - Already `PAID`, `CANCELLED`, `REFUNDED`, or `EXPIRED` bookings cannot be cancelled.
+- **Two-Tier Expiration Architecture (Single Source of Truth)**:
+  - **Single Source of Truth**: Handled exclusively via `bookingService.expireBookingIfHoldExpired(Booking booking)`. Both background scheduler and request-time paths call this core service method.
+  - **Pessimistic Concurrency**: Uses `bookingRepository.findByIdWithLock(booking.getId())` to re-read latest state under lock (`SELECT ... FOR UPDATE`), guarding against race conditions with concurrent user requests or VNPay IPN callbacks.
+  - **Invariants on Expiration**:
+    1. Booking transitions to `EXPIRED`.
+    2. Selected seats are snapshotted into `tickets` with status `CANCELLED` before holds are deleted, preserving customer history.
+    3. Associated `seat_holds` records are deleted via `seatHoldRepository.deleteByBookingId(booking.getId())`, immediately returning seats to `AVAILABLE`.
+    4. Active `PENDING` payment attempts transition to `CANCELLED`; historical terminal payment attempts (`SUCCESS`, `CANCELLED`, `FAILED`, `REFUNDED`) remain strictly untouched.
+    5. Reserved promotion quota (`usedCount`) is decremented by 1 **at most once** (strictly idempotent).
+  - **Proactive Background Scheduler**: `@EnableScheduling` enables `BookingCleanupTask` which runs automatically every 10s (`cinebook.booking.cleanup.fixed-delay-ms: 10000`, `initial-delay-ms: 5000`). It queries overdue bookings (`bookingStatus = 'PENDING_PAYMENT' AND holdExpiresAt <= now`) in batches of 100 with per-booking transaction isolation. All historical overdue bookings (overdue by minutes, hours, or days) are cleaned up without requiring customer action.
+  - **Defense-in-Depth Lazy Expiration**: Evaluated on-demand in `getBookingDetail`, `initiatePayment`, and `cancelBooking` as an immediate safety net.
+
+### 8.4 Booking-Level E-Ticket QR & Check-In Workflow (One QR for Multiple Seats)
+1. **One Booking, One E-Ticket QR**:
+   - A single Booking-level QR code is generated using `checkInCode` (cryptographically unpredictable UUIDv4).
+   - Scanning this single QR allows gate staff to view and check in all seats/tickets belonging to the booking at once.
+   - Preserves `Booking 1 ─── N Ticket` database model. Individual `Ticket` records maintain seat-level status (`VALID`/`USED`/`CANCELLED`), pricing, occupancy rate, and reporting KPIs.
+2. **Strict Security Separation of Booking Code vs Check-In Code**:
+   - `bookingCode` (e.g. `CB-20260906-ABCXYZ`): public customer order reference. MUST NOT authorize check-in.
+   - `checkInCode` (UUIDv4): secret check-in credential embedded into the QR code.
+   - Endpoints `GET /api/v1/admin/bookings/verify` and `POST /api/v1/admin/bookings/check-in` accept ONLY `checkInCode`. No fallback to `bookingCode` is permitted.
+3. **Coordinated Concurrency & Deadlock Prevention**:
+   - Global pessimistic locking order: Always acquire lock on `Booking` first (`SELECT ... FOR UPDATE`), then lock all `Tickets` of that booking.
+   - Applied symmetrically across both booking check-in (`BookingServiceImpl.checkInBooking`) and single ticket check-in (`TicketServiceImpl.checkInTicket`).
+4. **Check-in Eligibility & Double-Scan Protection**:
+   - Booking must be in `PAID` status. Rejects `PENDING_PAYMENT`, `CANCELLED`, `EXPIRED`, `REFUNDED`.
+   - Showtime must not be `CANCELLED`.
+   - Transitions all remaining `VALID` tickets to `USED`.
+   - Partial check-in: If some tickets were already checked in, checks in remaining `VALID` tickets and reports `checkedInCount`, `alreadyUsedCount`, and `result = PARTIALLY_CHECKED_IN`.
+   - Duplicate scan protection: If all tickets in the booking are already `USED`, returns `409 Conflict`.
+   - Never transitions `CANCELLED` tickets back to `VALID/USED`.
 
 ---
 
@@ -133,8 +173,15 @@ PENDING_PAYMENT  ──(Payment SUCCESS)──►  PAID  ──(Refund SUCCESS)�
 - **Financial Race Condition**: If payment succeeds but IPN arrives after booking expired, `Payment` becomes `SUCCESS`, `Booking` remains `EXPIRED`, zero tickets are issued, and a critical financial exception is audit-logged for Admin refund via `POST /api/v1/admin/bookings/{bookingId}/refund`.
 
 ### 9.3 Refund Invariants
-- **Customer Refund** (`POST /api/v1/payments/{paymentId}/refund`): Allowed only for `SUCCESS` payment, `PAID` booking, and strictly $\ge 2$ hours before showtime `startTime`.
-- **Admin Refund** (`POST /api/v1/admin/bookings/{bookingId}/refund`): Admin can refund any paid booking or orphaned successful payment without the 2-hour restriction.
+- **Customer Refund** (`POST /api/v1/payments/{paymentId}/refund`):
+  - Strictly requires `paymentStatus == SUCCESS` (rejects `CANCELLED`, `FAILED`, `PENDING`).
+  - Booking must be in `PAID` status.
+  - Must have **zero `USED` tickets**. If any ticket has `ticketStatus == USED` (even partial check-in of 1 seat), refund is strictly rejected with: `"Không thể hoàn tiền cho đơn hàng đã được sử dụng để vào rạp."`.
+  - Strictly $\ge 2$ hours before showtime `startTime`.
+  - In a multi-payment retry scenario, frontend and backend explicitly identify the `SUCCESS` attempt; arbitrary fallback to `payments[0]` is forbidden.
+- **Admin Refund** (`POST /api/v1/admin/bookings/{bookingId}/refund`):
+  - Admin can refund any paid booking or orphaned successful payment without the 2-hour restriction.
+  - Also strictly enforces zero `USED` tickets invariant.
 - **Refund Transitions**:
   - `RefundStatus = SUCCESS`
   - `PaymentStatus = REFUNDED`

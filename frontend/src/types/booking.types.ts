@@ -27,8 +27,11 @@ export interface PaymentSummaryResponse {
   paymentCode: string
   amount: number
   paymentMethod: string
-  status: string
+  paymentStatus: string
+  status?: string
   createdAt: string
+  paidAt?: string
+  gatewayTransactionId?: string
 }
 
 export interface BookingPromotionResponse {
@@ -50,6 +53,7 @@ export interface UserSummaryResponse {
 export interface BookingDetailResponse {
   id: string
   bookingCode: string
+  checkInCode?: string
   bookingStatus: BookingStatus
   totalAmount: number
   grossAmount: number
@@ -66,13 +70,64 @@ export interface BookingDetailResponse {
   user?: UserSummaryResponse
 }
 
+export interface BookingTicketItemResponse {
+  ticketId: string
+  seatCode: string
+  rowLabel: string
+  seatNumber: number
+  seatTypeName: string
+  ticketPrice: number
+  ticketStatus: string
+}
+
+export interface BookingVerifyResponse {
+  bookingId: string
+  bookingCode: string
+  checkInCode: string
+  bookingStatus: BookingStatus
+  customerName?: string
+  customerEmail?: string
+  customerPhone?: string
+  movieTitle?: string
+  moviePosterUrl?: string
+  cinemaName?: string
+  auditoriumName?: string
+  startTime?: string
+  endTime?: string
+  tickets: BookingTicketItemResponse[]
+  totalTickets: number
+  validTickets: number
+  usedTickets: number
+  checkInEligible: boolean
+  ineligibleReason?: string
+}
+
+export interface BookingCheckInResponse {
+  bookingId: string
+  bookingCode: string
+  checkInCode: string
+  result: string
+  checkedInAt: string
+  message: string
+  movieTitle?: string
+  cinemaName?: string
+  auditoriumName?: string
+  startTime?: string
+  tickets: BookingTicketItemResponse[]
+  totalTickets: number
+  checkedInCount: number
+  alreadyUsedCount: number
+}
+
 export interface BookingSummaryResponse {
   id: string
   bookingCode: string
   bookingStatus: BookingStatus
   totalAmount: number
+  hasUsedTickets?: boolean
   seatCount?: number
   seatsCount?: number
+  seatCodes?: string[]
   holdExpiresAt?: string
   createdAt: string
   showtime?: ShowtimeSummaryResponse

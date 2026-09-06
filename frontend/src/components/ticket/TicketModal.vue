@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import type { BookingDetailResponse } from '@/types/booking.types'
 import { formatCurrency, formatDate, formatTime } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
@@ -25,26 +25,15 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<Emits>()
 const { t } = useI18n()
 
-const currentTicketIndex = ref<number>(0)
-
-const tickets = computed(() => props.booking?.tickets || [])
-const currentTicket = computed(() => tickets.value[currentTicketIndex.value] || tickets.value[0])
-
 const seatCodesText = computed(() => {
-  if (!props.booking?.seats || props.booking.seats.length === 0) return '---'
-  return props.booking.seats.map((s) => s.seatCode).join(', ')
+  if (props.booking?.seats && props.booking.seats.length > 0) {
+    return props.booking.seats.map((s) => s.seatCode).join(', ')
+  }
+  if (props.booking?.tickets && props.booking.tickets.length > 0) {
+    return props.booking.tickets.map((t) => t.seatCode).join(', ')
+  }
+  return '---'
 })
-
-function nextTicket() {
-  if (tickets.value.length === 0) return
-  currentTicketIndex.value = (currentTicketIndex.value + 1) % tickets.value.length
-}
-
-function prevTicket() {
-  if (tickets.value.length === 0) return
-  currentTicketIndex.value =
-    (currentTicketIndex.value - 1 + tickets.value.length) % tickets.value.length
-}
 
 function printTicket() {
   window.print()
@@ -127,50 +116,10 @@ function isHoldActive(): boolean {
             </button>
           </div>
 
-          <!-- SECTION 1: PAID with VALID Tickets -> Display Electronic Ticket Carousel -->
-          <template v-if="booking.bookingStatus === 'PAID' && tickets.length > 0">
-            <!-- Multiple Tickets Tab Selector (if > 1 ticket) -->
-            <div v-if="tickets.length > 1" class="flex items-center justify-between gap-2 print:hidden">
-              <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
-                <button
-                  v-for="(tkt, idx) in tickets"
-                  :key="tkt.id"
-                  type="button"
-                  :class="[
-                    'px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap',
-                    currentTicketIndex === idx
-                      ? 'bg-indigo-600 text-white shadow-md'
-                      : 'bg-slate-800 text-slate-400 hover:bg-slate-750 hover:text-slate-200'
-                  ]"
-                  @click="currentTicketIndex = idx"
-                >
-                  {{ t('booking.stepSelectSeats') }} {{ tkt.seatCode }} ({{ idx + 1 }}/{{ tickets.length }})
-                </button>
-              </div>
-
-              <div class="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm"
-                  aria-label="Previous Ticket"
-                  @click="prevTicket"
-                >
-                  ←
-                </button>
-                <button
-                  type="button"
-                  class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm"
-                  aria-label="Next Ticket"
-                  @click="nextTicket"
-                >
-                  →
-                </button>
-              </div>
-            </div>
-
-            <!-- Electronic Ticket View Component -->
-            <div v-if="currentTicket" class="flex justify-center">
-              <ElectronicTicket :ticket="currentTicket" :booking="booking" />
+          <!-- SECTION 1: PAID -> Display Unified Electronic Ticket Pass with Single QR -->
+          <template v-if="booking.bookingStatus === 'PAID'">
+            <div class="flex justify-center">
+              <ElectronicTicket :booking="booking" />
             </div>
           </template>
 
@@ -270,7 +219,7 @@ function isHoldActive(): boolean {
             <div class="flex items-center gap-2">
               <!-- Print button for PAID -->
               <Button
-                v-if="booking.bookingStatus === 'PAID' && tickets.length > 0"
+                v-if="booking.bookingStatus === 'PAID'"
                 variant="primary"
                 size="md"
                 class="shadow-lg shadow-indigo-600/30"

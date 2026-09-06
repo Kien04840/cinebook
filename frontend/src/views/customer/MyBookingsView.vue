@@ -107,9 +107,14 @@ async function handleConfirmRefund(reason: string) {
   try {
     // 1. Fetch booking detail to obtain payment ID
     const detail = await bookingService.getBookingDetail(bookingId)
-    const successPayment = detail.payments?.find((p) => p.status === 'SUCCESS') || detail.payments?.[0]
+    const successPayment = detail.payments?.find(
+      (p) => p.paymentStatus === 'SUCCESS' || p.status === 'SUCCESS'
+    )
     if (!successPayment) {
-      throw new Error('Không tìm thấy giao dịch thanh toán hợp lệ để hoàn tiền.')
+      throw new Error('Không tìm thấy giao dịch thanh toán thành công (SUCCESS) nào cho đơn đặt vé này.')
+    }
+    if (detail.tickets?.some((t) => t.ticketStatus === 'USED')) {
+      throw new Error('Không thể hoàn tiền cho đơn hàng đã được sử dụng để vào rạp.')
     }
 
     // 2. Call authoritative refund endpoint
@@ -133,7 +138,9 @@ async function openRefundReceipt(bookingId: string) {
   isActionLoading.value[bookingId] = true
   try {
     const detail = await bookingService.getBookingDetail(bookingId)
-    const payment = detail.payments?.[0]
+    const payment = detail.payments?.find(
+      (p) => p.paymentStatus === 'REFUNDED' || p.status === 'REFUNDED' || p.paymentStatus === 'SUCCESS' || p.status === 'SUCCESS'
+    ) || detail.payments?.[0]
     if (!payment) {
       throw new Error('Không tìm thấy thông tin giao dịch thanh toán.')
     }
@@ -217,6 +224,7 @@ const cancelTargetMovieTitle = computed(() => {
 function isRefundEligible(b: BookingSummaryResponse): boolean {
   const startTime = b.showtime?.startTime || b.showtimeStartTime
   if (b.bookingStatus !== 'PAID' || !startTime) return false
+  if (b.hasUsedTickets) return false
   const showtimeTime = new Date(startTime).getTime()
   const twoHoursMs = 2 * 60 * 60 * 1000
   return showtimeTime - Date.now() >= twoHoursMs
@@ -478,6 +486,11 @@ onMounted(() => {
                 <span class="text-slate-500">🎟️ Số lượng:</span>
                 <span class="font-bold text-emerald-400">{{ b.seatCount || b.seatsCount || 1 }} {{ t('myBookings.seatsCountUnit') }}</span>
               </div>
+
+              <div v-if="b.seatCodes && b.seatCodes.length > 0" class="flex items-center gap-1.5 col-span-1 sm:col-span-2">
+                <span class="text-slate-500">💺 {{ t('booking.selectedSeats') }}:</span>
+                <span class="font-bold text-slate-200">{{ b.seatCodes.join(', ') }}</span>
+              </div>
             </div>
 
             <!-- Pending payment notice -->
@@ -597,12 +610,9 @@ onMounted(() => {
       <div class="space-y-4 text-sm">
         <div class="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-3">
           <span class="text-2xl shrink-0">⚠️</span>
-          <div class="space-y-1 text-slate-200">
-            <p class="font-bold text-rose-400 text-sm sm:text-base">
-              {{ t('myBookings.cancelConfirmQuestion') }}
-            </p>
+          <div class="text-slate-200">
             <p class="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              {{ t('myBookings.cancelConfirmDesc') }}
+              {{ t('myBookings.cancelConfirmDesc', { code: cancelTargetBooking?.bookingCode || '' }) }}
             </p>
           </div>
         </div>
