@@ -79,5 +79,11 @@ cinebook:
       fixed-delay-ms: ${CINEBOOK_BOOKING_CLEANUP_FIXED_DELAY_MS:10000}
       initial-delay-ms: ${CINEBOOK_BOOKING_CLEANUP_INITIAL_DELAY_MS:5000}
       batch-size: ${CINEBOOK_BOOKING_CLEANUP_BATCH_SIZE:100}
+  showtime:
+    cleanup:
+      enabled: ${CINEBOOK_SHOWTIME_CLEANUP_ENABLED:true}
+      fixed-delay-ms: ${CINEBOOK_SHOWTIME_CLEANUP_FIXED_DELAY_MS:300000}
+      initial-delay-ms: ${CINEBOOK_SHOWTIME_CLEANUP_INITIAL_DELAY_MS:5000}
 
-
+
+

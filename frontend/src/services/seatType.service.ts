@@ -7,6 +7,11 @@ import type {
 } from '@/types/seatType.types'
 
 export const seatTypeService = {
+  async getActiveSeatTypes(): Promise<SeatTypeResponse[]> {
+    const response = await apiClient.get<SeatTypeResponse[]>('/api/v1/seat-types')
+    return response.data
+  },
+
   async getAdminSeatTypes(params?: {
     page?: number
     size?: number

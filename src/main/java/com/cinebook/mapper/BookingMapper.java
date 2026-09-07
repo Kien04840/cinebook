@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 
 @Component
 public class BookingMapper {
@@ -42,13 +41,13 @@ public class BookingMapper {
                     .anyMatch(t -> t.getTicketStatus() == com.cinebook.enums.TicketStatus.USED);
             seatCodes = booking.getTickets().stream()
                     .map(t -> t.getSeat() != null ? t.getSeat().getSeatCode() : null)
-                    .filter(Objects::nonNull)
+                    .filter(org.springframework.util.StringUtils::hasText)
                     .toList();
         } else if (booking.getSeatHolds() != null && !booking.getSeatHolds().isEmpty()) {
             seatCount = booking.getSeatHolds().size();
             seatCodes = booking.getSeatHolds().stream()
                     .map(sh -> sh.getSeat() != null ? sh.getSeat().getSeatCode() : null)
-                    .filter(Objects::nonNull)
+                    .filter(org.springframework.util.StringUtils::hasText)
                     .toList();
         }
 

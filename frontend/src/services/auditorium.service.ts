@@ -6,7 +6,10 @@ import type {
   UpdateAuditoriumRequest,
   SeatResponse,
   BatchUpdateSeatTypeRequest,
+  BatchUpdateSeatTypePreviewResponse,
+  BatchUpdateSeatStatusRequest,
   UpdateSeatStatusRequest,
+  NormalizeEmptyLayoutsResponse,
 } from '@/types/cinema.types'
 
 export const auditoriumService = {
@@ -46,13 +49,33 @@ export const auditoriumService = {
     return response.data
   },
 
+  async previewBatchUpdateSeatType(auditoriumId: string, payload: BatchUpdateSeatTypeRequest): Promise<BatchUpdateSeatTypePreviewResponse> {
+    const response = await apiClient.post<BatchUpdateSeatTypePreviewResponse>(`/api/v1/admin/auditoriums/${auditoriumId}/seats/batch-seat-type/preview`, payload)
+    return response.data
+  },
+
   async batchUpdateSeatType(auditoriumId: string, payload: BatchUpdateSeatTypeRequest): Promise<SeatResponse[]> {
     const response = await apiClient.put<SeatResponse[]>(`/api/v1/admin/auditoriums/${auditoriumId}/seats/batch-seat-type`, payload)
     return response.data
   },
 
+  async batchUpdateSeatStatus(auditoriumId: string, payload: BatchUpdateSeatStatusRequest): Promise<SeatResponse[]> {
+    const response = await apiClient.patch<SeatResponse[]>(`/api/v1/admin/auditoriums/${auditoriumId}/seats/batch-status`, payload)
+    return response.data
+  },
+
   async updateSeatStatus(auditoriumId: string, seatId: string, payload: UpdateSeatStatusRequest): Promise<SeatResponse> {
     const response = await apiClient.patch<SeatResponse>(`/api/v1/admin/auditoriums/${auditoriumId}/seats/${seatId}/status`, payload)
+    return response.data
+  },
+
+  async resetAuditoriumLayout(auditoriumId: string): Promise<AuditoriumDetailResponse> {
+    const response = await apiClient.post<AuditoriumDetailResponse>(`/api/v1/admin/auditoriums/${auditoriumId}/reset-layout`)
+    return response.data
+  },
+
+  async normalizeEmptyAuditoriumsLayout(): Promise<NormalizeEmptyLayoutsResponse> {
+    const response = await apiClient.post<NormalizeEmptyLayoutsResponse>('/api/v1/admin/auditoriums/normalize-empty-layouts')
     return response.data
   },
 }

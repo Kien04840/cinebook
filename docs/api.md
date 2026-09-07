@@ -303,7 +303,7 @@ GET /api/v1/showtimes/{showtimeId}/seats
     "capacity": 2,
     "colorToken": "rose",
     "icon": "heart",
-    "priceModifier": 50000.00,
+    "priceModifier": 40000.00,
     "rowLabel": "E",
     "seatNumber": 1,
     "seatCode": "E1",
@@ -320,6 +320,70 @@ GET /api/v1/showtimes/{showtimeId}/seats
 - `isHeldByCurrentUser`: `true` if held by the authenticated requesting user; `false` otherwise or for anonymous users.
 
 **Auth**: Public (optional Bearer token to identify current user's held seats)
+
+### 6.5 Admin Auditorium Detail with Protection Flags
+```http
+GET /api/v1/admin/auditoriums/{id}
+```
+**Auth**: Required (`ADMIN`)  
+**Response `200 OK`:** `AuditoriumDetailResponse`
+```json
+{
+  "id": "uuid",
+  "cinemaId": "uuid",
+  "name": "Hall 1",
+  "type": "STANDARD",
+  "rowsCount": 10,
+  "columnsCount": 12,
+  "totalSeats": 114,
+  "status": "ACTIVE",
+  "turnaroundMinutes": 15,
+  "snapIntervalMinutes": 15,
+  "hasShowtimes": false,
+  "hasBookings": false,
+  "hasTickets": false,
+  "canModifyLayout": true,
+  "canModifySeatTypes": true,
+  "seats": [ ... ]
+}
+```
+
+### 6.6 Admin Update Seat Type & Seat Status
+```http
+PUT    /api/v1/admin/auditoriums/{auditoriumId}/seats/{seatId}/seat-type
+POST   /api/v1/admin/auditoriums/{auditoriumId}/seats/batch-seat-type/preview
+PUT    /api/v1/admin/auditoriums/{auditoriumId}/seats/batch-seat-type
+PATCH  /api/v1/admin/auditoriums/{auditoriumId}/seats/{seatId}/status
+PATCH  /api/v1/admin/auditoriums/{auditoriumId}/seats/batch-status
+```
+**Auth**: Required (`ADMIN`)  
+**Protection Rules**:
+- **Seat Type Modification**: If the auditorium has existing bookings (`hasBookings == true`) or tickets (`hasTickets == true`), changing seat type is strictly forbidden and returns `409 Conflict`.
+- **Couple Seat Assignment & Overlap Deletion**:
+  - Must belong to the last row, start at an odd column (`seatNumber % 2 == 1`), and fit within columnsCount.
+  - In eligible/unreferenced auditoriums, converting an odd seat to Couple atomically deletes the adjacent unreferenced even seat (e.g. `E1` -> deletes `E2`), allowing the Couple seat to span 2 columns cleanly.
+- **Batch Seat Type Preview**:
+  - `POST /api/v1/admin/auditoriums/{auditoriumId}/seats/batch-seat-type/preview`
+  - Request: `{ "seatIds": ["uuid"], "seatTypeId": "uuid" }`
+  - Response: `{ "seatCount": 1, "isProtected": false, "targetSeatTypeName": "Couple", "willDeleteSeatCodes": ["E2"], "isValid": true, "validationError": null }`
+- **Batch Seat Status**:
+  - `PATCH /api/v1/admin/auditoriums/{auditoriumId}/seats/batch-status`
+  - Request: `{ "seatIds": ["uuid1", "uuid2"], "status": "BROKEN" }`
+  - Rejects if any seat has active holds or upcoming tickets.
+
+### 6.7 Admin Reset Layout & Safe Normalization
+```http
+POST /api/v1/admin/auditoriums/{id}/reset-layout
+POST /api/v1/admin/auditoriums/normalize-empty-layouts
+```
+**Auth**: Required (`ADMIN`)  
+- `POST /api/v1/admin/auditoriums/{id}/reset-layout`:
+  - Re-generates the auditorium's seats in-place using realistic tiered distribution (Standard front, VIP middle, Couple back with span 2).
+  - Allowed **only** if the auditorium has no bookings, tickets, or active holds.
+- `POST /api/v1/admin/auditoriums/normalize-empty-layouts`:
+  - Scans all non-deleted auditoriums and normalizes empty/safe ones in-place using isolated per-auditorium transaction boundaries (`REQUIRES_NEW`).
+  - Automatically skips 100% of auditoriums with historical showtimes, bookings, or tickets.
+  - Returns `NormalizeEmptyLayoutsResponse` with `scannedCount`, `normalizedCount`, `unchangedCount`, `skippedCount`, `skippedBecauseBookings`, `skippedBecauseTickets`, `skippedBecauseActiveHolds`, `failedCount`, and detailed `skippedDetails`.
 
 ---
 
@@ -1444,5 +1508,127 @@ All endpoints in this section require `ADMIN` authentication (`Authorization: Be
 - `status`: `ACTIVE` or `INACTIVE`.
 
 **Response `200 OK`:** `SeatTypeResponse`
+
+---
+
+## 21. Pricing Management (Admin)
+
+### 21.1 List Day Pricing Rules
+`GET /api/v1/admin/pricing/day-rules`
+
+**Auth**: Required (`ADMIN`)  
+**Response `200 OK`:** Array of `DayPricingRuleResponse`
+```json
+[
+  {
+    "id": "uuid",
+    "dayOfWeek": "MONDAY",
+    "dayOfWeekName": "Thứ Hai",
+    "modifier": 0.00,
+    "updatedAt": "2026-09-07T10:00:00"
+  },
+  {
+    "id": "uuid",
+    "dayOfWeek": "SATURDAY",
+    "dayOfWeekName": "Thứ Bảy",
+    "modifier": 10000.00,
+    "updatedAt": "2026-09-07T10:00:00"
+  }
+]
+```
+
+### 21.2 Update Day Pricing Rule
+`PUT /api/v1/admin/pricing/day-rules/{id}`
+
+**Auth**: Required (`ADMIN`)  
+**Request Body**:
+```json
+{
+  "modifier": 15000.00
+}
+```
+**Response `200 OK`:** `DayPricingRuleResponse`
+
+### 21.3 List Time Slot Pricing Rules
+`GET /api/v1/admin/pricing/time-slots`
+
+**Auth**: Required (`ADMIN`)  
+**Response `200 OK`:** Array of `TimeSlotPricingRuleResponse` (ordered by `startTime` ascending)
+```json
+[
+  {
+    "id": "uuid",
+    "name": "Suất Chiếu Sớm (Early Bird)",
+    "startTime": "08:00:00",
+    "endTime": "12:00:00",
+    "modifier": -10000.00,
+    "updatedAt": "2026-09-07T10:00:00"
+  },
+  {
+    "id": "uuid",
+    "name": "Giờ Vàng (Prime Time)",
+    "startTime": "18:00:00",
+    "endTime": "22:00:00",
+    "modifier": 15000.00,
+    "updatedAt": "2026-09-07T10:00:00"
+  }
+]
+```
+
+### 21.4 Create Time Slot Pricing Rule
+`POST /api/v1/admin/pricing/time-slots`
+
+**Auth**: Required (`ADMIN`)  
+**Request Body**:
+```json
+{
+  "name": "Suất Chiếu Đêm (Late Night)",
+  "startTime": "22:00:00",
+  "endTime": "23:59:59",
+  "modifier": -5000.00
+}
+```
+**Validation**:
+- `name`: required.
+- `startTime`: required, must be strictly before `endTime`.
+- `endTime`: required.
+- `modifier`: required.
+- Intervals cannot overlap with existing active time slot rules (`409 Conflict`).
+
+**Response `201 Created`:** `TimeSlotPricingRuleResponse`
+
+### 21.5 Update Time Slot Pricing Rule
+`PUT /api/v1/admin/pricing/time-slots/{id}`
+
+**Auth**: Required (`ADMIN`)  
+**Request Body**:
+```json
+{
+  "name": "Suất Chiếu Đêm Khuyến Mãi",
+  "startTime": "22:30:00",
+  "endTime": "23:59:59",
+  "modifier": -10000.00
+}
+```
+**Response `200 OK`:** `TimeSlotPricingRuleResponse`
+
+### 21.6 Delete Time Slot Pricing Rule
+`DELETE /api/v1/admin/pricing/time-slots/{id}`
+
+**Auth**: Required (`ADMIN`)  
+**Response `204 No Content`**
+
+### 21.7 Trigger Manual Showtime Lifecycle Cleanup
+`POST /api/v1/admin/showtimes/cleanup-finished`
+
+**Auth**: Required (`ADMIN`)  
+Transitions any `SCHEDULED` showtimes with `now >= endTime` to `FINISHED` (non-destructive; does not delete showtimes).  
+**Response `200 OK`:**
+```json
+{
+  "message": "Đã chuyển 5 suất chiếu quá hạn sang trạng thái FINISHED.",
+  "finishedCount": 5
+}
+```
 
 

@@ -163,4 +163,14 @@ public class AdminShowtimeController {
         showtimeService.deleteShowtime(id);
         return ResponseEntity.noContent().build();
     }
+
+    @Operation(summary = "Reconcile showtime lifecycle: automatically transition expired scheduled showtimes to FINISHED")
+    @PostMapping("/cleanup-finished")
+    public ResponseEntity<java.util.Map<String, Object>> cleanupFinishedShowtimes() {
+        int updated = showtimeService.cleanupFinishedShowtimes();
+        return ResponseEntity.ok(java.util.Map.of(
+                "updatedCount", updated,
+                "message", "Đã cập nhật " + updated + " suất chiếu kết thúc thành FINISHED"
+        ));
+    }
 }

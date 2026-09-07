@@ -15,6 +15,11 @@ public interface AuditoriumRepository extends JpaRepository<Auditorium, String> 
 
     List<Auditorium> findByCinemaIdAndDeletedAtIsNull(String cinemaId);
 
+    List<Auditorium> findByDeletedAtIsNull();
+
+    @org.springframework.data.jpa.repository.Query("SELECT a FROM Auditorium a LEFT JOIN FETCH a.cinema WHERE a.deletedAt IS NULL")
+    List<Auditorium> findAllWithCinemaByDeletedAtIsNull();
+
     Optional<Auditorium> findByIdAndDeletedAtIsNull(String id);
 
     Page<Auditorium> findByCinemaId(String cinemaId, Pageable pageable);

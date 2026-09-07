@@ -28,6 +28,9 @@ public class ShowtimeDetailResponse {
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private BigDecimal basePrice;
+    private BigDecimal dayModifier;
+    private BigDecimal timeSlotModifier;
+    private TicketPricingBreakdown pricingBreakdown;
     private ShowtimeStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

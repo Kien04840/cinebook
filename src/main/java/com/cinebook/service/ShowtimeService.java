@@ -45,4 +45,6 @@ public interface ShowtimeService {
     ShowtimeDetailResponse moveShowtimeSchedule(String id, com.cinebook.dto.request.MoveShowtimeScheduleRequest request);
 
     void deleteShowtime(String id);
+
+    int cleanupFinishedShowtimes();
 }

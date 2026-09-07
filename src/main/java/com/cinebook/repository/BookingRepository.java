@@ -156,4 +156,11 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
             @Param("showtimeId") String showtimeId,
             @Param("now") LocalDateTime now
     );
-}
+
+    @Query("""
+        SELECT COUNT(b) > 0
+        FROM Booking b
+        WHERE b.showtime.auditorium.id = :auditoriumId
+    """)
+    boolean existsByAuditoriumId(@Param("auditoriumId") String auditoriumId);
+}

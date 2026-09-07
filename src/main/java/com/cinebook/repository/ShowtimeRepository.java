@@ -125,4 +125,16 @@ public interface ShowtimeRepository extends JpaRepository<Showtime, String>, Jpa
             @Param("cinemaId") String cinemaId,
             @Param("movieId") String movieId
     );
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("""
+        UPDATE Showtime s
+        SET s.status = com.cinebook.enums.ShowtimeStatus.FINISHED,
+            s.updatedAt = :now
+        WHERE s.status = com.cinebook.enums.ShowtimeStatus.SCHEDULED
+          AND s.endTime <= :now
+    """)
+    int markFinishedShowtimes(@Param("now") LocalDateTime now);
+
+    boolean existsByAuditoriumId(String auditoriumId);
 }

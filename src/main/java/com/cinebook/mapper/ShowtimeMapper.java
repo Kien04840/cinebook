@@ -55,6 +55,10 @@ public class ShowtimeMapper {
     }
 
     public ShowtimeDetailResponse toShowtimeDetailResponse(Showtime showtime) {
+        return toShowtimeDetailResponse(showtime, null);
+    }
+
+    public ShowtimeDetailResponse toShowtimeDetailResponse(Showtime showtime, com.cinebook.dto.response.TicketPricingBreakdown pricingBreakdown) {
         if (showtime == null) {
             return null;
         }
@@ -63,6 +67,9 @@ public class ShowtimeMapper {
         Auditorium auditorium = showtime.getAuditorium();
         AuditoriumResponse auditoriumResponse = auditoriumMapper.toAuditoriumResponse(auditorium);
         CinemaSummaryResponse cinemaResponse = auditorium != null ? cinemaMapper.toCinemaSummaryResponse(auditorium.getCinema()) : null;
+
+        java.math.BigDecimal dayModifier = pricingBreakdown != null ? pricingBreakdown.getDayModifier() : java.math.BigDecimal.ZERO;
+        java.math.BigDecimal timeSlotModifier = pricingBreakdown != null ? pricingBreakdown.getTimeSlotModifier() : java.math.BigDecimal.ZERO;
 
         return ShowtimeDetailResponse.builder()
                 .id(showtime.getId())
@@ -75,6 +82,9 @@ public class ShowtimeMapper {
                 .startTime(showtime.getStartTime())
                 .endTime(showtime.getEndTime())
                 .basePrice(showtime.getBasePrice())
+                .dayModifier(dayModifier)
+                .timeSlotModifier(timeSlotModifier)
+                .pricingBreakdown(pricingBreakdown)
                 .status(showtime.getStatus())
                 .createdAt(showtime.getCreatedAt())
                 .updatedAt(showtime.getUpdatedAt())

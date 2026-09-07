@@ -22,4 +22,8 @@ public interface SeatTypeService {
     SeatTypeResponse updateSeatType(String id, UpdateSeatTypeRequest request);
 
     SeatType getOrCreateDefaultSeatType(String preferredId);
+
+    SeatType getOrCreateVipSeatType();
+
+    SeatType getOrCreateCoupleSeatType();
 }

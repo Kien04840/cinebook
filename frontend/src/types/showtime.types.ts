@@ -52,6 +52,9 @@ export interface ShowtimeDetailResponse {
   startTime: string // ISO LocalDateTime
   endTime: string // ISO LocalDateTime
   basePrice: number
+  dayModifier?: number
+  timeSlotModifier?: number
+  pricingBreakdown?: import('./pricing.types').TicketPricingBreakdown
   status: ShowtimeStatus
   createdAt: string
   updatedAt?: string
@@ -67,6 +70,7 @@ export interface ShowtimeSeatStatusResponse {
   colorToken?: string
   icon?: string
   priceModifier: number
+  calculatedPrice?: number
   rowLabel: string
   seatNumber: number
   seatCode: string

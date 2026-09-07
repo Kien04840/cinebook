@@ -87,4 +87,16 @@ public class AuditoriumMapper {
                 .updatedAt(auditorium.getUpdatedAt())
                 .build();
     }
+
+    public AuditoriumDetailResponse toAuditoriumDetailResponse(Auditorium auditorium, boolean hasShowtimes, boolean hasBookings, boolean hasTickets) {
+        AuditoriumDetailResponse response = toAuditoriumDetailResponse(auditorium);
+        if (response != null) {
+            response.setHasShowtimes(hasShowtimes);
+            response.setHasBookings(hasBookings);
+            response.setHasTickets(hasTickets);
+            response.setCanModifyLayout(!hasShowtimes && !hasBookings && !hasTickets);
+            response.setCanModifySeatTypes(!hasBookings && !hasTickets);
+        }
+        return response;
+    }
 }

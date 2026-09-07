@@ -18,4 +18,8 @@ public interface AuditoriumService {
     AuditoriumResponse updateAuditorium(String id, UpdateAuditoriumRequest request);
 
     void deleteAuditorium(String id);
+
+    AuditoriumDetailResponse resetAuditoriumLayout(String id);
+
+    com.cinebook.dto.response.NormalizeEmptyLayoutsResponse normalizeEmptyAuditoriumsLayout();
 }

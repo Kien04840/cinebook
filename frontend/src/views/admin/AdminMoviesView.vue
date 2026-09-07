@@ -337,6 +337,14 @@ watch(currentPage, () => {
   fetchMovies()
 })
 
+function formatGenres(genres: any): string {
+  if (!genres || !Array.isArray(genres)) return ''
+  return genres
+    .map((g: any) => (typeof g === 'object' && g !== null ? (g.name || '') : String(g)))
+    .filter(Boolean)
+    .join(', ')
+}
+
 onMounted(() => {
   loadGenres()
   fetchMovies()
@@ -489,8 +497,8 @@ onMounted(() => {
 
                   <div class="space-y-1">
                     <p class="font-bold text-white text-sm line-clamp-1">{{ m.title }}</p>
-                    <p v-if="m.genres && m.genres.length > 0" class="text-xs text-slate-400 line-clamp-1">
-                      {{ m.genres.join(', ') }}
+                    <p v-if="formatGenres(m.genres)" class="text-xs text-slate-400 line-clamp-1">
+                      {{ formatGenres(m.genres) }}
                     </p>
                   </div>
                 </div>

@@ -96,6 +96,18 @@ public class AdminAuditoriumController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(summary = "Preview batch update seat types (calculates overlap and deleted seats)")
+    @PostMapping("/{auditoriumId}/seats/batch-seat-type/preview")
+    public ResponseEntity<com.cinebook.dto.response.BatchUpdateSeatTypePreviewResponse> previewBatchUpdateSeatType(
+            @PathVariable String auditoriumId,
+            @Valid @RequestBody BatchUpdateSeatTypeRequest request
+    ) {
+        com.cinebook.dto.response.BatchUpdateSeatTypePreviewResponse response = seatService.previewBatchUpdateSeatType(
+                auditoriumId, request.getSeatIds(), request.getSeatTypeId()
+        );
+        return ResponseEntity.ok(response);
+    }
+
     @Operation(summary = "Update seat status (ACTIVE / BROKEN)")
     @PatchMapping("/{auditoriumId}/seats/{seatId}/status")
     public ResponseEntity<SeatResponse> updateSeatStatus(
@@ -104,6 +116,30 @@ public class AdminAuditoriumController {
             @Valid @RequestBody UpdateSeatStatusRequest request
     ) {
         SeatResponse response = seatService.updateSeatStatus(seatId, request.getStatus());
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Batch update seat status for multiple seats")
+    @PatchMapping("/{auditoriumId}/seats/batch-status")
+    public ResponseEntity<List<SeatResponse>> batchUpdateSeatStatus(
+            @PathVariable String auditoriumId,
+            @Valid @RequestBody com.cinebook.dto.request.BatchUpdateSeatStatusRequest request
+    ) {
+        List<SeatResponse> response = seatService.batchUpdateSeatStatus(auditoriumId, request.getSeatIds(), request.getStatus());
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Reset auditorium seat layout to realistic tiering (0 showtimes, 0 bookings, 0 tickets only)")
+    @PostMapping("/{id}/reset-layout")
+    public ResponseEntity<AuditoriumDetailResponse> resetAuditoriumLayout(@PathVariable String id) {
+        AuditoriumDetailResponse response = auditoriumService.resetAuditoriumLayout(id);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Normalize all empty auditoriums layouts to realistic tiering")
+    @PostMapping("/normalize-empty-layouts")
+    public ResponseEntity<com.cinebook.dto.response.NormalizeEmptyLayoutsResponse> normalizeEmptyAuditoriumsLayout() {
+        com.cinebook.dto.response.NormalizeEmptyLayoutsResponse response = auditoriumService.normalizeEmptyAuditoriumsLayout();
         return ResponseEntity.ok(response);
     }
 }

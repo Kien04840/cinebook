@@ -53,4 +53,8 @@ public interface SeatRepository extends JpaRepository<Seat, String> {
             @org.springframework.data.repository.query.Param("auditoriumId") String auditoriumId,
             @org.springframework.data.repository.query.Param("status") SeatStatus status
     );
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM Seat s WHERE s.auditorium.id = :auditoriumId")
+    void deleteByAuditoriumId(@org.springframework.data.repository.query.Param("auditoriumId") String auditoriumId);
 }

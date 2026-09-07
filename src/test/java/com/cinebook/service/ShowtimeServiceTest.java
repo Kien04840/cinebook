@@ -75,6 +75,9 @@ class ShowtimeServiceTest {
     @Mock
     private BookingRepository bookingRepository;
 
+    @Mock
+    private PricingService pricingService;
+
     @Spy
     private SchedulingValidationService validationService = new SchedulingValidationService();
 

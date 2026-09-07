@@ -161,4 +161,89 @@ class AdminAuditoriumControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("BROKEN"));
     }
+
+    @Test
+    void previewBatchUpdateSeatType_Returns200() throws Exception {
+        BatchUpdateSeatTypeRequest request = BatchUpdateSeatTypeRequest.builder()
+                .seatIds(List.of("seat-1"))
+                .seatTypeId("st-couple")
+                .build();
+
+        com.cinebook.dto.response.BatchUpdateSeatTypePreviewResponse response =
+                com.cinebook.dto.response.BatchUpdateSeatTypePreviewResponse.builder()
+                        .seatCount(1)
+                        .isValid(true)
+                        .targetSeatTypeName("Couple")
+                        .willDeleteSeatCodes(List.of("E2"))
+                        .build();
+
+        when(seatService.previewBatchUpdateSeatType(eq("aud-1"), any(), eq("st-couple"))).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/admin/auditoriums/aud-1/seats/batch-seat-type/preview")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isValid").value(true))
+                .andExpect(jsonPath("$.willDeleteSeatCodes[0]").value("E2"));
+    }
+
+    @Test
+    void batchUpdateSeatStatus_Returns200() throws Exception {
+        com.cinebook.dto.request.BatchUpdateSeatStatusRequest request =
+                com.cinebook.dto.request.BatchUpdateSeatStatusRequest.builder()
+                        .seatIds(List.of("seat-1", "seat-2"))
+                        .status(SeatStatus.BROKEN)
+                        .build();
+
+        when(seatService.batchUpdateSeatStatus(eq("aud-1"), any(), eq(SeatStatus.BROKEN))).thenReturn(List.of(
+                SeatResponse.builder().id("seat-1").status(SeatStatus.BROKEN).build(),
+                SeatResponse.builder().id("seat-2").status(SeatStatus.BROKEN).build()
+        ));
+
+        mockMvc.perform(patch("/api/v1/admin/auditoriums/aud-1/seats/batch-status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].status").value("BROKEN"));
+    }
+
+    @Test
+    void resetAuditoriumLayout_Returns200() throws Exception {
+        com.cinebook.dto.response.AuditoriumDetailResponse response = com.cinebook.dto.response.AuditoriumDetailResponse.builder()
+                .id("aud-1")
+                .name("Hall 1")
+                .totalSeats(36)
+                .canModifyLayout(true)
+                .build();
+
+        when(auditoriumService.resetAuditoriumLayout("aud-1")).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/admin/auditoriums/aud-1/reset-layout"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("aud-1"))
+                .andExpect(jsonPath("$.totalSeats").value(36));
+    }
+
+    @Test
+    void normalizeEmptyLayouts_Returns200() throws Exception {
+        com.cinebook.dto.response.NormalizeEmptyLayoutsResponse response = com.cinebook.dto.response.NormalizeEmptyLayoutsResponse.builder()
+                .processedCount(10)
+                .scannedCount(10)
+                .updatedCount(8)
+                .normalizedCount(8)
+                .unchangedCount(2)
+                .skippedCount(2)
+                .build();
+
+        when(auditoriumService.normalizeEmptyAuditoriumsLayout()).thenReturn(response);
+
+        mockMvc.perform(post("/api/v1/admin/auditoriums/normalize-empty-layouts"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.processedCount").value(10))
+                .andExpect(jsonPath("$.scannedCount").value(10))
+                .andExpect(jsonPath("$.updatedCount").value(8))
+                .andExpect(jsonPath("$.normalizedCount").value(8))
+                .andExpect(jsonPath("$.unchangedCount").value(2))
+                .andExpect(jsonPath("$.skippedCount").value(2));
+    }
 }

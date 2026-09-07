@@ -43,6 +43,8 @@ public interface TicketRepository extends JpaRepository<Ticket, String> {
 
     List<Ticket> findBySeatId(String seatId);
 
+    boolean existsBySeatId(String seatId);
+
     Page<Ticket> findByTicketStatus(
             TicketStatus ticketStatus,
             Pageable pageable
@@ -139,4 +141,24 @@ public interface TicketRepository extends JpaRepository<Ticket, String> {
             @Param("from") java.time.LocalDateTime from,
             @Param("to") java.time.LocalDateTime to
     );
-}
+
+    @Query("""
+        SELECT COUNT(t) > 0
+        FROM Ticket t
+        WHERE t.seat.auditorium.id = :auditoriumId
+    """)
+    boolean existsByAuditoriumId(@Param("auditoriumId") String auditoriumId);
+
+    @Query("""
+        SELECT COUNT(t) > 0
+        FROM Ticket t
+        WHERE t.seat.id = :seatId
+          AND t.ticketStatus IN (com.cinebook.enums.TicketStatus.VALID, com.cinebook.enums.TicketStatus.USED)
+          AND t.booking.showtime.status = com.cinebook.enums.ShowtimeStatus.SCHEDULED
+          AND t.booking.showtime.endTime > :currentTime
+    """)
+    boolean existsUpcomingValidTicketsBySeatId(
+            @Param("seatId") String seatId,
+            @Param("currentTime") java.time.LocalDateTime currentTime
+    );
+}

@@ -29,6 +29,11 @@ public class AuditoriumDetailResponse {
     private Short turnaroundMinutes;
     private Short snapIntervalMinutes;
     private List<SeatResponse> seats;
+    private boolean hasShowtimes;
+    private boolean hasBookings;
+    private boolean hasTickets;
+    private boolean canModifyLayout;
+    private boolean canModifySeatTypes;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

@@ -20,4 +20,19 @@ public interface TimeSlotPricingRuleRepository
     List<TimeSlotPricingRule> findApplicableRules(
             @Param("time") LocalTime time
     );
+
+    List<TimeSlotPricingRule> findAllByOrderByStartTimeAsc();
+
+    @Query("""
+        SELECT r
+        FROM TimeSlotPricingRule r
+        WHERE (:id IS NULL OR r.id <> :id)
+          AND r.startTime < :endTime
+          AND :startTime < r.endTime
+        """)
+    List<TimeSlotPricingRule> findOverlappingRules(
+            @Param("id") String id,
+            @Param("startTime") LocalTime startTime,
+            @Param("endTime") LocalTime endTime
+    );
 }

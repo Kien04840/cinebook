@@ -281,7 +281,16 @@ onMounted(() => {
                 <p class="text-slate-400 text-[11px] mt-0.5">{{ b.cinemaName || b.showtime?.cinemaName }} • {{ b.showtime?.auditoriumName }}</p>
               </td>
               <td class="px-4 py-3.5 font-mono text-xs text-slate-300">
-                <span class="px-2 py-0.5 rounded bg-slate-800 text-[11px] border border-slate-700 font-bold">
+                <div v-if="b.seatCodes && b.seatCodes.length > 0" class="flex flex-wrap gap-1 max-w-[160px]">
+                  <span
+                    v-for="code in b.seatCodes"
+                    :key="code"
+                    class="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[11px] font-bold"
+                  >
+                    {{ code }}
+                  </span>
+                </div>
+                <span v-else class="px-2 py-0.5 rounded bg-slate-800 text-[11px] border border-slate-700 font-bold text-slate-400">
                   {{ b.seatsCount || b.seatCount || 1 }} {{ t('adminReports.unitTickets') }}
                 </span>
               </td>

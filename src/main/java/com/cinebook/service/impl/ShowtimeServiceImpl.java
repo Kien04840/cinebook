@@ -53,6 +53,7 @@ public class ShowtimeServiceImpl implements ShowtimeService {
     private final BookingRepository bookingRepository;
     private final ShowtimeMapper showtimeMapper;
     private final SchedulingValidationService validationService;
+    private final com.cinebook.service.PricingService pricingService;
 
     @Override
     @Transactional(readOnly = true)
@@ -94,7 +95,10 @@ public class ShowtimeServiceImpl implements ShowtimeService {
             throw new ResourceNotFoundException("Showtime not found with id: " + id);
         }
 
-        return showtimeMapper.toShowtimeDetailResponse(showtime);
+        com.cinebook.dto.response.TicketPricingBreakdown pricingBreakdown = (pricingService != null)
+                ? pricingService.calculateShowtimeBaseBreakdown(showtime)
+                : null;
+        return showtimeMapper.toShowtimeDetailResponse(showtime, pricingBreakdown);
     }
 
     @Override
@@ -129,7 +133,21 @@ public class ShowtimeServiceImpl implements ShowtimeService {
         Showtime showtime = showtimeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Showtime not found with id: " + id));
 
-        return showtimeMapper.toShowtimeDetailResponse(showtime);
+        com.cinebook.dto.response.TicketPricingBreakdown pricingBreakdown = (pricingService != null)
+                ? pricingService.calculateShowtimeBaseBreakdown(showtime)
+                : null;
+        return showtimeMapper.toShowtimeDetailResponse(showtime, pricingBreakdown);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int cleanupFinishedShowtimes() {
+        LocalDateTime now = LocalDateTime.now();
+        int count = showtimeRepository.markFinishedShowtimes(now);
+        if (count > 0) {
+            log.info("Transitioned {} scheduled showtimes to FINISHED (ended before {})", count, now);
+        }
+        return count;
     }
 
     @Override

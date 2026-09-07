@@ -43,13 +43,16 @@ const isValidatingPromo = ref<boolean>(false)
 const promoError = ref<string>('')
 const validatedPromo = ref<ValidatePromotionResponse | null>(null)
 
-// Estimated gross price calculation before booking creation
+// Estimated gross price calculation before booking creation using authoritative calculatedPrice
 const estimatedGross = computed(() => {
-  if (!props.showtime) return 0
-  const base = Number(props.showtime.basePrice) || 0
   return props.selectedSeats.reduce((sum, s) => {
+    if (s.calculatedPrice !== undefined && s.calculatedPrice !== null) {
+      return sum + Number(s.calculatedPrice)
+    }
+    const base = Number(props.showtime?.basePrice) || 0
     const mod = Number(s.priceModifier) || 0
-    return sum + (base + mod)
+    const cap = Number(s.capacity) || 1
+    return sum + (base * cap + mod)
   }, 0)
 })
 
@@ -295,6 +298,9 @@ watch(
           >
             <span class="font-bold text-white">{{ seat.seatCode }}</span>
             <span class="text-[10px] text-slate-400">({{ seat.seatTypeName }})</span>
+            <span v-if="seat.calculatedPrice" class="text-[10px] font-mono text-emerald-400 font-bold ml-0.5">
+              {{ formatCurrency(seat.calculatedPrice) }}
+            </span>
             <button
               type="button"
               class="text-slate-400 hover:text-rose-400 ml-1 p-0.5"

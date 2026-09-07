@@ -124,27 +124,32 @@ An auditorium must belong to an existing cinema.
 
 The auditorium type and seat configuration must follow the existing database/business rules.
 
-### Seat matrix generation
+### Seat matrix generation & realistic layout
 
-The system is intended to generate an auditorium's seat layout from administrator-provided dimensions/configuration rather than requiring the administrator to manually create every seat.
+The system automatically generates a tiered realistic layout from administrator-provided dimensions:
+- **Hàng đầu (Standard)**: Chiếm tỷ lệ $S = \max(1, \text{round}((R - 1) \times 0.45))$, bố trí từ hàng A trở đi, loại ghế STANDARD.
+- **Hàng giữa (VIP)**: Bố trí các hàng còn lại trước hàng cuối, loại ghế VIP.
+- **Hàng cuối cùng (Couple)**: Loại ghế COUPLE (`capacity = 2`), sắp xếp ở các cột lẻ ($1, 3, 5, \dots$), mỗi ghế chiếm 2 cột liên tiếp (`span = 2`).
 
-For example:
+### Data protection & layout immutability
 
-```text
-Rows: 12
-Columns: 10
-
-A01 A02 A03 ... A10
-B01 B02 B03 ... B10
-C01 C02 C03 ... C10
-...
-```
-
-The exact generation rules, identifiers, naming conventions, and editable properties must follow the existing database/business specification.
-
-The administrator should be able to configure **seat type**, while the application remains responsible for maintaining the generated matrix structure.
-
-Do not invent additional seat-layout concepts if they are not present in the existing schema.
+Để bảo vệ tính toàn vẹn dữ liệu đặt vé lịch sử và lịch chiếu đang chạy:
+1. **Auditorium Protection Flags**:
+   - `hasShowtimes`: Phòng đã được xếp lịch chiếu.
+   - `hasBookings`: Phòng đã có giao dịch đặt vé (bất kể trạng thái `PAID`, `CANCELLED`, `EXPIRED`).
+   - `hasTickets`: Phòng đã phát sinh vé xem phim (`VALID`, `USED`).
+   - `canModifyLayout`: Chỉ được phép thay đổi cấu trúc/reset khi `hasShowtimes == false && hasBookings == false && hasTickets == false`.
+   - `canModifySeatTypes`: Chỉ được phép đổi loại ghế khi `hasBookings == false && hasTickets == false`.
+2. **Quy tắc đổi loại ghế**:
+   - Cấm thay đổi loại ghế của phòng chiếu đã phát sinh booking hoặc ticket $\to$ ném `409 Conflict`.
+   - Giao diện Admin khóa chọn loại ghế và hiển thị banner thông báo lý do bảo vệ dữ liệu.
+3. **Quy tắc đổi trạng thái ghế (BROKEN)**:
+   - Cho phép đổi trạng thái độc lập với cấu trúc phòng chiếu.
+   - Khi chuyển sang `BROKEN`: Hệ thống kiểm tra xem ghế có đang bị giữ chỗ (`SeatHold`) còn hạn hay đã có vé `VALID`/`USED` trong các suất chiếu sắp tới (`endTime > now`) hay không. Nếu có $\to$ ném `409 Conflict`.
+   - Chuyển từ `BROKEN` $\to$ `ACTIVE`: Luôn luôn được phép khi ghế đã sửa chữa xong.
+4. **Chuẩn hóa phòng chiếu trống (Reset / Normalization)**:
+   - Reset đơn lẻ: Chỉ cho phép trên phòng hoàn toàn trống (0 showtimes, 0 bookings, 0 tickets).
+   - Normalize Empty Layouts: Quét toàn bộ rạp, tự động bỏ qua 100% các phòng đã có lịch chiếu/vé/booking, chỉ tái tạo sơ đồ thực tế cho các phòng hoàn toàn trống.
 
 ---
 
@@ -180,7 +185,7 @@ auditorium → seats → seat_type
 ```
 
 Pricing rules are separately documented in `docs/business-rules.md`.
-Couple seats follow **flat pricing**: 1 Couple seat unit costs `basePrice + priceModifier` (no capacity multiplier).
+Ticket pricing is **capacity-aware**: 1 Couple seat unit costs `(basePrice * capacity) + seatModifier + dayModifier + timeSlotModifier` (where `capacity = 2` for Couple). Day/time modifiers and seat modifier are applied additively per seat unit without multiplication.
 
 ---
 

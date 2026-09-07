@@ -169,4 +169,42 @@ public class SeatTypeServiceImpl implements SeatTypeService {
                     return seatTypeRepository.save(defaultType);
                 });
     }
+
+    @Override
+    @Transactional
+    public SeatType getOrCreateVipSeatType() {
+        return seatTypeRepository.findByCodeIgnoreCase("VIP")
+                .or(() -> seatTypeRepository.findByNameIgnoreCase("VIP"))
+                .orElseGet(() -> {
+                    SeatType vip = new SeatType();
+                    vip.setCode("VIP");
+                    vip.setName("VIP");
+                    vip.setPriceModifier(BigDecimal.valueOf(20000));
+                    vip.setCapacity((short) 1);
+                    vip.setColorToken("amber");
+                    vip.setIcon("crown");
+                    vip.setDescription("VIP prime view cinema seat");
+                    vip.setStatus(SeatTypeStatus.ACTIVE);
+                    return seatTypeRepository.save(vip);
+                });
+    }
+
+    @Override
+    @Transactional
+    public SeatType getOrCreateCoupleSeatType() {
+        return seatTypeRepository.findByCodeIgnoreCase("COUPLE")
+                .or(() -> seatTypeRepository.findByNameIgnoreCase("COUPLE"))
+                .orElseGet(() -> {
+                    SeatType couple = new SeatType();
+                    couple.setCode("COUPLE");
+                    couple.setName("Couple");
+                    couple.setPriceModifier(BigDecimal.valueOf(40000));
+                    couple.setCapacity((short) 2);
+                    couple.setColorToken("pink");
+                    couple.setIcon("heart");
+                    couple.setDescription("Couple sweetheart double seat");
+                    couple.setStatus(SeatTypeStatus.ACTIVE);
+                    return seatTypeRepository.save(couple);
+                });
+    }
 }

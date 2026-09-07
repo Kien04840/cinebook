@@ -26,6 +26,7 @@ public class ShowtimeSeatStatusResponse {
     private String colorToken;
     private String icon;
     private BigDecimal priceModifier;
+    private BigDecimal calculatedPrice;
     private String rowLabel;
     private Short seatNumber;
     private String seatCode;

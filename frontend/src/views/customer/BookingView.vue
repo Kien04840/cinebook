@@ -60,11 +60,14 @@ const mobileDisplayPrice = computed<number>(() => {
   if (createdBooking.value) {
     return createdBooking.value.totalAmount
   }
-  if (!showtime.value) return 0
-  const base = Number(showtime.value.basePrice) || 0
   return selectedSeatsObjects.value.reduce((sum, s) => {
+    if (s.calculatedPrice !== undefined && s.calculatedPrice !== null) {
+      return sum + Number(s.calculatedPrice)
+    }
+    const base = Number(showtime.value?.basePrice) || 0
     const mod = Number(s.priceModifier) || 0
-    return sum + (base + mod)
+    const cap = Number(s.capacity) || 1
+    return sum + (base * cap + mod)
   }, 0)
 })
 

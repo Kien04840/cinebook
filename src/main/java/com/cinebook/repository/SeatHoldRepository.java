@@ -89,4 +89,26 @@ public interface SeatHoldRepository
             @Param("seatIds") Collection<String> seatIds,
             @Param("currentTime") LocalDateTime currentTime
     );
+
+    @Query("""
+        SELECT COUNT(sh) > 0
+        FROM SeatHold sh
+        WHERE sh.seat.id = :seatId
+          AND sh.expiresAt > :currentTime
+    """)
+    boolean existsActiveHoldBySeatId(
+            @Param("seatId") String seatId,
+            @Param("currentTime") LocalDateTime currentTime
+    );
+
+    @Query("""
+        SELECT COUNT(sh) > 0
+        FROM SeatHold sh
+        WHERE sh.seat.auditorium.id = :auditoriumId
+          AND sh.expiresAt > :currentTime
+    """)
+    boolean existsActiveHoldByAuditoriumId(
+            @Param("auditoriumId") String auditoriumId,
+            @Param("currentTime") LocalDateTime currentTime
+    );
 }

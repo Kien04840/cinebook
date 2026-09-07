@@ -38,7 +38,7 @@ public class DataInitializer implements CommandLineRunner {
 
         initSeatTypeIfAbsent("STANDARD", "Standard", 1, "slate", "armchair", BigDecimal.ZERO, "Standard comfortable cinema seat");
         initSeatTypeIfAbsent("VIP", "VIP", 1, "amber", "crown", new BigDecimal("20000.00"), "VIP premium cinema seat with extra legroom");
-        initSeatTypeIfAbsent("COUPLE", "Couple", 2, "rose", "heart", new BigDecimal("50000.00"), "Double seat designed for two people with extra comfort and privacy");
+        initSeatTypeIfAbsent("COUPLE", "Couple", 2, "rose", "heart", new BigDecimal("40000.00"), "Double seat designed for two people with extra comfort and privacy");
         initSeatTypeIfAbsent("PREMIUM", "Premium", 1, "indigo", "star", new BigDecimal("30000.00"), "Premium reclining seat with enhanced comfort and additional legroom");
 
         initAdminUserIfAbsent(adminRole, customerRole);

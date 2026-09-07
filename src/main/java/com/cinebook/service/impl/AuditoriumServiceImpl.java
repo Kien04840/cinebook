@@ -28,6 +28,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import com.cinebook.dto.response.NormalizeEmptyLayoutsResponse;
+import com.cinebook.repository.BookingRepository;
+import com.cinebook.repository.SeatHoldRepository;
+import com.cinebook.repository.SeatRepository;
+import com.cinebook.repository.ShowtimeRepository;
+import com.cinebook.repository.TicketRepository;
+import java.util.ArrayList;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -37,6 +45,12 @@ public class AuditoriumServiceImpl implements AuditoriumService {
     private final CinemaRepository cinemaRepository;
     private final SeatTypeService seatTypeService;
     private final AuditoriumMapper auditoriumMapper;
+    private final SeatRepository seatRepository;
+    private final ShowtimeRepository showtimeRepository;
+    private final BookingRepository bookingRepository;
+    private final TicketRepository ticketRepository;
+    private final SeatHoldRepository seatHoldRepository;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @Override
     @Transactional(readOnly = true)
@@ -55,7 +69,11 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         Auditorium auditorium = auditoriumRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Auditorium not found with id: " + id));
 
-        return auditoriumMapper.toAuditoriumDetailResponse(auditorium);
+        boolean hasShowtimes = showtimeRepository.existsByAuditoriumId(id);
+        boolean hasBookings = bookingRepository.existsByAuditoriumId(id);
+        boolean hasTickets = ticketRepository.existsByAuditoriumId(id);
+
+        return auditoriumMapper.toAuditoriumDetailResponse(auditorium, hasShowtimes, hasBookings, hasTickets);
     }
 
     @Override
@@ -84,30 +102,13 @@ public class AuditoriumServiceImpl implements AuditoriumService {
             auditorium.setSnapIntervalMinutes(request.getSnapIntervalMinutes());
         }
 
-        // Generate Seat Matrix
-        Set<Seat> seats = new HashSet<>();
-        short rows = request.getRowsCount();
-        short cols = request.getColumnsCount();
-
-        for (short r = 0; r < rows; r++) {
-            String rowLabel = String.valueOf((char) ('A' + r));
-            for (short c = 1; c <= cols; c++) {
-                Seat seat = new Seat();
-                seat.setAuditorium(auditorium);
-                seat.setSeatType(defaultSeatType);
-                seat.setRowLabel(rowLabel);
-                seat.setSeatNumber(c);
-                seat.setStatus(SeatStatus.ACTIVE);
-                seats.add(seat);
-            }
-        }
-
+        Set<Seat> seats = generateRealisticSeatLayout(auditorium, request.getRowsCount(), request.getColumnsCount(), defaultSeatType);
         auditorium.setSeats(seats);
 
         Auditorium saved = auditoriumRepository.save(auditorium);
         log.info("Created auditorium id={} in cinema id={} with {} seats", saved.getId(), cinemaId, seats.size());
 
-        return auditoriumMapper.toAuditoriumDetailResponse(saved);
+        return auditoriumMapper.toAuditoriumDetailResponse(saved, false, false, false);
     }
 
     @Override
@@ -146,9 +147,301 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         Auditorium auditorium = auditoriumRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Auditorium not found with id: " + id));
 
+        if (showtimeRepository.existsByAuditoriumId(id)) {
+            throw new ConflictException("Cannot delete auditorium with existing showtimes");
+        }
+
         auditorium.setDeletedAt(LocalDateTime.now());
         auditorium.setStatus(AuditoriumStatus.DECOMMISSIONED);
         auditoriumRepository.save(auditorium);
         log.info("Soft-deleted auditorium: id={}", id);
+    }
+
+    @Override
+    @Transactional
+    public AuditoriumDetailResponse resetAuditoriumLayout(String id) {
+        Auditorium auditorium = auditoriumRepository.findByIdAndDeletedAtIsNull(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Auditorium not found with id: " + id));
+
+        LocalDateTime now = LocalDateTime.now();
+        boolean hasBookings = bookingRepository.existsByAuditoriumId(id);
+        boolean hasTickets = ticketRepository.existsByAuditoriumId(id);
+        boolean hasActiveHolds = seatHoldRepository.existsActiveHoldByAuditoriumId(id, now);
+
+        if (hasBookings || hasTickets || hasActiveHolds) {
+            throw new ConflictException("Không thể thiết lập lại sơ đồ ghế của phòng chiếu đã phát sinh giao dịch đặt vé hoặc đang có người giữ chỗ.");
+        }
+
+        applyRealisticLayoutInPlace(auditorium);
+        List<Seat> currentSeats = seatRepository.findByAuditoriumIdOrderByRowLabelAscSeatNumberAsc(auditorium.getId());
+        auditorium.setSeats(new HashSet<>(currentSeats));
+
+        log.info("Reset auditorium layout in-place for id={}: current seats={}", id, currentSeats.size());
+        boolean hasShowtimes = showtimeRepository.existsByAuditoriumId(id);
+        return auditoriumMapper.toAuditoriumDetailResponse(auditorium, hasShowtimes, false, false);
+    }
+
+    @Override
+    public NormalizeEmptyLayoutsResponse normalizeEmptyAuditoriumsLayout() {
+        List<Auditorium> auditoriums = auditoriumRepository.findByDeletedAtIsNull();
+
+        int scannedCount = 0;
+        int normalizedCount = 0;
+        int unchangedCount = 0;
+        int skippedCount = 0;
+        int skippedBecauseBookings = 0;
+        int skippedBecauseTickets = 0;
+        int skippedBecauseActiveHolds = 0;
+        int failedCount = 0;
+        List<String> updatedAuditoriumIds = new ArrayList<>();
+        List<NormalizeEmptyLayoutsResponse.SkippedItem> skippedDetails = new ArrayList<>();
+
+        for (Auditorium a : auditoriums) {
+            scannedCount++;
+            LocalDateTime now = LocalDateTime.now();
+            boolean hasBookings = bookingRepository.existsByAuditoriumId(a.getId());
+            boolean hasTickets = ticketRepository.existsByAuditoriumId(a.getId());
+            boolean hasActiveHolds = seatHoldRepository.existsActiveHoldByAuditoriumId(a.getId(), now);
+
+            if (hasBookings || hasTickets || hasActiveHolds) {
+                skippedCount++;
+                StringBuilder reason = new StringBuilder("Phòng chiếu được bảo vệ (");
+                if (hasBookings) {
+                    skippedBecauseBookings++;
+                    reason.append("Bookings, ");
+                }
+                if (hasTickets) {
+                    skippedBecauseTickets++;
+                    reason.append("Tickets, ");
+                }
+                if (hasActiveHolds) {
+                    skippedBecauseActiveHolds++;
+                    reason.append("ActiveHolds, ");
+                }
+                if (reason.toString().endsWith(", ")) {
+                    reason.setLength(reason.length() - 2);
+                }
+                reason.append(")");
+
+                skippedDetails.add(NormalizeEmptyLayoutsResponse.SkippedItem.builder()
+                        .auditoriumId(a.getId())
+                        .auditoriumName(a.getName())
+                        .cinemaName(a.getCinema() != null ? a.getCinema().getName() : "")
+                        .reason(reason.toString())
+                        .build());
+                continue;
+            }
+
+            try {
+                org.springframework.transaction.support.TransactionTemplate txTemplate =
+                        new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+                txTemplate.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+                NormalizationResult result = txTemplate.execute(status -> {
+                    Auditorium aud = auditoriumRepository.findById(a.getId()).orElse(a);
+                    return applyRealisticLayoutInPlace(aud);
+                });
+
+                if (result == NormalizationResult.UPDATED) {
+                    normalizedCount++;
+                    updatedAuditoriumIds.add(a.getId());
+                } else {
+                    unchangedCount++;
+                }
+            } catch (Exception ex) {
+                log.error("Failed to normalize auditorium {} ({}): {}", a.getId(), a.getName(), ex.getMessage(), ex);
+                failedCount++;
+            }
+        }
+
+        log.info("Normalized auditorium layouts: scanned={}, normalized={}, unchanged={}, skipped={} (bookings={}, tickets={}, holds={}), failed={}",
+                scannedCount, normalizedCount, unchangedCount, skippedCount, skippedBecauseBookings, skippedBecauseTickets, skippedBecauseActiveHolds, failedCount);
+
+        return NormalizeEmptyLayoutsResponse.builder()
+                .processedCount(scannedCount)
+                .scannedCount(scannedCount)
+                .updatedCount(normalizedCount)
+                .normalizedCount(normalizedCount)
+                .unchangedCount(unchangedCount)
+                .skippedCount(skippedCount)
+                .skippedBecauseBookings(skippedBecauseBookings)
+                .skippedBecauseTickets(skippedBecauseTickets)
+                .skippedBecauseActiveHolds(skippedBecauseActiveHolds)
+                .failedCount(failedCount)
+                .updatedAuditoriumIds(updatedAuditoriumIds)
+                .skippedDetails(skippedDetails)
+                .build();
+    }
+
+    private enum NormalizationResult {
+        UNCHANGED, UPDATED
+    }
+
+    private NormalizationResult applyRealisticLayoutInPlace(Auditorium auditorium) {
+        short rows = auditorium.getRowsCount() != null ? auditorium.getRowsCount() : 0;
+        short cols = auditorium.getColumnsCount() != null ? auditorium.getColumnsCount() : 0;
+        if (rows <= 0 || cols <= 0) {
+            return NormalizationResult.UNCHANGED;
+        }
+
+        SeatType standardType = seatTypeService.getOrCreateDefaultSeatType(null);
+        SeatType vipType = seatTypeService.getOrCreateVipSeatType();
+        SeatType coupleType = seatTypeService.getOrCreateCoupleSeatType();
+
+        java.util.Map<String, TargetSeatInfo> targetMap = new java.util.HashMap<>();
+
+        if (rows == 1) {
+            String rowLabel = "A";
+            for (short c = 1; c <= cols; c++) {
+                targetMap.put(rowLabel + "_" + c, new TargetSeatInfo(rowLabel, c, standardType));
+            }
+        } else if (rows == 2) {
+            for (short c = 1; c <= cols; c++) {
+                targetMap.put("A_" + c, new TargetSeatInfo("A", c, standardType));
+                targetMap.put("B_" + c, new TargetSeatInfo("B", c, vipType));
+            }
+        } else {
+            short lastRowIndex = (short) (rows - 1);
+            String lastRowLabel = String.valueOf((char) ('A' + lastRowIndex));
+
+            for (short c = 1; c + 1 <= cols; c += 2) {
+                targetMap.put(lastRowLabel + "_" + c, new TargetSeatInfo(lastRowLabel, c, coupleType));
+            }
+
+            int nonCoupleRows = rows - 1;
+            int standardRowsCount = Math.max(1, Math.round(nonCoupleRows * 0.45f));
+
+            for (short r = 0; r < lastRowIndex; r++) {
+                String rowLabel = String.valueOf((char) ('A' + r));
+                SeatType rowSeatType = (r < standardRowsCount) ? standardType : vipType;
+                for (short c = 1; c <= cols; c++) {
+                    targetMap.put(rowLabel + "_" + c, new TargetSeatInfo(rowLabel, c, rowSeatType));
+                }
+            }
+        }
+
+        List<Seat> existingSeats = seatRepository.findByAuditoriumIdOrderByRowLabelAscSeatNumberAsc(auditorium.getId());
+        java.util.Map<String, Seat> existingMap = existingSeats.stream()
+                .collect(java.util.stream.Collectors.toMap(s -> s.getRowLabel() + "_" + s.getSeatNumber(), s -> s, (s1, s2) -> s1));
+
+        List<Seat> seatsToUpdate = new ArrayList<>();
+        List<Seat> seatsToCreate = new ArrayList<>();
+        List<Seat> seatsToDelete = new ArrayList<>();
+
+        for (java.util.Map.Entry<String, TargetSeatInfo> entry : targetMap.entrySet()) {
+            String posKey = entry.getKey();
+            TargetSeatInfo target = entry.getValue();
+            Seat existing = existingMap.get(posKey);
+
+            if (existing != null) {
+                boolean modified = false;
+                if (existing.getSeatType() == null || !existing.getSeatType().getId().equals(target.seatType.getId())) {
+                    existing.setSeatType(target.seatType);
+                    modified = true;
+                }
+                if (existing.getStatus() != SeatStatus.ACTIVE) {
+                    existing.setStatus(SeatStatus.ACTIVE);
+                    modified = true;
+                }
+                if (modified) {
+                    seatsToUpdate.add(existing);
+                }
+            } else {
+                seatsToCreate.add(buildSeat(auditorium, target.seatType, target.rowLabel, target.seatNumber));
+            }
+        }
+
+        for (Seat existing : existingSeats) {
+            String posKey = existing.getRowLabel() + "_" + existing.getSeatNumber();
+            if (!targetMap.containsKey(posKey)) {
+                seatsToDelete.add(existing);
+            }
+        }
+
+        if (seatsToUpdate.isEmpty() && seatsToCreate.isEmpty() && seatsToDelete.isEmpty()) {
+            return NormalizationResult.UNCHANGED;
+        }
+
+        if (!seatsToDelete.isEmpty()) {
+            seatRepository.deleteAll(seatsToDelete);
+        }
+        if (!seatsToUpdate.isEmpty()) {
+            seatRepository.saveAll(seatsToUpdate);
+        }
+        if (!seatsToCreate.isEmpty()) {
+            seatRepository.saveAll(seatsToCreate);
+        }
+        seatRepository.flush();
+
+        log.info("Auditorium {}: Normalized layout in-place (updated={}, created={}, deleted={})",
+                auditorium.getId(), seatsToUpdate.size(), seatsToCreate.size(), seatsToDelete.size());
+        return NormalizationResult.UPDATED;
+    }
+
+    private record TargetSeatInfo(String rowLabel, short seatNumber, SeatType seatType) {}
+
+    private Set<Seat> generateRealisticSeatLayout(Auditorium auditorium, short rows, short cols, SeatType preferredStandardType) {
+        Set<Seat> seats = new java.util.HashSet<>();
+
+        SeatType standardType = preferredStandardType != null
+                ? preferredStandardType
+                : seatTypeService.getOrCreateDefaultSeatType(null);
+        SeatType vipType = seatTypeService.getOrCreateVipSeatType();
+        SeatType coupleType = seatTypeService.getOrCreateCoupleSeatType();
+
+        if (rows <= 0 || cols <= 0) {
+            return seats;
+        }
+
+        if (rows == 1) {
+            String rowLabel = "A";
+            for (short c = 1; c <= cols; c++) {
+                seats.add(buildSeat(auditorium, standardType, rowLabel, c));
+            }
+            return seats;
+        }
+
+        if (rows == 2) {
+            for (short c = 1; c <= cols; c++) {
+                seats.add(buildSeat(auditorium, standardType, "A", c));
+                seats.add(buildSeat(auditorium, vipType, "B", c));
+            }
+            return seats;
+        }
+
+        // rows >= 3: Front rows are Standard, Middle rows are VIP, Last row is Couple
+        short lastRowIndex = (short) (rows - 1);
+        String lastRowLabel = String.valueOf((char) ('A' + lastRowIndex));
+
+        // Couple row: spans = 2, starting at odd columns: 1, 3, 5, ...
+        // Constraint: c + 1 <= cols
+        for (short c = 1; c + 1 <= cols; c += 2) {
+            seats.add(buildSeat(auditorium, coupleType, lastRowLabel, c));
+        }
+
+        // Non-couple rows: 0 to rows - 2 (total = rows - 1 rows)
+        int nonCoupleRows = rows - 1;
+        int standardRowsCount = Math.max(1, Math.round(nonCoupleRows * 0.45f));
+
+        for (short r = 0; r < lastRowIndex; r++) {
+            String rowLabel = String.valueOf((char) ('A' + r));
+            SeatType rowSeatType = (r < standardRowsCount) ? standardType : vipType;
+
+            for (short c = 1; c <= cols; c++) {
+                seats.add(buildSeat(auditorium, rowSeatType, rowLabel, c));
+            }
+        }
+
+        return seats;
+    }
+
+    private Seat buildSeat(Auditorium auditorium, SeatType seatType, String rowLabel, short seatNumber) {
+        Seat seat = new Seat();
+        seat.setAuditorium(auditorium);
+        seat.setSeatType(seatType);
+        seat.setRowLabel(rowLabel);
+        seat.setSeatNumber(seatNumber);
+        seat.setStatus(SeatStatus.ACTIVE);
+        return seat;
     }
 }

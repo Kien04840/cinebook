@@ -70,7 +70,11 @@ It defines what the application must do, what is allowed, what is forbidden, and
 - Showtime status values: `SCHEDULED`, `CANCELLED`, `FINISHED`.
 - **Conflict Rule**: Overlapping showtimes in the same auditorium are forbidden (`startTime < existing.endTime && endTime > existing.startTime` for active non-cancelled showtimes).
 - A showtime accepts new holds and bookings only when its status is `SCHEDULED` and `startTime > now` (representing active, open-for-booking schedule).
-- Showtimes with status `CANCELLED` or `FINISHED`, or showtimes whose `startTime <= now`, strictly reject any new seat hold or booking creation.
+- Showtimes with status `CANCELLED` or `FINISHED`, or showtimes whose `startTime <= now` or `endTime <= now`, strictly reject any new seat hold or booking creation.
+- **Showtime Lifecycle Cleanup Invariant**:
+  - Scheduled showtimes whose end time has passed (`status = SCHEDULED` and `now >= endTime`) are automatically transitioned to `FINISHED` by the scheduled cleanup task (`ShowtimeCleanupTask`) or the admin cleanup endpoint.
+  - **No Physical Deletion**: Showtimes must NEVER be physically deleted upon completion. Their record is preserved for booking references, check-in history, and historical reporting.
+  - Public visibility: `FINISHED` and `CANCELLED` showtimes are excluded from customer-facing public listings. Admins retain full visibility and filtering capabilities.
 
 ### 6.1 Realistic Multi-Movie Showtime Scheduling Invariants
 1. **Auditorium is a Backend Resource**: Customers select a Showtime, not an Auditorium. The Showtime resolves the Auditorium required for seat map rendering and seat holds.
@@ -99,19 +103,32 @@ It defines what the application must do, what is allowed, what is forbidden, and
 
 ---
 
-## 7. Pricing
+## 7. Dynamic Ticket Pricing (V1)
 
-Pricing for a ticket is composed of:
-1. Showtime `basePrice`
-2. Seat-type `priceModifier` (from `seat_types`)
-3. Showtime format / day / time rules when configured.
+Ticket pricing in CineBook is governed by a **Single Source of Truth** (`PricingService`) implementing the V1 Dynamic Pricing Formula:
 
-**Formula**:
-$$\text{Ticket Gross Price} = \text{basePrice} + \text{priceModifier}$$
-$$\text{Booking Gross Total} = \sum \text{Ticket Gross Prices}$$
+$$\text{Ticket Price} = \max\left(0, (\text{Showtime Base Price} \times \text{Seat Capacity}) + \text{Seat Type Modifier} + \text{Day Modifier} + \text{Time Slot Modifier}\right)$$
 
-> [!NOTE]
-> Pricing for Couple seats (`capacity = 2`) is **flat**: 1 Couple seat unit costs `basePrice + priceModifier` (no capacity multiplier applied).
+### 7.1 Formula Components
+1. **Showtime Base Price** (`showtimes.base_price`): Configured per showtime, $\ge 0$. Scaled by `seat_types.capacity` (Standard = 1, VIP = 1, Couple = 2).
+2. **Seat Type Modifier** (`seat_types.price_modifier`): Additive modifier per seat category (`STANDARD`: 0, `VIP`: +20k, `COUPLE`: +40k). Applied additively without capacity multiplication.
+3. **Day Pricing Modifier** (`day_pricing_rules.modifier`): Configured per day of week (`MONDAY` through `SUNDAY`). Surcharges for weekends or discounts for promotional weekdays.
+4. **Time Slot Pricing Modifier** (`time_slot_pricing_rules.modifier`): Configured for half-open intervals $[startTime, endTime)$ across the 24-hour day (e.g. Early Bird discount, Prime Time surcharge, Late Night discount). Matched by the showtime's `startTime.toLocalTime()`.
+
+### 7.2 Core Pricing Invariants
+- **No Client-Side Computation**: The frontend Vue application NEVER calculates ticket prices manually. It directly renders the backend-provided authoritative prices (`ShowtimeSeatStatusResponse.calculatedPrice` and `ShowtimeDetailResponse.pricingBreakdown`).
+- **Snapshot Immutability**:
+  - When a booking is initiated, seat prices and booking totals are calculated via `PricingService`.
+  - Upon payment completion (`confirmPaidBooking`), individual ticket prices are permanently stored in `tickets.ticket_price` and total amount in `bookings.total_amount`.
+  - Future changes to day rules, time slots, seat type modifiers, or showtime base prices **NEVER recalculate historical tickets or bookings**.
+- **Payment & Refund Stability**:
+  - Payment verification and IPN callbacks compare against the snapshotted `booking.totalAmount`. Payment processing never recalculates ticket prices.
+  - Refund calculations use the snapshotted ticket and booking amounts.
+- **Capacity-Aware Base Pricing**: Each seat unit multiplies `basePrice` by `seat_type.capacity` (e.g. Couple seat has `capacity = 2` $\implies \text{basePrice} \times 2$), while `seatModifier`, `dayModifier`, and `timeSlotModifier` are applied additively per seat unit without multiplying by capacity.
+  - Example (Base 90,000 VND, weekday morning modifier = 0):
+    - Standard (`cap = 1, mod = 0`): $(90,000 \times 1) + 0 = 90,000$ VND
+    - VIP (`cap = 1, mod = 20,000`): $(90,000 \times 1) + 20,000 = 110,000$ VND
+    - Couple (`cap = 2, mod = 40,000`): $(90,000 \times 2) + 40,000 = 220,000$ VND
 
 ---
 
@@ -135,7 +152,9 @@ $$\text{Booking Gross Total} = \sum \text{Ticket Gross Prices}$$
   - `capacity` cannot be modified via update APIs if any physical seats in the system currently reference that seat type (`existsBySeatTypeId`).
 - **Couple Seat Rules**:
   - **Single Entity**: 1 physical Couple seat = 1 row in `seats`, 1 ticket in `tickets`, 1 hold in `seat_holds`, 1 seat ID in booking payload.
-  - **Auditorium Layout Invariant**: Seats with business code `COUPLE` must belong to the auditorium's last row (highest alphabetical row label), fit within `columnsCount` (`seatNumber + capacity - 1 <= columnsCount`), and not collide with any other seat span in that row (disjoint track intervals `[seatNumber, seatNumber + capacity - 1]`). Violations return `409 Conflict`.
+  - **Auditorium Layout Invariant**: Seats with business code `COUPLE` (`capacity = 2`) must belong to the auditorium's last row (highest alphabetical row label), start at an odd column (`seatNumber % 2 == 1`), fit within `columnsCount` (`seatNumber + capacity - 1 <= columnsCount`), and not collide with any other couple seat in that row.
+  - **Atomic Overlap Seat Deletion**: When an administrator converts a seat (e.g. `E1`) to Couple in an unreferenced/safe auditorium (0 bookings, 0 tickets, 0 active holds), the system atomically deletes the adjacent overlapping seat (`E2`) so `E1` spans columns 1–2 cleanly. If the adjacent seat has tickets/bookings or the room is protected, the request is rejected with `409 Conflict`.
+  - **Multi-Seat Bulk Layout Editing**: The admin API provides `/seats/batch-seat-type/preview` and `/seats/batch-status` allowing batch transformation and status updates with strict preview guard and protection verification.
 - **Capacity-Weighted Occupancy**:
   - Occupancy rate is calculated as:
     $$\text{Occupancy Rate} = \frac{\text{Occupied People Capacity}}{\text{Total Active People Capacity}} \times 100\%$$

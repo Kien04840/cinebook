@@ -266,23 +266,26 @@ Promotion
 #### `day_pricing_rules`
 | Column      | Type           | Notes                        |
 |-------------|----------------|------------------------------|
-| id          | varchar(36) PK |                              |
-| day_of_week | varchar(20)    | UNIQUE, NOT NULL             |
-| modifier    | decimal(5,2)   | NOT NULL, CHECK > 0          |
+| id          | varchar(36) PK | UUID                         |
+| day_of_week | varchar(20)    | UNIQUE, NOT NULL (MONDAY..SUNDAY) |
+| modifier    | decimal(12,2)  | NOT NULL (supports 0, positive surcharges, negative discounts) |
 | created_at  | datetime       | NOT NULL                     |
 | updated_at  | datetime       | NOT NULL                     |
 
 #### `time_slot_pricing_rules`
 | Column     | Type           | Notes                              |
 |------------|----------------|------------------------------------|
-| id         | varchar(36) PK |                                    |
+| id         | varchar(36) PK | UUID                               |
+| name       | varchar(100)   | NOT NULL (e.g. Early Bird, Peak Hours, Late Night) |
 | start_time | time           | NOT NULL                           |
 | end_time   | time           | NOT NULL, CHECK > start_time       |
-| modifier   | decimal(5,2)   | NOT NULL, CHECK > 0                |
+| modifier   | decimal(12,2)  | NOT NULL (supports 0, positive surcharges, negative discounts) |
 | created_at | datetime       | NOT NULL                           |
 | updated_at | datetime       | NOT NULL                           |
 
-**Note**: Exact precedence between day rule, time-slot rule and seat-type modifier is **not finalized** → see Open Decisions.
+**Pricing Formula V1 Finalized**:
+$$\text{Ticket Price} = \max(0, \text{base\_price} + \text{seat\_type.price\_modifier} + \text{day\_pricing\_rules.modifier} + \text{time\_slot\_pricing\_rules.modifier})$$
+Managed authoritatively by `PricingService`. Time slot rules match half-open intervals $[start\_time, end\_time)$. Historical ticket prices are snapshotted in `tickets.ticket_price` and `bookings.total_amount` upon creation/payment and are never recalculated.
 
 ---
 

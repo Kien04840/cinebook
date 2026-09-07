@@ -33,7 +33,6 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class BookingServiceImpl implements BookingService {
 
     private static final int MAX_SEATS_PER_BOOKING = 8;
@@ -55,6 +54,124 @@ public class BookingServiceImpl implements BookingService {
     private final BookingMapper bookingMapper;
     private final PromotionMapper promotionMapper;
     private final EmailService emailService;
+    private final com.cinebook.service.PricingService pricingService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public BookingServiceImpl(
+            BookingRepository bookingRepository,
+            SeatHoldRepository seatHoldRepository,
+            TicketRepository ticketRepository,
+            SeatRepository seatRepository,
+            ShowtimeRepository showtimeRepository,
+            UserRepository userRepository,
+            PaymentRepository paymentRepository,
+            PromotionRepository promotionRepository,
+            BookingPromotionRepository bookingPromotionRepository,
+            PromotionService promotionService,
+            BookingMapper bookingMapper,
+            PromotionMapper promotionMapper,
+            EmailService emailService,
+            com.cinebook.service.PricingService pricingService
+    ) {
+        this.bookingRepository = bookingRepository;
+        this.seatHoldRepository = seatHoldRepository;
+        this.ticketRepository = ticketRepository;
+        this.seatRepository = seatRepository;
+        this.showtimeRepository = showtimeRepository;
+        this.userRepository = userRepository;
+        this.paymentRepository = paymentRepository;
+        this.promotionRepository = promotionRepository;
+        this.bookingPromotionRepository = bookingPromotionRepository;
+        this.promotionService = promotionService;
+        this.bookingMapper = bookingMapper;
+        this.promotionMapper = promotionMapper;
+        this.emailService = emailService;
+        this.pricingService = (pricingService != null) ? pricingService : createFallbackPricingService();
+    }
+
+    public BookingServiceImpl(
+            BookingRepository bookingRepository,
+            SeatHoldRepository seatHoldRepository,
+            TicketRepository ticketRepository,
+            SeatRepository seatRepository,
+            ShowtimeRepository showtimeRepository,
+            UserRepository userRepository,
+            PaymentRepository paymentRepository,
+            PromotionRepository promotionRepository,
+            BookingPromotionRepository bookingPromotionRepository,
+            PromotionService promotionService,
+            BookingMapper bookingMapper,
+            PromotionMapper promotionMapper,
+            EmailService emailService
+    ) {
+        this(bookingRepository, seatHoldRepository, ticketRepository, seatRepository,
+                showtimeRepository, userRepository, paymentRepository, promotionRepository,
+                bookingPromotionRepository, promotionService, bookingMapper, promotionMapper,
+                emailService, null);
+    }
+
+    private static com.cinebook.service.PricingService createFallbackPricingService() {
+        return new com.cinebook.service.PricingService() {
+            @Override
+            public com.cinebook.dto.response.TicketPricingBreakdown calculateShowtimeBaseBreakdown(Showtime showtime) {
+                BigDecimal base = (showtime != null && showtime.getBasePrice() != null) ? showtime.getBasePrice() : BigDecimal.ZERO;
+                return com.cinebook.dto.response.TicketPricingBreakdown.builder()
+                        .basePrice(base)
+                        .seatTypeModifier(BigDecimal.ZERO)
+                        .dayModifier(BigDecimal.ZERO)
+                        .timeSlotModifier(BigDecimal.ZERO)
+                        .finalPrice(base)
+                        .build();
+            }
+
+            @Override
+            public com.cinebook.dto.response.TicketPricingBreakdown calculateTicketPrice(Showtime showtime, com.cinebook.entity.SeatType seatType) {
+                return calculateTicketPrice(calculateShowtimeBaseBreakdown(showtime), seatType);
+            }
+
+            @Override
+            public com.cinebook.dto.response.TicketPricingBreakdown calculateTicketPrice(com.cinebook.dto.response.TicketPricingBreakdown baseBreakdown, com.cinebook.entity.SeatType seatType) {
+                BigDecimal base = (baseBreakdown != null && baseBreakdown.getBasePrice() != null) ? baseBreakdown.getBasePrice() : BigDecimal.ZERO;
+                BigDecimal dayMod = (baseBreakdown != null && baseBreakdown.getDayModifier() != null) ? baseBreakdown.getDayModifier() : BigDecimal.ZERO;
+                BigDecimal timeMod = (baseBreakdown != null && baseBreakdown.getTimeSlotModifier() != null) ? baseBreakdown.getTimeSlotModifier() : BigDecimal.ZERO;
+                BigDecimal seatMod = (seatType != null && seatType.getPriceModifier() != null) ? seatType.getPriceModifier() : BigDecimal.ZERO;
+                BigDecimal finalPrice = base.add(seatMod).add(dayMod).add(timeMod).max(BigDecimal.ZERO);
+                return com.cinebook.dto.response.TicketPricingBreakdown.builder()
+                        .basePrice(base)
+                        .seatTypeModifier(seatMod)
+                        .dayModifier(dayMod)
+                        .timeSlotModifier(timeMod)
+                        .finalPrice(finalPrice)
+                        .build();
+            }
+
+            @Override
+            public com.cinebook.dto.response.ShowtimePricingPreviewResponse previewShowtimePricing(String showtimeId) {
+                return null;
+            }
+
+            @Override
+            public List<com.cinebook.dto.response.DayPricingRuleResponse> getAllDayPricingRules() { return List.of(); }
+            @Override
+            public com.cinebook.dto.response.DayPricingRuleResponse getDayPricingRuleById(String id) { return null; }
+            @Override
+            public com.cinebook.dto.response.DayPricingRuleResponse updateDayPricingRule(String id, com.cinebook.dto.request.UpdateDayPricingRuleRequest request) { return null; }
+            @Override
+            public com.cinebook.dto.response.DayPricingRuleResponse updateDayPricingRuleByDay(java.time.DayOfWeek dayOfWeek, BigDecimal modifier) { return null; }
+            @Override
+            public void initDefaultDayPricingRulesIfEmpty() {}
+            @Override
+            public List<com.cinebook.dto.response.TimeSlotPricingRuleResponse> getAllTimeSlotPricingRules() { return List.of(); }
+            @Override
+            public com.cinebook.dto.response.TimeSlotPricingRuleResponse getTimeSlotPricingRuleById(String id) { return null; }
+            @Override
+            public com.cinebook.dto.response.TimeSlotPricingRuleResponse createTimeSlotPricingRule(com.cinebook.dto.request.CreateTimeSlotPricingRuleRequest request) { return null; }
+            @Override
+            public com.cinebook.dto.response.TimeSlotPricingRuleResponse updateTimeSlotPricingRule(String id, com.cinebook.dto.request.UpdateTimeSlotPricingRuleRequest request) { return null; }
+            @Override
+            public void deleteTimeSlotPricingRule(String id) {}
+        };
+    }
 
 
     @Override
@@ -94,6 +211,10 @@ public class BookingServiceImpl implements BookingService {
 
         if (showtime.getStartTime().isBefore(now)) {
             throw new BadRequestException("Lịch chiếu đã bắt đầu hoặc đã qua.");
+        }
+
+        if (showtime.getEndTime() != null && (now.isAfter(showtime.getEndTime()) || now.isEqual(showtime.getEndTime()))) {
+            throw new BadRequestException("Lịch chiếu đã kết thúc.");
         }
 
         Auditorium auditorium = showtime.getAuditorium();
@@ -158,15 +279,13 @@ public class BookingServiceImpl implements BookingService {
             throw new ConflictException("Một hoặc nhiều ghế đã được bán. Vui lòng chọn ghế khác.");
         }
 
-        BigDecimal basePrice = showtime.getBasePrice();
+        TicketPricingBreakdown baseBreakdown = pricingService.calculateShowtimeBaseBreakdown(showtime);
         BigDecimal grossAmount = BigDecimal.ZERO;
         List<BookingSeatResponse> seatResponses = new ArrayList<>();
 
         for (Seat seat : seats) {
-            BigDecimal modifier = (seat.getSeatType() != null && seat.getSeatType().getPriceModifier() != null)
-                    ? seat.getSeatType().getPriceModifier()
-                    : BigDecimal.ZERO;
-            BigDecimal price = basePrice.add(modifier);
+            TicketPricingBreakdown pricing = pricingService.calculateTicketPrice(baseBreakdown, seat.getSeatType());
+            BigDecimal price = pricing.getFinalPrice();
             grossAmount = grossAmount.add(price);
             seatResponses.add(bookingMapper.toBookingSeatResponse(seat, price));
         }
@@ -335,23 +454,20 @@ public class BookingServiceImpl implements BookingService {
             return;
         }
 
-        BigDecimal basePrice = (booking.getShowtime() != null && booking.getShowtime().getBasePrice() != null)
-                ? booking.getShowtime().getBasePrice()
-                : BigDecimal.ZERO;
-
+        TicketPricingBreakdown baseBreakdown = pricingService.calculateShowtimeBaseBreakdown(booking.getShowtime());
         List<Ticket> cancelledTickets = new ArrayList<>();
         for (SeatHold hold : holds) {
             Seat seat = hold.getSeat();
-            BigDecimal modifier = (seat != null && seat.getSeatType() != null && seat.getSeatType().getPriceModifier() != null)
-                    ? seat.getSeatType().getPriceModifier()
-                    : BigDecimal.ZERO;
+            SeatType seatType = (seat != null) ? seat.getSeatType() : null;
+            TicketPricingBreakdown pricing = pricingService.calculateTicketPrice(baseBreakdown, seatType);
+            BigDecimal ticketPrice = pricing.getFinalPrice();
 
             String ticketId = UUID.randomUUID().toString();
             Ticket ticket = new Ticket();
             ticket.setId(ticketId);
             ticket.setBooking(booking);
             ticket.setSeat(seat);
-            ticket.setTicketPrice(basePrice.add(modifier));
+            ticket.setTicketPrice(ticketPrice);
             ticket.setTicketStatus(TicketStatus.CANCELLED);
             ticket.setQrCode(ticketId);
             cancelledTickets.add(ticket);
@@ -535,15 +651,14 @@ public class BookingServiceImpl implements BookingService {
         booking.setBookingStatus(BookingStatus.PAID);
         Booking updatedBooking = bookingRepository.save(booking);
 
+        TicketPricingBreakdown baseBreakdown = pricingService.calculateShowtimeBaseBreakdown(booking.getShowtime());
         List<Ticket> createdTickets = new ArrayList<>();
-        BigDecimal basePrice = booking.getShowtime().getBasePrice();
 
         for (SeatHold hold : holds) {
             Seat seat = hold.getSeat();
-            BigDecimal modifier = (seat.getSeatType() != null && seat.getSeatType().getPriceModifier() != null)
-                    ? seat.getSeatType().getPriceModifier()
-                    : BigDecimal.ZERO;
-            BigDecimal ticketPrice = basePrice.add(modifier);
+            SeatType seatType = (seat != null) ? seat.getSeatType() : null;
+            TicketPricingBreakdown pricing = pricingService.calculateTicketPrice(baseBreakdown, seatType);
+            BigDecimal ticketPrice = pricing.getFinalPrice();
 
             String ticketId = UUID.randomUUID().toString();
             Ticket ticket = new Ticket();
@@ -684,6 +799,7 @@ public class BookingServiceImpl implements BookingService {
         boolean isAuditoriumBlocked = auditorium.getStatus() != AuditoriumStatus.ACTIVE || auditorium.getDeletedAt() != null;
         boolean isShowtimeCancelled = showtime.getStatus() == ShowtimeStatus.CANCELLED;
 
+        TicketPricingBreakdown baseBreakdown = pricingService.calculateShowtimeBaseBreakdown(showtime);
         List<ShowtimeSeatStatusResponse> responses = new ArrayList<>();
         for (Seat seat : seats) {
             SeatAvailabilityStatus availabilityStatus;
@@ -701,6 +817,7 @@ public class BookingServiceImpl implements BookingService {
             }
 
             SeatType seatType = seat.getSeatType();
+            TicketPricingBreakdown pricing = pricingService.calculateTicketPrice(baseBreakdown, seatType);
             responses.add(ShowtimeSeatStatusResponse.builder()
                     .id(seat.getId())
                     .auditoriumId(auditorium.getId())
@@ -710,7 +827,8 @@ public class BookingServiceImpl implements BookingService {
                     .capacity(seatType != null ? seatType.getCapacity() : (short) 1)
                     .colorToken(seatType != null ? seatType.getColorToken() : null)
                     .icon(seatType != null ? seatType.getIcon() : null)
-                    .priceModifier(seatType != null ? seatType.getPriceModifier() : BigDecimal.ZERO)
+                    .priceModifier(pricing.getSeatTypeModifier())
+                    .calculatedPrice(pricing.getFinalPrice())
                     .rowLabel(seat.getRowLabel())
                     .seatNumber(seat.getSeatNumber())
                     .seatCode(seat.getSeatCode())
@@ -767,14 +885,13 @@ public class BookingServiceImpl implements BookingService {
 
         List<SeatHold> holds = seatHoldRepository.findByBookingId(booking.getId());
         if (!holds.isEmpty()) {
-            BigDecimal basePrice = booking.getShowtime().getBasePrice();
+            TicketPricingBreakdown baseBreakdown = pricingService.calculateShowtimeBaseBreakdown(booking.getShowtime());
             return holds.stream()
                     .map(h -> {
                         Seat seat = h.getSeat();
-                        BigDecimal modifier = (seat.getSeatType() != null && seat.getSeatType().getPriceModifier() != null)
-                                ? seat.getSeatType().getPriceModifier()
-                                : BigDecimal.ZERO;
-                        return bookingMapper.toBookingSeatResponse(seat, basePrice.add(modifier));
+                        SeatType seatType = (seat != null) ? seat.getSeatType() : null;
+                        TicketPricingBreakdown pricing = pricingService.calculateTicketPrice(baseBreakdown, seatType);
+                        return bookingMapper.toBookingSeatResponse(seat, pricing.getFinalPrice());
                     })
                     .toList();
         }

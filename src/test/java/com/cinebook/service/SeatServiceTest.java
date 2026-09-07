@@ -5,11 +5,15 @@ import com.cinebook.entity.Auditorium;
 import com.cinebook.entity.Seat;
 import com.cinebook.entity.SeatType;
 import com.cinebook.enums.SeatStatus;
+import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.ResourceNotFoundException;
 import com.cinebook.mapper.SeatMapper;
 import com.cinebook.repository.AuditoriumRepository;
+import com.cinebook.repository.BookingRepository;
+import com.cinebook.repository.SeatHoldRepository;
 import com.cinebook.repository.SeatRepository;
 import com.cinebook.repository.SeatTypeRepository;
+import com.cinebook.repository.TicketRepository;
 import com.cinebook.service.impl.SeatServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +24,7 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -38,6 +43,15 @@ class SeatServiceTest {
 
     @Mock
     private SeatTypeRepository seatTypeRepository;
+
+    @Mock
+    private BookingRepository bookingRepository;
+
+    @Mock
+    private TicketRepository ticketRepository;
+
+    @Mock
+    private SeatHoldRepository seatHoldRepository;
 
     @Spy
     private SeatMapper seatMapper = new SeatMapper();
@@ -170,10 +184,47 @@ class SeatServiceTest {
     }
 
     @Test
-    void updateSeatType_AssignCoupleOverlapsAnotherSeat_ThrowsConflict() {
+    void updateSeatType_AssignCoupleOverlapsAnotherSeat_AtomicallyDeletesUnreferencedOverlap() {
         SeatType coupleType = new SeatType();
         coupleType.setId("st-couple");
         coupleType.setCode("COUPLE");
+        coupleType.setName("Couple");
+        coupleType.setCapacity((short) 2);
+
+        Seat e1 = new Seat();
+        e1.setId("seat-e1");
+        e1.setAuditorium(sampleAuditorium);
+        e1.setRowLabel("E");
+        e1.setSeatNumber((short) 1);
+        e1.setStatus(SeatStatus.ACTIVE);
+
+        Seat e2 = new Seat();
+        e2.setId("seat-e2");
+        e2.setAuditorium(sampleAuditorium);
+        e2.setRowLabel("E");
+        e2.setSeatNumber((short) 2);
+        e2.setStatus(SeatStatus.ACTIVE);
+
+        when(seatRepository.findById("seat-e1")).thenReturn(Optional.of(e1));
+        when(seatTypeRepository.findById("st-couple")).thenReturn(Optional.of(coupleType));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "E"))
+                .thenReturn(List.of(e1, e2));
+        when(seatRepository.save(any(Seat.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        SeatResponse result = seatService.updateSeatType("seat-e1", "st-couple");
+
+        assertNotNull(result);
+        assertEquals("COUPLE", result.getSeatTypeCode());
+        assertEquals((short) 2, result.getCapacity());
+        verify(seatRepository).deleteAll(List.of(e2));
+    }
+
+    @Test
+    void batchUpdateSeatType_AssignCouple_MultipleTargetSeatsCollide_ThrowsConflict() {
+        SeatType coupleType = new SeatType();
+        coupleType.setId("st-couple");
+        coupleType.setCode("COUPLE");
+        coupleType.setName("Couple");
         coupleType.setCapacity((short) 2);
 
         Seat e1 = new Seat();
@@ -188,13 +239,60 @@ class SeatServiceTest {
         e2.setRowLabel("E");
         e2.setSeatNumber((short) 2);
 
-        when(seatRepository.findById("seat-e1")).thenReturn(Optional.of(e1));
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
         when(seatTypeRepository.findById("st-couple")).thenReturn(Optional.of(coupleType));
-        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "E"))
-                .thenReturn(List.of(e1, e2));
+        when(seatRepository.findAllById(List.of("seat-e1", "seat-e2"))).thenReturn(List.of(e1, e2));
 
-        assertThrows(com.cinebook.exception.ConflictException.class, () ->
-                seatService.updateSeatType("seat-e1", "st-couple"));
+        ConflictException ex = assertThrows(ConflictException.class, () ->
+                seatService.batchUpdateSeatType("aud-1", List.of("seat-e1", "seat-e2"), "st-couple"));
+        assertTrue(ex.getMessage().contains("cột lẻ") || ex.getMessage().contains("bị chiếm dụng"));
+    }
+
+    @Test
+    void previewBatchUpdateSeatType_IdentifiesDeletedSeatCodes_Success() {
+        SeatType coupleType = new SeatType();
+        coupleType.setId("st-couple");
+        coupleType.setCode("COUPLE");
+        coupleType.setName("Couple");
+        coupleType.setCapacity((short) 2);
+
+        Seat e1 = new Seat();
+        e1.setId("seat-e1");
+        e1.setAuditorium(sampleAuditorium);
+        e1.setRowLabel("E");
+        e1.setSeatNumber((short) 1);
+
+        Seat e2 = new Seat();
+        e2.setId("seat-e2");
+        e2.setAuditorium(sampleAuditorium);
+        e2.setRowLabel("E");
+        e2.setSeatNumber((short) 2);
+
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(seatTypeRepository.findById("st-couple")).thenReturn(Optional.of(coupleType));
+        when(seatRepository.findAllById(List.of("seat-e1"))).thenReturn(List.of(e1));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "E")).thenReturn(List.of(e1, e2));
+
+        com.cinebook.dto.response.BatchUpdateSeatTypePreviewResponse preview =
+                seatService.previewBatchUpdateSeatType("aud-1", List.of("seat-e1"), "st-couple");
+
+        assertTrue(preview.isValid());
+        assertEquals(List.of("E2"), preview.getWillDeleteSeatCodes());
+        assertEquals(1, preview.getSeatCount());
+        assertFalse(preview.isProtected());
+    }
+
+    @Test
+    void batchUpdateSeatStatus_Success() {
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(seatRepository.findAllById(List.of("seat-1"))).thenReturn(List.of(sampleSeat));
+        when(seatRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+
+        List<SeatResponse> result = seatService.batchUpdateSeatStatus("aud-1", List.of("seat-1"), SeatStatus.BROKEN);
+
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        assertEquals(SeatStatus.BROKEN, result.get(0).getStatus());
     }
 
     @Test
@@ -214,11 +312,81 @@ class SeatServiceTest {
     @Test
     void updateSeatStatus_Success() {
         when(seatRepository.findById("seat-1")).thenReturn(Optional.of(sampleSeat));
+        when(seatHoldRepository.existsActiveHoldBySeatId(eq("seat-1"), any(LocalDateTime.class))).thenReturn(false);
+        when(ticketRepository.existsUpcomingValidTicketsBySeatId(eq("seat-1"), any(LocalDateTime.class))).thenReturn(false);
         when(seatRepository.save(any(Seat.class))).thenAnswer(inv -> inv.getArgument(0));
 
         SeatResponse result = seatService.updateSeatStatus("seat-1", SeatStatus.BROKEN);
 
         assertNotNull(result);
         assertEquals(SeatStatus.BROKEN, result.getStatus());
+    }
+
+    @Test
+    void updateSeatType_WhenAuditoriumHasBookings_ThrowsConflict() {
+        when(seatRepository.findById("seat-1")).thenReturn(Optional.of(sampleSeat));
+        when(seatTypeRepository.findById("st-vip")).thenReturn(Optional.of(vipType));
+        when(bookingRepository.existsByAuditoriumId("aud-1")).thenReturn(true);
+
+        ConflictException ex = assertThrows(ConflictException.class, () ->
+                seatService.updateSeatType("seat-1", "st-vip"));
+        assertTrue(ex.getMessage().contains("Không thể thay đổi loại ghế"));
+    }
+
+    @Test
+    void updateSeatType_WhenAuditoriumHasTickets_ThrowsConflict() {
+        when(seatRepository.findById("seat-1")).thenReturn(Optional.of(sampleSeat));
+        when(seatTypeRepository.findById("st-vip")).thenReturn(Optional.of(vipType));
+        when(bookingRepository.existsByAuditoriumId("aud-1")).thenReturn(false);
+        when(ticketRepository.existsByAuditoriumId("aud-1")).thenReturn(true);
+
+        ConflictException ex = assertThrows(ConflictException.class, () ->
+                seatService.updateSeatType("seat-1", "st-vip"));
+        assertTrue(ex.getMessage().contains("Không thể thay đổi loại ghế"));
+    }
+
+    @Test
+    void batchUpdateSeatType_WhenAuditoriumHasBookings_ThrowsConflict() {
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(bookingRepository.existsByAuditoriumId("aud-1")).thenReturn(true);
+
+        ConflictException ex = assertThrows(ConflictException.class, () ->
+                seatService.batchUpdateSeatType("aud-1", List.of("seat-1"), "st-vip"));
+        assertTrue(ex.getMessage().contains("Không thể thay đổi loại ghế"));
+    }
+
+    @Test
+    void updateSeatStatus_WhenSeatHasActiveHold_ThrowsConflict() {
+        when(seatRepository.findById("seat-1")).thenReturn(Optional.of(sampleSeat));
+        when(seatHoldRepository.existsActiveHoldBySeatId(eq("seat-1"), any(LocalDateTime.class))).thenReturn(true);
+
+        ConflictException ex = assertThrows(ConflictException.class, () ->
+                seatService.updateSeatStatus("seat-1", SeatStatus.BROKEN));
+        assertTrue(ex.getMessage().contains("đang được giữ chỗ"));
+    }
+
+    @Test
+    void updateSeatStatus_WhenSeatHasUpcomingValidTicket_ThrowsConflict() {
+        when(seatRepository.findById("seat-1")).thenReturn(Optional.of(sampleSeat));
+        when(seatHoldRepository.existsActiveHoldBySeatId(eq("seat-1"), any(LocalDateTime.class))).thenReturn(false);
+        when(ticketRepository.existsUpcomingValidTicketsBySeatId(eq("seat-1"), any(LocalDateTime.class))).thenReturn(true);
+
+        ConflictException ex = assertThrows(ConflictException.class, () ->
+                seatService.updateSeatStatus("seat-1", SeatStatus.BROKEN));
+        assertTrue(ex.getMessage().contains("đã có vé đặt cho suất chiếu sắp tới"));
+    }
+
+    @Test
+    void updateSeatStatus_FromBrokenToActive_AlwaysSucceeds() {
+        sampleSeat.setStatus(SeatStatus.BROKEN);
+        when(seatRepository.findById("seat-1")).thenReturn(Optional.of(sampleSeat));
+        when(seatRepository.save(any(Seat.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        SeatResponse result = seatService.updateSeatStatus("seat-1", SeatStatus.ACTIVE);
+
+        assertNotNull(result);
+        assertEquals(SeatStatus.ACTIVE, result.getStatus());
+        verifyNoInteractions(seatHoldRepository);
+        verifyNoInteractions(ticketRepository);
     }
 }

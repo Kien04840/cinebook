@@ -6,17 +6,22 @@ import type {
   CinemaSummaryResponse,
   CinemaDetailResponse,
   AuditoriumResponse,
+  AuditoriumDetailResponse,
   SeatResponse,
   CreateCinemaRequest,
   UpdateCinemaRequest,
   CreateAuditoriumRequest,
   UpdateAuditoriumRequest,
+  NormalizeEmptyLayoutsResponse,
+  BatchUpdateSeatTypePreviewResponse,
   CinemaStatus,
   AuditoriumStatus,
   SeatStatus,
 } from '@/types/cinema.types'
+import type { SeatTypeResponse } from '@/types/seatType.types'
 import cinemaService from '@/services/cinema.service'
 import auditoriumService from '@/services/auditorium.service'
+import seatTypeService from '@/services/seatType.service'
 import { formatStatus } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import { useToast } from '@/composables/useToast'
@@ -109,7 +114,29 @@ const uniqueSeatTypesInAuditorium = computed(() => {
   return Array.from(map.values())
 })
 const isLoadingSeats = ref(false)
-const isUpdatingSeat = ref(false)
+
+const currentAuditoriumDetail = ref<AuditoriumDetailResponse | null>(null)
+const availableSeatTypes = ref<SeatTypeResponse[]>([])
+const isSeatEditModalOpen = ref(false)
+const editingSeat = ref<SeatResponse | null>(null)
+const editSeatTypeId = ref('')
+const editSeatStatus = ref<SeatStatus>('ACTIVE')
+const isSavingSeatEdit = ref(false)
+const seatEditError = ref('')
+const isResettingLayout = ref(false)
+const isNormalizingLayouts = ref(false)
+const normalizeResultModalOpen = ref(false)
+const normalizeResult = ref<NormalizeEmptyLayoutsResponse | null>(null)
+
+// Multi-seat bulk editing
+const isMultiSelectMode = ref(false)
+const selectedSeatIds = ref<string[]>([])
+const selectedBulkSeatTypeId = ref('')
+const selectedBulkStatus = ref<SeatStatus>('ACTIVE')
+const isApplyingBatchSeatType = ref(false)
+const isApplyingBatchStatus = ref(false)
+const isCoupleConfirmModalOpen = ref(false)
+const couplePreviewData = ref<BatchUpdateSeatTypePreviewResponse | null>(null)
 
 // Delete Cinema / Auditorium Confirmation
 const isDeleteCinemaModalOpen = ref(false)
@@ -349,10 +376,22 @@ async function openManageSeats(a: AuditoriumResponse) {
   isSeatsModalOpen.value = true
   isLoadingSeats.value = true
   auditoriumSeats.value = []
+  currentAuditoriumDetail.value = null
+  selectedSeatIds.value = []
+  isMultiSelectMode.value = false
+  couplePreviewData.value = null
 
   try {
-    const seats = await auditoriumService.getAuditoriumSeats(a.id)
-    auditoriumSeats.value = seats || []
+    const [detail, activeTypes] = await Promise.all([
+      auditoriumService.getAuditoriumDetail(a.id),
+      seatTypeService.getActiveSeatTypes().catch(() => []),
+    ])
+    currentAuditoriumDetail.value = detail
+    auditoriumSeats.value = detail.seats || []
+    availableSeatTypes.value = activeTypes || []
+    if (activeTypes && activeTypes.length > 0) {
+      selectedBulkSeatTypeId.value = activeTypes[0].id
+    }
   } catch (err: any) {
     toast.error('Không thể tải sơ đồ ghế phòng chiếu.')
   } finally {
@@ -360,19 +399,229 @@ async function openManageSeats(a: AuditoriumResponse) {
   }
 }
 
-async function toggleSeatStatus(seat: SeatResponse) {
-  if (!selectedAuditoriumForSeats.value) return
-  const newStatus: SeatStatus = seat.status === 'ACTIVE' ? 'BROKEN' : 'ACTIVE'
+function toggleSeatSelection(seat: SeatResponse) {
+  const idx = selectedSeatIds.value.indexOf(seat.id)
+  if (idx >= 0) {
+    selectedSeatIds.value.splice(idx, 1)
+  } else {
+    selectedSeatIds.value.push(seat.id)
+  }
+}
 
-  isUpdatingSeat.value = true
+function handleSeatClick(seat: SeatResponse) {
+  if (isMultiSelectMode.value || selectedSeatIds.value.length > 0) {
+    toggleSeatSelection(seat)
+  } else {
+    openSeatEditModal(seat)
+  }
+}
+
+function toggleRowSelection(rowLabel: string) {
+  const rowSeats = auditoriumSeats.value.filter(s => s.rowLabel === rowLabel)
+  if (rowSeats.length === 0) return
+  const allSelected = rowSeats.every(s => selectedSeatIds.value.includes(s.id))
+  if (allSelected) {
+    selectedSeatIds.value = selectedSeatIds.value.filter(id => !rowSeats.some(s => s.id === id))
+  } else {
+    const toAdd = rowSeats.filter(s => !selectedSeatIds.value.includes(s.id)).map(s => s.id)
+    selectedSeatIds.value.push(...toAdd)
+  }
+}
+
+function isRowSelected(rowLabel: string) {
+  const rowSeats = auditoriumSeats.value.filter(s => s.rowLabel === rowLabel)
+  return rowSeats.length > 0 && rowSeats.every(s => selectedSeatIds.value.includes(s.id))
+}
+
+function selectAllSeats() {
+  selectedSeatIds.value = auditoriumSeats.value.map(s => s.id)
+}
+
+function clearSeatSelection() {
+  selectedSeatIds.value = []
+}
+
+async function handleBulkApplySeatType() {
+  if (!selectedAuditoriumForSeats.value || selectedSeatIds.value.length === 0 || !selectedBulkSeatTypeId.value) return
+  if (!currentAuditoriumDetail.value?.canModifySeatTypes) {
+    toast.error('Không thể thay đổi loại ghế của phòng chiếu đã phát sinh giao dịch đặt vé.')
+    return
+  }
+
+  const targetType = availableSeatTypes.value.find(st => st.id === selectedBulkSeatTypeId.value)
+  const isCouple = targetType?.code === 'COUPLE' || (targetType?.capacity || 1) > 1
+
+  if (isCouple) {
+    try {
+      const preview = await auditoriumService.previewBatchUpdateSeatType(selectedAuditoriumForSeats.value.id, {
+        seatIds: selectedSeatIds.value,
+        seatTypeId: selectedBulkSeatTypeId.value,
+      })
+      couplePreviewData.value = preview
+      if (!preview.isValid) {
+        toast.error(preview.validationError || 'Không thể chuyển các ghế đã chọn thành ghế đôi.')
+        return
+      }
+      if (preview.willDeleteSeatCodes && preview.willDeleteSeatCodes.length > 0) {
+        isCoupleConfirmModalOpen.value = true
+        return
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Lỗi khi kiểm tra sơ đồ ghế đôi.')
+      return
+    }
+  }
+
+  await executeBatchUpdateSeatType()
+}
+
+async function executeBatchUpdateSeatType() {
+  if (!selectedAuditoriumForSeats.value || selectedSeatIds.value.length === 0 || !selectedBulkSeatTypeId.value) return
+
+  isApplyingBatchSeatType.value = true
   try {
-    await auditoriumService.updateSeatStatus(selectedAuditoriumForSeats.value.id, seat.id, { status: newStatus })
-    seat.status = newStatus
-    toast.success(`Đã đổi trạng thái ghế ${seat.seatCode} sang ${newStatus === 'ACTIVE' ? 'Hoạt động' : 'Hỏng/Bảo trì'}`)
+    const auditoriumId = selectedAuditoriumForSeats.value.id
+    await auditoriumService.batchUpdateSeatType(auditoriumId, {
+      seatIds: selectedSeatIds.value,
+      seatTypeId: selectedBulkSeatTypeId.value,
+    })
+    toast.success('Cập nhật loại ghế thành công!')
+    isCoupleConfirmModalOpen.value = false
+    couplePreviewData.value = null
+    selectedSeatIds.value = []
+
+    const detail = await auditoriumService.getAuditoriumDetail(auditoriumId)
+    currentAuditoriumDetail.value = detail
+    auditoriumSeats.value = detail.seats || []
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || 'Cập nhật loại ghế thất bại.')
+  } finally {
+    isApplyingBatchSeatType.value = false
+  }
+}
+
+async function handleBulkApplyStatus() {
+  if (!selectedAuditoriumForSeats.value || selectedSeatIds.value.length === 0) return
+
+  isApplyingBatchStatus.value = true
+  try {
+    const auditoriumId = selectedAuditoriumForSeats.value.id
+    await auditoriumService.batchUpdateSeatStatus(auditoriumId, {
+      seatIds: selectedSeatIds.value,
+      status: selectedBulkStatus.value,
+    })
+    toast.success(`Đã cập nhật trạng thái cho ${selectedSeatIds.value.length} ghế!`)
+    selectedSeatIds.value = []
+
+    const detail = await auditoriumService.getAuditoriumDetail(auditoriumId)
+    currentAuditoriumDetail.value = detail
+    auditoriumSeats.value = detail.seats || []
   } catch (err: any) {
     toast.error(err.response?.data?.message || 'Cập nhật trạng thái ghế thất bại.')
   } finally {
-    isUpdatingSeat.value = false
+    isApplyingBatchStatus.value = false
+  }
+}
+
+function openSeatEditModal(seat: SeatResponse) {
+  editingSeat.value = seat
+  editSeatTypeId.value = seat.seatTypeId
+  editSeatStatus.value = seat.status
+  seatEditError.value = ''
+  isSeatEditModalOpen.value = true
+}
+
+async function handleSaveSeatEdit() {
+  if (!selectedAuditoriumForSeats.value || !editingSeat.value) return
+
+  seatEditError.value = ''
+  isSavingSeatEdit.value = true
+
+  const auditoriumId = selectedAuditoriumForSeats.value.id
+  const seatId = editingSeat.value.id
+  let hasChanged = false
+
+  try {
+    // 1. Check if seat type changed
+    if (editSeatTypeId.value !== editingSeat.value.seatTypeId) {
+      if (!currentAuditoriumDetail.value?.canModifySeatTypes) {
+        seatEditError.value = 'Không thể thay đổi loại ghế của phòng chiếu đã phát sinh giao dịch đặt vé.'
+        isSavingSeatEdit.value = false
+        return
+      }
+      const updatedSeat = await auditoriumService.updateSeatType(auditoriumId, seatId, editSeatTypeId.value)
+      editingSeat.value.seatTypeId = updatedSeat.seatTypeId
+      editingSeat.value.seatTypeName = updatedSeat.seatTypeName
+      editingSeat.value.seatTypeCode = updatedSeat.seatTypeCode
+      editingSeat.value.priceModifier = updatedSeat.priceModifier
+      editingSeat.value.capacity = updatedSeat.capacity
+      editingSeat.value.colorToken = updatedSeat.colorToken
+      editingSeat.value.icon = updatedSeat.icon
+      hasChanged = true
+    }
+
+    // 2. Check if seat status changed
+    if (editSeatStatus.value !== editingSeat.value.status) {
+      const updatedSeat = await auditoriumService.updateSeatStatus(auditoriumId, seatId, { status: editSeatStatus.value })
+      editingSeat.value.status = updatedSeat.status
+      hasChanged = true
+    }
+
+    if (hasChanged) {
+      toast.success(`Cập nhật ghế ${editingSeat.value.seatCode} thành công!`)
+      // Refresh auditorium detail
+      const detail = await auditoriumService.getAuditoriumDetail(auditoriumId)
+      currentAuditoriumDetail.value = detail
+      auditoriumSeats.value = detail.seats || []
+    }
+    isSeatEditModalOpen.value = false
+  } catch (err: any) {
+    seatEditError.value = err.response?.data?.message || 'Cập nhật ghế thất bại.'
+    toast.error(err.response?.data?.message || 'Cập nhật ghế thất bại.')
+  } finally {
+    isSavingSeatEdit.value = false
+  }
+}
+
+async function handleResetAuditoriumLayout() {
+  if (!selectedAuditoriumForSeats.value) return
+  if (!confirm('Bạn có chắc chắn muốn thiết lập lại sơ đồ ghế chuẩn (Standard - VIP - Couple) cho phòng chiếu này? Thao tác này chỉ áp dụng cho phòng chưa có lịch chiếu và giao dịch.')) {
+    return
+  }
+
+  isResettingLayout.value = true
+  try {
+    const detail = await auditoriumService.resetAuditoriumLayout(selectedAuditoriumForSeats.value.id)
+    currentAuditoriumDetail.value = detail
+    auditoriumSeats.value = detail.seats || []
+    toast.success('Thiết lập lại sơ đồ ghế thực tế thành công!')
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || 'Không thể thiết lập lại sơ đồ ghế.')
+  } finally {
+    isResettingLayout.value = false
+  }
+}
+
+async function handleNormalizeEmptyLayouts() {
+  if (!confirm('Hệ thống sẽ tự động quét và chuẩn hóa sơ đồ ghế (Standard - VIP - Couple) cho tất cả các phòng chiếu hoàn toàn trống (0 suất chiếu, 0 đặt vé, 0 vé). Các phòng đã có dữ liệu sẽ được giữ nguyên 100%. Bạn có muốn tiếp tục?')) {
+    return
+  }
+
+  isNormalizingLayouts.value = true
+  try {
+    const res = await auditoriumService.normalizeEmptyAuditoriumsLayout()
+    normalizeResult.value = res
+    normalizeResultModalOpen.value = true
+    toast.success(`Đã chuẩn hóa thành công ${res.updatedCount} phòng chiếu trống!`)
+    if (selectedCinemaForAuditoriums.value) {
+      const detail = await cinemaService.getAdminCinemaDetail(selectedCinemaForAuditoriums.value.id)
+      selectedCinemaForAuditoriums.value = detail
+      cinemaAuditoriums.value = detail.auditoriums || []
+    }
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || 'Chuẩn hóa phòng chiếu thất bại.')
+  } finally {
+    isNormalizingLayouts.value = false
   }
 }
 
@@ -675,9 +924,19 @@ onMounted(() => {
               {{ selectedCinemaForAuditoriums?.address }} — {{ selectedCinemaForAuditoriums?.city }}
             </p>
           </div>
-          <Badge variant="primary" size="sm">
-            {{ cinemaAuditoriums.length }} phòng chiếu
-          </Badge>
+          <div class="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              :loading="isNormalizingLayouts"
+              @click="handleNormalizeEmptyLayouts"
+            >
+              🪄 Chuẩn hóa phòng trống
+            </Button>
+            <Badge variant="primary" size="sm">
+              {{ cinemaAuditoriums.length }} phòng chiếu
+            </Badge>
+          </div>
         </div>
 
         <!-- Create Auditorium Form -->
@@ -869,6 +1128,45 @@ onMounted(() => {
       size="xl"
     >
       <div class="space-y-4">
+        <!-- Banner bảo vệ hoặc chỉ dẫn -->
+        <div
+          v-if="currentAuditoriumDetail"
+          :class="[
+            'p-3 rounded-lg text-xs flex items-start justify-between gap-3 border',
+            !currentAuditoriumDetail.canModifySeatTypes
+              ? 'bg-amber-950/40 border-amber-800/80 text-amber-200'
+              : 'bg-emerald-950/40 border-emerald-800/80 text-emerald-200'
+          ]"
+        >
+          <div class="flex items-start gap-2.5">
+            <span class="text-base leading-none">
+              {{ !currentAuditoriumDetail.canModifySeatTypes ? '🔒' : 'ℹ️' }}
+            </span>
+            <div>
+              <div class="font-semibold">
+                {{ !currentAuditoriumDetail.canModifySeatTypes ? 'Phòng chiếu đã phát sinh giao dịch' : 'Phòng chưa phát sinh giao dịch' }}
+              </div>
+              <div class="mt-0.5 opacity-90 leading-relaxed">
+                {{
+                  !currentAuditoriumDetail.canModifySeatTypes
+                    ? 'Phòng chiếu đã phát sinh giao dịch. Cấu trúc và loại ghế được bảo vệ để đảm bảo lịch sử đặt vé. Quản trị viên chỉ có thể cập nhật trạng thái ghế khi không ảnh hưởng đến suất chiếu đang hoạt động.'
+                    : 'Phòng chưa phát sinh giao dịch. Có thể thiết lập và điều chỉnh sơ đồ ghế.'
+                }}
+              </div>
+            </div>
+          </div>
+          <div v-if="currentAuditoriumDetail.canModifyLayout" class="shrink-0">
+            <Button
+              variant="secondary"
+              size="sm"
+              :loading="isResettingLayout"
+              @click="handleResetAuditoriumLayout"
+            >
+              Thiết lập lại sơ đồ chuẩn
+            </Button>
+          </div>
+        </div>
+
         <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800 text-xs">
           <div class="flex flex-wrap items-center gap-4">
             <span
@@ -889,7 +1187,100 @@ onMounted(() => {
               <span class="w-3 h-3 rounded bg-rose-950 border border-rose-600"></span> Hỏng / Bảo trì
             </span>
           </div>
-          <span class="text-slate-400 italic">Click vào ghế để bật/tắt trạng thái Hỏng (BROKEN)</span>
+
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              :class="[
+                'px-2.5 py-1 rounded-md text-xs font-semibold border transition-all',
+                isMultiSelectMode || selectedSeatIds.length > 0
+                  ? 'bg-indigo-600 border-indigo-500 text-white'
+                  : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
+              ]"
+              @click="isMultiSelectMode = !isMultiSelectMode"
+            >
+              {{ isMultiSelectMode || selectedSeatIds.length > 0 ? '✓ Đang chọn nhiều' : 'Chế độ chọn nhiều' }}
+            </button>
+            <button
+              v-if="isMultiSelectMode || selectedSeatIds.length > 0"
+              type="button"
+              class="px-2 py-1 rounded-md text-xs bg-slate-900 border border-slate-700 text-slate-300 hover:text-white"
+              @click="selectAllSeats"
+            >
+              Chọn tất cả
+            </button>
+            <button
+              v-if="selectedSeatIds.length > 0"
+              type="button"
+              class="px-2 py-1 rounded-md text-xs bg-slate-900 border border-slate-700 text-slate-300 hover:text-rose-300"
+              @click="clearSeatSelection"
+            >
+              Bỏ chọn ({{ selectedSeatIds.length }})
+            </button>
+          </div>
+        </div>
+
+        <!-- Sticky Bulk Actions Toolbar -->
+        <div
+          v-if="selectedSeatIds.length > 0"
+          class="bg-indigo-950/80 border border-indigo-700/80 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-lg shadow-black/40 animate-fade-in"
+        >
+          <div class="flex items-center gap-3">
+            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-600 text-white shadow-sm">
+              Đã chọn {{ selectedSeatIds.length }} ghế
+            </span>
+            <button
+              type="button"
+              class="text-xs text-indigo-300 hover:text-white underline"
+              @click="clearSeatSelection"
+            >
+              Bỏ chọn
+            </button>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3">
+            <!-- Đổi loại ghế hàng loạt -->
+            <div class="flex items-center gap-1.5">
+              <select
+                v-model="selectedBulkSeatTypeId"
+                :disabled="!currentAuditoriumDetail?.canModifySeatTypes || isApplyingBatchSeatType"
+                class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50"
+              >
+                <option v-for="st in availableSeatTypes" :key="st.id" :value="st.id">
+                  {{ st.name }} ({{ st.code }})
+                </option>
+              </select>
+              <Button
+                variant="primary"
+                size="sm"
+                :disabled="!currentAuditoriumDetail?.canModifySeatTypes || !selectedBulkSeatTypeId"
+                :loading="isApplyingBatchSeatType"
+                @click="handleBulkApplySeatType"
+              >
+                Đổi loại ghế
+              </Button>
+            </div>
+
+            <!-- Đổi trạng thái hàng loạt -->
+            <div class="flex items-center gap-1.5 border-l border-slate-700 pl-3">
+              <select
+                v-model="selectedBulkStatus"
+                :disabled="isApplyingBatchStatus"
+                class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              >
+                <option value="ACTIVE">Hoạt động (ACTIVE)</option>
+                <option value="BROKEN">Hỏng / Bảo trì (BROKEN)</option>
+              </select>
+              <Button
+                variant="secondary"
+                size="sm"
+                :loading="isApplyingBatchStatus"
+                @click="handleBulkApplyStatus"
+              >
+                Đổi trạng thái
+              </Button>
+            </div>
+          </div>
         </div>
 
         <div v-if="isLoadingSeats" class="py-12 text-center text-slate-400">
@@ -931,7 +1322,19 @@ onMounted(() => {
               :key="row.rowLabel"
               class="flex items-center gap-2"
             >
-              <span class="w-6 text-center text-xs font-bold text-slate-400 shrink-0">{{ row.rowLabel }}</span>
+              <button
+                type="button"
+                :class="[
+                  'w-6 h-6 text-center text-xs font-bold shrink-0 rounded transition-colors flex items-center justify-center',
+                  isRowSelected(row.rowLabel)
+                    ? 'bg-indigo-600 text-white ring-1 ring-indigo-400'
+                    : 'text-slate-400 hover:text-indigo-200 hover:bg-slate-800'
+                ]"
+                :title="`Click để chọn/bỏ chọn cả hàng ${row.rowLabel}`"
+                @click="toggleRowSelection(row.rowLabel)"
+              >
+                {{ row.rowLabel }}
+              </button>
               <div
                 class="grid gap-1.5"
                 :style="{
@@ -944,15 +1347,23 @@ onMounted(() => {
                     :style="{ gridColumn: `span ${cell.span}` }"
                     type="button"
                     :class="[
-                      'h-7 px-1 rounded text-[10px] font-bold transition-all flex items-center justify-center border',
+                      'h-7 px-1 rounded text-[10px] font-bold transition-all flex items-center justify-center border relative',
+                      selectedSeatIds.includes(cell.seat.id)
+                        ? 'ring-2 ring-indigo-400 ring-offset-1 ring-offset-slate-950 scale-105 shadow-md shadow-indigo-500/50 z-10'
+                        : '',
                       cell.seat.status === 'BROKEN'
                         ? 'bg-rose-950/80 border-rose-600 text-rose-300 hover:bg-rose-900/80'
                         : getAdminSeatClass(cell.seat.colorToken)
                     ]"
                     :title="`Ghế ${cell.seat.seatCode} (${cell.seat.seatTypeName}) - ${cell.seat.status}`"
-                    @click="toggleSeatStatus(cell.seat)"
+                    @click="handleSeatClick(cell.seat)"
                   >
                     {{ cell.seat.seatNumber }}
+                    <span
+                      v-if="selectedSeatIds.includes(cell.seat.id)"
+                      class="absolute -top-1 -right-1 w-2 h-2 bg-indigo-400 rounded-full border border-white"
+                      aria-hidden="true"
+                    ></span>
                   </button>
                   <div
                     v-else
@@ -962,7 +1373,19 @@ onMounted(() => {
                   />
                 </template>
               </div>
-              <span class="w-6 text-center text-xs font-bold text-slate-400 shrink-0">{{ row.rowLabel }}</span>
+              <button
+                type="button"
+                :class="[
+                  'w-6 h-6 text-center text-xs font-bold shrink-0 rounded transition-colors flex items-center justify-center',
+                  isRowSelected(row.rowLabel)
+                    ? 'bg-indigo-600 text-white ring-1 ring-indigo-400'
+                    : 'text-slate-400 hover:text-indigo-200 hover:bg-slate-800'
+                ]"
+                :title="`Click để chọn/bỏ chọn cả hàng ${row.rowLabel}`"
+                @click="toggleRowSelection(row.rowLabel)"
+              >
+                {{ row.rowLabel }}
+              </button>
             </div>
           </div>
         </div>
@@ -970,6 +1393,261 @@ onMounted(() => {
 
       <template #footer>
         <Button variant="secondary" size="md" @click="isSeatsModalOpen = false">
+          Đóng
+        </Button>
+      </template>
+    </Modal>
+
+    <!-- Seat Edit Modal -->
+    <Modal
+      v-model="isSeatEditModalOpen"
+      :title="`Chỉnh Sửa Ghế ${editingSeat?.seatCode || ''}`"
+      size="md"
+    >
+      <div v-if="editingSeat" class="space-y-4">
+        <!-- Thông tin ghế -->
+        <div class="grid grid-cols-3 gap-3 p-3 bg-slate-900 rounded-lg border border-slate-800 text-xs">
+          <div>
+            <span class="text-slate-400 block">Vị trí:</span>
+            <span class="font-bold text-white text-sm">Hàng {{ editingSeat.rowLabel }}, Ghế {{ editingSeat.seatNumber }}</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block">Mã ghế:</span>
+            <span class="font-bold text-indigo-400 text-sm">{{ editingSeat.seatCode }}</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block">Sức chứa:</span>
+            <span class="font-bold text-white text-sm">{{ editingSeat.capacity || 1 }} người</span>
+          </div>
+        </div>
+
+        <ErrorAlert v-if="seatEditError" :message="seatEditError" />
+
+        <!-- Chọn loại ghế -->
+        <div>
+          <label class="text-xs font-semibold text-slate-300 block mb-1.5">
+            Loại ghế:
+          </label>
+          <div v-if="!currentAuditoriumDetail?.canModifySeatTypes" class="p-2.5 bg-amber-950/30 border border-amber-800/60 rounded-lg text-xs text-amber-300">
+            🔒 <strong>Không thể thay đổi loại ghế:</strong> Phòng chiếu đã phát sinh giao dịch đặt vé nên loại ghế được khóa bảo vệ.
+          </div>
+          <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label
+              v-for="st in availableSeatTypes"
+              :key="st.id"
+              :class="[
+                'flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-all text-xs',
+                editSeatTypeId === st.id
+                  ? 'border-indigo-500 bg-indigo-950/40 text-white'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700'
+              ]"
+            >
+              <input
+                type="radio"
+                name="seatType"
+                :value="st.id"
+                v-model="editSeatTypeId"
+                class="text-indigo-600 focus:ring-indigo-500"
+              />
+              <span
+                :class="[
+                  'h-3 rounded border shrink-0',
+                  (st.capacity || 1) > 1 ? 'w-5' : 'w-3',
+                  getSeatLegendClass(st.colorToken)
+                ]"
+              ></span>
+              <div class="flex-1 min-w-0">
+                <div class="font-medium truncate">{{ st.name }}</div>
+                <div class="text-[10px] text-slate-400">
+                  Phụ thu: {{ st.priceModifier ? Number(st.priceModifier).toLocaleString('vi-VN') + ' đ' : '0 đ' }}
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Chọn trạng thái ghế -->
+        <div>
+          <label class="text-xs font-semibold text-slate-300 block mb-1.5">
+            Trạng thái ghế:
+          </label>
+          <div class="grid grid-cols-2 gap-2">
+            <label
+              :class="[
+                'flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-all text-xs',
+                editSeatStatus === 'ACTIVE'
+                  ? 'border-emerald-500 bg-emerald-950/40 text-white'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700'
+              ]"
+            >
+              <input
+                type="radio"
+                name="seatStatus"
+                value="ACTIVE"
+                v-model="editSeatStatus"
+                class="text-emerald-600 focus:ring-emerald-500"
+              />
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+              <span class="font-medium">Hoạt động (ACTIVE)</span>
+            </label>
+
+            <label
+              :class="[
+                'flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-all text-xs',
+                editSeatStatus === 'BROKEN'
+                  ? 'border-rose-500 bg-rose-950/40 text-white'
+                  : 'border-slate-800 bg-slate-900/60 text-slate-300 hover:border-slate-700'
+              ]"
+            >
+              <input
+                type="radio"
+                name="seatStatus"
+                value="BROKEN"
+                v-model="editSeatStatus"
+                class="text-rose-600 focus:ring-rose-500"
+              />
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+              <span class="font-medium">Hỏng / Bảo trì (BROKEN)</span>
+            </label>
+          </div>
+          <p class="text-[11px] text-slate-400 mt-1">
+            * Lưu ý: Không thể đánh dấu hỏng nếu ghế đang được giữ chỗ hoặc đã có vé cho suất chiếu sắp tới.
+          </p>
+        </div>
+      </div>
+
+      <template #footer>
+        <Button variant="secondary" size="md" :disabled="isSavingSeatEdit" @click="isSeatEditModalOpen = false">
+          Hủy bỏ
+        </Button>
+        <Button variant="primary" size="md" :loading="isSavingSeatEdit" @click="handleSaveSeatEdit">
+          Lưu thay đổi
+        </Button>
+      </template>
+    </Modal>
+
+    <!-- Couple Conversion Guard Confirmation Modal -->
+    <Modal
+      v-model="isCoupleConfirmModalOpen"
+      title="Xác Nhận Thiết Lập Ghế Đôi (Couple)"
+      size="md"
+    >
+      <div v-if="couplePreviewData" class="space-y-4 text-xs">
+        <div class="p-3 bg-indigo-950/40 border border-indigo-800/80 rounded-lg text-indigo-200 leading-relaxed">
+          <div class="font-bold text-white text-sm mb-1">
+            Chuyển đổi {{ couplePreviewData.seatCount }} ghế thành {{ couplePreviewData.targetSeatTypeName }}
+          </div>
+          <div>
+            Ghế đôi có sức chứa <strong>2 người</strong> và chiếm <strong>2 cột</strong> liền kề. Để đảm bảo sơ đồ phòng chiếu chính xác, hệ thống sẽ <strong>tự động xóa các ghế liền kề bị chiếm chỗ</strong>.
+          </div>
+        </div>
+
+        <div v-if="couplePreviewData.willDeleteSeatCodes && couplePreviewData.willDeleteSeatCodes.length > 0" class="p-3 bg-rose-950/30 border border-rose-800/60 rounded-lg">
+          <div class="font-semibold text-rose-300 mb-1.5 flex items-center gap-1.5">
+            <span>⚠️</span>
+            <span>Các ghế liền kề sẽ tự động bị xóa ({{ couplePreviewData.willDeleteSeatCodes.length }} ghế):</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 bg-slate-950/60 rounded border border-rose-950">
+            <span
+              v-for="code in couplePreviewData.willDeleteSeatCodes"
+              :key="code"
+              class="px-2 py-0.5 rounded bg-rose-900/60 text-rose-200 border border-rose-700 font-mono font-bold text-[11px]"
+            >
+              {{ code }}
+            </span>
+          </div>
+        </div>
+
+        <div class="text-slate-400 text-[11px] italic">
+          * Thao tác này chỉ thực hiện được khi phòng chiếu chưa phát sinh giao dịch đặt vé hoặc vé.
+        </div>
+      </div>
+
+      <template #footer>
+        <Button
+          variant="secondary"
+          size="md"
+          :disabled="isApplyingBatchSeatType"
+          @click="isCoupleConfirmModalOpen = false"
+        >
+          Hủy bỏ
+        </Button>
+        <Button
+          variant="primary"
+          size="md"
+          :loading="isApplyingBatchSeatType"
+          @click="executeBatchUpdateSeatType"
+        >
+          Xác nhận & Cập nhật
+        </Button>
+      </template>
+    </Modal>
+
+    <!-- Normalize Result Modal -->
+    <Modal
+      v-model="normalizeResultModalOpen"
+      title="Kết Quả Chuẩn Hóa Phòng Chiếu"
+      size="md"
+    >
+      <div v-if="normalizeResult" class="space-y-3 text-xs">
+        <div class="grid grid-cols-4 gap-2 p-3 bg-slate-900 rounded-lg text-center">
+          <div>
+            <div class="text-slate-400">Đã quét</div>
+            <div class="text-base font-bold text-white">{{ normalizeResult.scannedCount ?? normalizeResult.processedCount }}</div>
+          </div>
+          <div>
+            <div class="text-slate-400">Đã chuẩn hóa</div>
+            <div class="text-base font-bold text-emerald-400">{{ normalizeResult.normalizedCount ?? normalizeResult.updatedCount }}</div>
+          </div>
+          <div>
+            <div class="text-slate-400">Không đổi</div>
+            <div class="text-base font-bold text-indigo-400">{{ normalizeResult.unchangedCount ?? 0 }}</div>
+          </div>
+          <div>
+            <div class="text-slate-400">Bỏ qua (bảo vệ)</div>
+            <div class="text-base font-bold text-amber-400">{{ normalizeResult.skippedCount }}</div>
+          </div>
+        </div>
+
+        <!-- Chi tiết phân loại lý do bỏ qua -->
+        <div
+          v-if="(normalizeResult.skippedBecauseBookings || 0) > 0 || (normalizeResult.skippedBecauseTickets || 0) > 0 || (normalizeResult.skippedBecauseActiveHolds || 0) > 0 || (normalizeResult.failedCount || 0) > 0"
+          class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] p-2.5 bg-slate-900/60 rounded border border-slate-800"
+        >
+          <div class="p-1 text-center bg-slate-950/50 rounded">
+            <span class="text-slate-400 block">Đã có vé:</span>
+            <span class="font-bold text-amber-300">{{ normalizeResult.skippedBecauseTickets ?? 0 }}</span>
+          </div>
+          <div class="p-1 text-center bg-slate-950/50 rounded">
+            <span class="text-slate-400 block">Đã có booking:</span>
+            <span class="font-bold text-amber-300">{{ normalizeResult.skippedBecauseBookings ?? 0 }}</span>
+          </div>
+          <div class="p-1 text-center bg-slate-950/50 rounded">
+            <span class="text-slate-400 block">Đang giữ chỗ:</span>
+            <span class="font-bold text-amber-300">{{ normalizeResult.skippedBecauseActiveHolds ?? 0 }}</span>
+          </div>
+          <div class="p-1 text-center bg-slate-950/50 rounded">
+            <span class="text-slate-400 block">Lỗi:</span>
+            <span class="font-bold text-rose-400">{{ normalizeResult.failedCount ?? 0 }}</span>
+          </div>
+        </div>
+
+        <div v-if="normalizeResult.skippedDetails && normalizeResult.skippedDetails.length > 0" class="mt-2">
+          <div class="font-semibold text-slate-300 mb-1.5">Chi tiết các phòng được bảo vệ (bỏ qua):</div>
+          <div class="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-slate-950 rounded border border-slate-800 scrollbar-thin scrollbar-thumb-slate-700">
+            <div
+              v-for="item in normalizeResult.skippedDetails"
+              :key="item.auditoriumId"
+              class="p-1.5 bg-slate-900/70 rounded border border-slate-800 text-[11px]"
+            >
+              <span class="font-medium text-white">{{ item.cinemaName }} — {{ item.auditoriumName }}</span>:
+              <span class="text-amber-300 ml-1">{{ item.reason }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <Button variant="secondary" size="md" @click="normalizeResultModalOpen = false">
           Đóng
         </Button>
       </template>
