@@ -1,9 +1,8 @@
 # CineBook Master Documentation & Repository Navigation Map
 
-> **Current Repository State**: Monolithic Layered Architecture (Spring Boot 4 / Java 21 + MySQL 8 + Vue 3 / Vite / TypeScript + Tailwind CSS).  
-> **Last Repository & Documentation Audit**: `2026-09-06`  
-> **Quality Gate Status**: Backend 490/490 Tests PASS, Frontend Typecheck (vue-tsc) PASS, Frontend Build PASS, 0 Broken References.  
-> **Last Repository & Documentation Audit**: `2026-09-06` (Seat History Visibility, 10s Background Expiration & Concurrency Hardening)
+> **Current Repository State**: Monolithic Layered Architecture (Spring Boot 3.3.3 / Java 21 + MySQL 8 + Vue 3 / Vite / TypeScript + Tailwind CSS).  
+> **Last Repository & Documentation Audit**: `2026-09-07` (Realistic Multi-Movie Showtime Scheduling Assistant & Calendar Drag and Drop)  
+> **Quality Gate Status**: Backend 530/530 Tests PASS, Frontend Typecheck (vue-tsc) PASS, Frontend Build PASS, 0 Broken References.  
 
 This document is the **single authoritative entry point** and **master navigation index** for developers and AI coding agents working on the CineBook codebase. It maps the physical code layout, domain modules, full-stack tracing, and exact task routing to eliminate guesswork and context overhead.
 
@@ -444,4 +443,4 @@ docs/use-cases/*.md (Detailed domain user journeys)
    - To eliminate deadlocks between concurrent booking check-in (`BookingServiceImpl.checkInBooking`) and individual ticket check-in (`TicketServiceImpl.checkInTicket`), all check-in workflows lock in the strict global order: parent `Booking` first (`SELECT ... FOR UPDATE`), then child `Tickets` (`SELECT ... FOR UPDATE`).
 7. **Demo Payment Gateway & Mock Sandbox Mode**:
    - When running without live VNPay Sandbox credentials, setting `vnpay.mock-gateway=true` enables `MockVnPayService` and the `/api/v1/demo-payment/complete` endpoint.
-   - Routes through `DemoPaymentView.vue` and executes authoritative server-side IPN processing (`processIpn -> confirmPaidBooking`) with authentic HMAC-SHA512 checksums, generating tickets and booking `checkInCode` seamlessly.
+   - Routes through `DemoPaymentView.vue` and executes authoritative server-side IPN processing (`processIpn -> confirmPaidBooking`) with authentic HMAC-SHA512 checksums, generating tickets and booking `checkInCode` seamlessly.

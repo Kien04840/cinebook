@@ -407,4 +407,215 @@ class ShowtimeServiceTest {
         verify(showtimeRepository).save(sampleShowtime);
         ((org.springframework.data.repository.CrudRepository<Showtime, String>) verify(showtimeRepository, never())).delete(any());
     }
+
+    // ==========================================
+    // Calendar Drag & Drop / Move Tests (1-12)
+    // ==========================================
+    @Test
+    void moveShowtime_ChangesStartTime() {
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(showtimeRepository.save(any(Showtime.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDateTime newStart = LocalDate.now().plusDays(1).atTime(15, 0);
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .auditoriumId("aud-1")
+                .startTime(newStart)
+                .build();
+
+        ShowtimeDetailResponse resp = showtimeService.moveShowtimeSchedule("st-1", req);
+        assertEquals(newStart, resp.getStartTime());
+    }
+
+    @Test
+    void moveShowtime_RecalculatesEndTimeFromMovieDuration() {
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(showtimeRepository.save(any(Showtime.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDateTime newStart = LocalDate.now().plusDays(1).atTime(10, 0);
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .startTime(newStart)
+                .build();
+
+        ShowtimeDetailResponse resp = showtimeService.moveShowtimeSchedule("st-1", req);
+        assertEquals(newStart.plusMinutes(sampleMovie.getDurationMinutes()), resp.getEndTime());
+    }
+
+    @Test
+    void moveShowtime_ChangesAuditorium() {
+        Auditorium aud2 = new Auditorium();
+        aud2.setId("aud-2");
+        aud2.setName("Hall 2");
+        aud2.setStatus(AuditoriumStatus.ACTIVE);
+        aud2.setCinema(sampleCinema);
+        aud2.setTurnaroundMinutes((short) 15);
+
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-2")).thenReturn(Optional.of(aud2));
+        when(showtimeRepository.save(any(Showtime.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDateTime newStart = LocalDate.now().plusDays(1).atTime(14, 0);
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .auditoriumId("aud-2")
+                .startTime(newStart)
+                .build();
+
+        ShowtimeDetailResponse resp = showtimeService.moveShowtimeSchedule("st-1", req);
+        assertEquals("aud-2", resp.getAuditorium().getId());
+    }
+
+    @Test
+    void moveShowtime_RejectsConflict() {
+        Showtime other = new Showtime();
+        other.setId("st-2");
+        other.setStartTime(LocalDate.now().plusDays(1).atTime(13, 0));
+        other.setEndTime(LocalDate.now().plusDays(1).atTime(15, 0));
+        other.setStatus(ShowtimeStatus.SCHEDULED);
+
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(showtimeRepository.findActiveByAuditoriumIdAndStartTimeBetweenOrderByStartTimeAsc(any(), any(), any()))
+                .thenReturn(List.of(other));
+
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .startTime(LocalDate.now().plusDays(1).atTime(14, 0))
+                .build();
+
+        assertThrows(ConflictException.class, () -> showtimeService.moveShowtimeSchedule("st-1", req));
+        verify(showtimeRepository, never()).save(any());
+    }
+
+    @Test
+    void moveShowtime_RejectsOutsideOperatingHours() {
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .startTime(LocalDate.now().plusDays(1).atTime(7, 0))
+                .build();
+
+        assertThrows(BadRequestException.class, () -> showtimeService.moveShowtimeSchedule("st-1", req));
+    }
+
+    @Test
+    void moveShowtime_RejectsInactiveAuditorium() {
+        Auditorium maintenanceAud = new Auditorium();
+        maintenanceAud.setId("aud-maint");
+        maintenanceAud.setStatus(AuditoriumStatus.MAINTENANCE);
+
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-maint")).thenReturn(Optional.of(maintenanceAud));
+
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .auditoriumId("aud-maint")
+                .startTime(LocalDate.now().plusDays(1).atTime(10, 0))
+                .build();
+
+        assertThrows(ConflictException.class, () -> showtimeService.moveShowtimeSchedule("st-1", req));
+    }
+
+    @Test
+    void moveShowtime_RejectsBookedShowtimeIfBusinessRuleForbids() {
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(true);
+
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .startTime(LocalDate.now().plusDays(1).atTime(10, 0))
+                .build();
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> showtimeService.moveShowtimeSchedule("st-1", req));
+        assertTrue(ex.getMessage().contains("Không thể di chuyển suất chiếu đã có vé đặt!"));
+        verify(showtimeRepository, never()).save(any());
+    }
+
+    @Test
+    void moveShowtime_PreservesBookingData() {
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(showtimeRepository.save(any(Showtime.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDateTime newStart = LocalDate.now().plusDays(1).atTime(16, 0);
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .startTime(newStart)
+                .build();
+
+        ShowtimeDetailResponse resp = showtimeService.moveShowtimeSchedule("st-1", req);
+        assertEquals(sampleShowtime.getFormat(), resp.getFormat());
+        assertEquals(sampleShowtime.getBasePrice(), resp.getBasePrice());
+        assertEquals(sampleShowtime.getMovie().getTitle(), resp.getMovie().getTitle());
+    }
+
+    @Test
+    void moveShowtime_RespectsTurnaround() {
+        Showtime preceding = new Showtime();
+        preceding.setId("st-prec");
+        preceding.setStartTime(LocalDate.now().plusDays(1).atTime(8, 0));
+        preceding.setEndTime(LocalDate.now().plusDays(1).atTime(10, 0));
+        preceding.setStatus(ShowtimeStatus.SCHEDULED);
+
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(showtimeRepository.findActiveByAuditoriumIdAndStartTimeBetweenOrderByStartTimeAsc(any(), any(), any()))
+                .thenReturn(List.of(preceding));
+
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .startTime(LocalDate.now().plusDays(1).atTime(10, 5))
+                .build();
+
+        assertThrows(ConflictException.class, () -> showtimeService.moveShowtimeSchedule("st-1", req));
+    }
+
+    @Test
+    void moveShowtime_DoesNotRoundEndTime() {
+        sampleMovie.setDurationMinutes((short) 113);
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(showtimeRepository.save(any(Showtime.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        LocalDateTime newStart = LocalDate.now().plusDays(1).atTime(10, 0);
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .startTime(newStart)
+                .build();
+
+        ShowtimeDetailResponse resp = showtimeService.moveShowtimeSchedule("st-1", req);
+        assertEquals(newStart.plusMinutes(113), resp.getEndTime());
+        assertEquals(53, resp.getEndTime().getMinute());
+    }
+
+    @Test
+    void moveShowtime_IsTransactional() {
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(showtimeRepository.save(any(Showtime.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .startTime(LocalDate.now().plusDays(1).atTime(12, 0))
+                .build();
+
+        showtimeService.moveShowtimeSchedule("st-1", req);
+        verify(showtimeRepository, times(1)).save(sampleShowtime);
+    }
+
+    @Test
+    void moveShowtime_RejectsInvalidShowtimeStatus() {
+        sampleShowtime.setStatus(ShowtimeStatus.CANCELLED);
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+
+        com.cinebook.dto.request.MoveShowtimeScheduleRequest req = com.cinebook.dto.request.MoveShowtimeScheduleRequest.builder()
+                .startTime(LocalDate.now().plusDays(1).atTime(10, 0))
+                .build();
+
+        assertThrows(BadRequestException.class, () -> showtimeService.moveShowtimeSchedule("st-1", req));
+    }
 }

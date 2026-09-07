@@ -1,9 +1,9 @@
 package com.cinebook.dto.request;
 
 import com.cinebook.enums.ShowtimeFormat;
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -12,35 +12,20 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalTime;
-import java.util.List;
 
 @Getter
 @Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ShowtimeGenerationRequest {
+public class MovieGenerationConfigDto {
 
-    @Valid
-    private List<MovieGenerationConfigDto> movies;
-
+    @NotBlank(message = "Movie ID is required")
     private String movieId;
 
-    @NotEmpty(message = "At least one auditorium ID is required")
-    private List<String> auditoriumIds;
-
-    @NotNull(message = "Start date is required")
-    private LocalDate startDate;
-
-    private LocalDate endDate;
-
-    private LocalTime openingTime;
-
-    private LocalTime closingTime;
-
-    private Short snapIntervalMinutes;
+    @NotNull(message = "Target screenings per day is required")
+    @Min(value = 1, message = "Target screenings per day must be at least 1")
+    private Integer targetScreeningsPerDay;
 
     private ShowtimeFormat format;
 
@@ -51,3 +36,4 @@ public class ShowtimeGenerationRequest {
     @DecimalMin(value = "0.0", message = "Base price must be greater than or equal to 0")
     private BigDecimal basePrice;
 }
+

@@ -72,6 +72,31 @@ It defines what the application must do, what is allowed, what is forbidden, and
 - A showtime accepts new holds and bookings only when its status is `SCHEDULED` and `startTime > now` (representing active, open-for-booking schedule).
 - Showtimes with status `CANCELLED` or `FINISHED`, or showtimes whose `startTime <= now`, strictly reject any new seat hold or booking creation.
 
+### 6.1 Realistic Multi-Movie Showtime Scheduling Invariants
+1. **Auditorium is a Backend Resource**: Customers select a Showtime, not an Auditorium. The Showtime resolves the Auditorium required for seat map rendering and seat holds.
+2. **Multi-Movie Cinema Programming**: Admin defines a daily screening program composed of multiple movies and their daily target quotas (`targetScreeningsPerDay`). The scheduling engine determines *where* and *when* to interleave these screenings across selected auditoriums.
+3. **Auditorium Independence & Parallel Starts**: Showtimes in different auditoriums do not conflict. All auditoriums evaluate candidate slots starting directly from the cinema baseline `openingTime`.
+4. **No-Stagger Architecture**: `staggerIntervalMinutes` is permanently removed from the system. No artificial $k \times \text{stagger}$ room delays are enforced.
+5. **Simultaneous Multi-Room Screenings Allowed**: High-demand movies may screen simultaneously in multiple auditoriums (e.g. Room 1: 18:00 Blockbuster, Room 2: 18:00 Blockbuster). Avoiding simultaneous duplicates is a soft preference, not a hard barrier.
+6. **Feasibility-First Candidate Selection**: Before evaluating any movie candidate for an auditorium slot at `cursor`:
+   - Movie target quota has remaining screenings (`scheduled < target`).
+   - Movie and auditorium are in active eligible status.
+   - Candidate screening fits before closing time: $\text{cursor} + \text{duration} \le \text{closingTime}$.
+   - No overlap or turnaround buffer violation with existing showtimes in that auditorium.
+   An auditorium is only exhausted when no remaining feasible movie can fit before closing time.
+7. **Deficit-Aware Heuristic Scoring**:
+   $$\text{score} = (\text{deficitRatio} \times 1000.0) + (\text{remaining} \times 10.0) - \text{consecutivePenalty} - \text{simultaneousPenalty} - \text{concentrationPenalty}$$
+   - Named constants: `QUOTA_DEFICIT_WEIGHT = 1000.0`, `DISTRIBUTION_WEIGHT = 10.0`, `CONSECUTIVE_MOVIE_PENALTY = 350.0`, `SIMULTANEOUS_DUPLICATE_PENALTY = 120.0`, `CONCENTRATION_PENALTY = 50.0`.
+   - Stable tie-breaker: Request order / stable `movieId` comparison.
+8. **Quotas are Targets, Not Guarantees**: When cinema operating hours or auditorium capacity are insufficient, the engine schedules feasible slots and classifies capacity shortfalls:
+   - `INSUFFICIENT_AUDITORIUM_CAPACITY`: Operating hours of selected rooms cannot accommodate total requested duration.
+   - `EXISTING_SCHEDULE_CONSTRAINT`: Pre-existing showtimes in rooms constrain available windows.
+   - `MOVIE_DURATION_CONSTRAINT`: Movie duration exceeds remaining room window before closing.
+9. **Unified Planning Result Engine**: `previewGeneration` and `generateShowtimes` call the exact same underlying `planGeneration()` engine (`GenerationPlanningResult`). Idempotent generation persists candidate slots without recalculating schedule times.
+10. **Independent Date Range Quotas**: When generating across a date range (`startDate` to `endDate`), daily quotas are reset and planned independently for each day.
+11. **Copy Schedule Independence**: Copying a schedule (`POST /api/v1/admin/showtimes/copy`) replicates the exact time-of-day slots from the source date to the target date without running multi-movie generation.
+12. **Rescheduling / Manual Move Protection**: Re-assigning auditorium or start time (`PATCH /api/v1/admin/showtimes/{id}/schedule`) strictly validates that no bookings exist (`bookingRepository.existsByShowtimeId(id)`). Booked showtimes cannot be rescheduled. Unbooked showtimes are re-validated for auditorium status, end time calculation, and turnaround/overlap conflicts.
+
 ---
 
 ## 7. Pricing

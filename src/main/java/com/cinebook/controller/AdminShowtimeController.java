@@ -147,6 +147,16 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(summary = "Move showtime schedule (auditorium and/or startTime)")
+    @PatchMapping("/{id}/schedule")
+    public ResponseEntity<ShowtimeDetailResponse> moveShowtimeSchedule(
+            @PathVariable String id,
+            @Valid @RequestBody MoveShowtimeScheduleRequest request
+    ) {
+        ShowtimeDetailResponse response = showtimeService.moveShowtimeSchedule(id, request);
+        return ResponseEntity.ok(response);
+    }
+
     @Operation(summary = "Delete or cancel a showtime schedule based on booking transactions")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteShowtime(@PathVariable String id) {

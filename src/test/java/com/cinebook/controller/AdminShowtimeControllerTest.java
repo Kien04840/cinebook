@@ -295,6 +295,28 @@ class AdminShowtimeControllerTest {
     }
 
     @Test
+    void moveShowtimeSchedule_Returns200() throws Exception {
+        MoveShowtimeScheduleRequest request = MoveShowtimeScheduleRequest.builder()
+                .auditoriumId("aud-2")
+                .startTime(LocalDateTime.of(2026, 9, 1, 14, 0))
+                .build();
+
+        ShowtimeDetailResponse response = ShowtimeDetailResponse.builder()
+                .id("st-1")
+                .startTime(LocalDateTime.of(2026, 9, 1, 14, 0))
+                .status(ShowtimeStatus.SCHEDULED)
+                .build();
+
+        when(showtimeService.moveShowtimeSchedule(eq("st-1"), any(MoveShowtimeScheduleRequest.class))).thenReturn(response);
+
+        mockMvc.perform(patch("/api/v1/admin/showtimes/st-1/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("st-1"));
+    }
+
+    @Test
     void deleteShowtime_Returns204() throws Exception {
         doNothing().when(showtimeService).deleteShowtime("st-1");
 

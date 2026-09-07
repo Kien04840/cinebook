@@ -263,6 +263,59 @@ public class ShowtimeServiceImpl implements ShowtimeService {
         }
     }
 
+    @Override
+    @Transactional
+    public ShowtimeDetailResponse moveShowtimeSchedule(String id, com.cinebook.dto.request.MoveShowtimeScheduleRequest request) {
+        Showtime showtime = showtimeRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Showtime not found with id: " + id));
+
+        if (showtime.getStatus() == ShowtimeStatus.CANCELLED || showtime.getStatus() == ShowtimeStatus.FINISHED) {
+            throw new BadRequestException("Không thể di chuyển suất chiếu đã hủy hoặc đã kết thúc!");
+        }
+
+        boolean hasBookings = bookingRepository.existsByShowtimeId(id);
+        if (hasBookings) {
+            throw new BadRequestException("Không thể di chuyển suất chiếu đã có vé đặt!");
+        }
+
+        String targetAuditoriumId = (request.getAuditoriumId() != null && !request.getAuditoriumId().isBlank())
+                ? request.getAuditoriumId()
+                : showtime.getAuditorium().getId();
+
+        Auditorium targetAuditorium = validateAndGetAuditorium(targetAuditoriumId);
+        Movie movie = showtime.getMovie();
+
+        int duration = movie.getDurationMinutes() != null ? movie.getDurationMinutes() : 120;
+        LocalDateTime startTime = request.getStartTime();
+        LocalDateTime endTime = validationService.calculateEndTime(startTime, duration);
+
+        LocalDate showDate = startTime.toLocalDate();
+        List<Showtime> existing = showtimeRepository.findActiveByAuditoriumIdAndStartTimeBetweenOrderByStartTimeAsc(
+                targetAuditorium.getId(), showDate.atStartOfDay(), showDate.atTime(LocalTime.MAX));
+
+        SchedulingValidationResult valResult = validationService.validateSlot(
+                movie, targetAuditorium, startTime, endTime, existing, id, null, null);
+
+        if (!valResult.isValid()) {
+            com.cinebook.dto.response.SchedulingConflictResponse conflict = valResult.getConflicts().get(0);
+            if (conflict.getType() == com.cinebook.enums.SchedulingConflictType.SHOWTIME_OVERLAP
+                    || conflict.getType() == com.cinebook.enums.SchedulingConflictType.TURNAROUND_VIOLATION
+                    || conflict.getType() == com.cinebook.enums.SchedulingConflictType.AUDITORIUM_MAINTENANCE
+                    || conflict.getType() == com.cinebook.enums.SchedulingConflictType.AUDITORIUM_DECOMMISSIONED) {
+                throw new ConflictException(conflict.getMessage());
+            }
+            throw new BadRequestException(conflict.getMessage());
+        }
+
+        showtime.setAuditorium(targetAuditorium);
+        showtime.setStartTime(startTime);
+        showtime.setEndTime(endTime);
+
+        Showtime saved = showtimeRepository.save(showtime);
+        log.info("Moved showtime id={} to auditorium '{}', startTime={}", saved.getId(), targetAuditorium.getName(), startTime);
+        return showtimeMapper.toShowtimeDetailResponse(saved);
+    }
+
     private Movie validateAndGetMovie(String movieId) {
         Movie movie = movieRepository.findById(movieId)
                 .orElseThrow(() -> new ResourceNotFoundException("Movie not found with id: " + movieId));

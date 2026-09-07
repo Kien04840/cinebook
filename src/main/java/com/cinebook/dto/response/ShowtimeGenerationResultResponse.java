@@ -18,8 +18,19 @@ public class ShowtimeGenerationResultResponse {
     private int totalCreated;
     private int totalSkipped;
     private int totalConflicted;
+    private int totalRequested;
+    private int totalScheduled;
+    private int totalUnscheduled;
+
+    @Builder.Default
+    private List<MovieGenerationSummaryDto> movieSummaries = new ArrayList<>();
+
+    @Builder.Default
+    private List<String> warnings = new ArrayList<>();
+
     @Builder.Default
     private List<ShowtimeSummaryResponse> createdShowtimes = new ArrayList<>();
+
     @Builder.Default
     private List<SchedulingConflictResponse> conflicts = new ArrayList<>();
 }

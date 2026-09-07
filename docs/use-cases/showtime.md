@@ -154,7 +154,8 @@ SCHEDULING
 - Rule-based auto-generation
 - Generation preview before persistence
 - Copy schedule
-- Staggered start support
+- Multi-movie programming & daily quota distribution
+- Calendar drag & drop / manual rescheduling (unbooked showtimes only)
 
 Do NOT implement:
 - AI/forecasting/revenue optimization
@@ -385,40 +386,33 @@ Use the project's actual DTO/API conventions.
 The calendar query must be efficient and date/range bounded.
 
 ============================================================
-PHASE 11 — LEVEL 1 RULE-BASED AUTO-GENERATION
+PHASE 11 — REALISTIC MULTI-MOVIE SCHEDULING ENGINE
 ============================================================
 
-Implement ONLY deterministic rule-based generation.
+Implement deterministic multi-movie rule-based generation.
 
 Admin provides:
 
-- movie
-- auditorium
+- list of movies with daily target screening quotas (`targetScreeningsPerDay`)
+- auditoriums
 - date or date range
 - opening time
-- closing time, when the API contract permits overriding configured
-  cinema hours
-- turnaround
-- snap interval
-- optional stagger offset
+- closing time, when the API contract permits overriding configured cinema hours
+- snap interval (default 15m)
 
-The generator proposes valid showtimes based on:
+The generator multiplexes time across selected auditoriums using:
 
-- movie duration
-- turnaround
-- snap interval
-- cinema operating hours
-- existing showtimes
-- auditorium eligibility
-- movie eligibility
-- booked/sold-showtime protection
+- Feasibility-first candidate checks (movie status, remaining quota, closing time limit, room conflict/turnaround)
+- Deficit-aware heuristic scoring with named weights (pulls lagging movies, avoids consecutive room repetition, soft discourages simultaneous duplicate starts)
+- Capacity shortfall classification (`INSUFFICIENT_AUDITORIUM_CAPACITY`, `EXISTING_SCHEDULE_CONSTRAINT`, `MOVIE_DURATION_CONSTRAINT`)
+- Simultaneous multi-room screenings allowed for high-demand movies
+- Stagger is completely eliminated: all rooms evaluate from openingTime baseline
 
 Do not overwrite or silently modify existing showtimes.
 
-Do not implement AI, demand forecasting, revenue optimization, or
-automatic movie allocation.
+Do not introduce AI/ML, demand forecasting, revenue optimization libraries, or new microservices.
 
-Generation must be deterministic and testable.
+Generation must be 100% deterministic and testable.
 
 ============================================================
 PHASE 12 — GENERATION PREVIEW
@@ -879,20 +873,31 @@ Return copied, skipped, and rejected entries.
 
 ---
 
-# 8. Staggered Start
+# 8. Generation Engine & Staggered Start Semantics
 
-Generation may apply an optional stagger offset:
-
+### 8.1 Parallel Baseline (Default)
+When `staggerIntervalMinutes` is `null` or `<= 0`, the scheduler executes **parallel generation**. All auditoriums independently evaluate candidate slots starting from the cinema's `openingTime` baseline (e.g., 08:00):
 ```text
-Room 01 → 18:00
-Room 02 → 18:05
-Room 03 → 18:10
-Room 04 → 18:15
+Room 01 → 08:00 - 10:05
+Room 02 → 08:00 - 10:05
+Room 03 → 08:00 - 10:05
 ```
+Auditoriums are physical isolated resources; concurrent screenings at the same time across different auditoriums are completely valid and conflict-free.
 
-This is a generation input, not an optimization engine.
+### 8.2 Deterministic Stagger (Optional Operational Tool)
+When `staggerIntervalMinutes > 0`, generation applies an optional stagger offset to smooth out lobby crowd arrival/departure flow:
+```text
+Room 01 → 08:00 - 10:05
+Room 02 → 08:15 - 10:20
+Room 03 → 08:30 - 10:35
+```
+- **Deterministic Implementation Ordering**: The collection of selected auditoriums is normalized before assigning stagger offsets using a numeric-aware natural comparator (`Room 1` < `Room 2` < `Room 10`) with stable ID tie-breaker. The order of IDs in the request payload (`[Room 3, Room 1, Room 2]`) does not alter the generated schedule.
+- **Initial Baseline Only**: The stagger offset ($k \times \text{stagger}$) is applied **only to the first candidate slot of each target date**. Subsequent showtimes within the same auditorium advance via `candidateEnd + turnaround` snapped up, never cumulatively staggered.
+- **End Time Invariant**: Every `endTime` equals `startTime + movie.duration`. Turnaround buffer is never included in `endTime`.
+- **Unified Engine**: `previewGeneration` and `generateShowtimes` execute the exact same deterministic candidate engine. Generate persists valid slots and skips duplicates idempotently.
+- **Schedule Copy**: Copying a schedule preserves the source time-of-day and does not re-apply generation stagger.
 
-Do not add unnecessary persistent schema solely for the stagger value.
+Do not add unnecessary persistent schema solely for the stagger value; stagger is an input parameter for schedule generation, not a persistent entity field.
 
 ---
 

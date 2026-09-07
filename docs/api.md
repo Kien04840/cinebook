@@ -334,13 +334,132 @@ GET /api/v1/showtimes
 **Auth**: Public  
 **Query**: `movieId`, `cinemaId`, `date`, `status`, pagination
 
-### 7.2 Showtime detail
+### 7.3 Admin Showtimes Management CRUD
 
 ```http
-GET /api/v1/showtimes/{id}
+GET    /api/v1/admin/showtimes
+GET    /api/v1/admin/showtimes/{id}
+POST   /api/v1/admin/showtimes
+PUT    /api/v1/admin/showtimes/{id}
+PATCH  /api/v1/admin/showtimes/{id}/schedule
+DELETE /api/v1/admin/showtimes/{id}
 ```
 
-Admin create/update/cancel under `/api/v1/admin/showtimes`
+**Auth**: Required (`ADMIN`)
+
+#### 7.3.1 Move / Reschedule Showtime
+```http
+PATCH /api/v1/admin/showtimes/{id}/schedule
+```
+**Request**:
+```json
+{
+  "auditoriumId": "optional-uuid",
+  "startTime": "2026-09-10T14:30:00"
+}
+```
+**Rules**:
+- Strictly rejected if the showtime already has bookings (`bookingRepository.existsByShowtimeId(id)`).
+- Automatically recalculates `endTime = startTime + movie.durationMinutes`.
+- Validates auditorium eligibility (`ACTIVE` status, active cinema) and turnaround/overlap constraints.
+
+---
+
+### 7.4 Multi-Movie Realistic Scheduling & Generation
+
+```http
+POST /api/v1/admin/showtimes/generate/preview
+POST /api/v1/admin/showtimes/generate
+POST /api/v1/admin/showtimes/copy
+GET  /api/v1/admin/showtimes/calendar
+GET  /api/v1/admin/showtimes/scheduling-config
+GET  /api/v1/admin/showtimes/auditorium-availability
+```
+
+#### 7.4.1 Multi-Movie Generation Request (`ShowtimeGenerationRequest`)
+```json
+{
+  "movies": [
+    {
+      "movieId": "uuid-movie-1",
+      "targetScreeningsPerDay": 6,
+      "format": "TWO_D",
+      "language": "Tiếng Việt",
+      "subtitle": "Phụ đề",
+      "basePrice": 90000
+    },
+    {
+      "movieId": "uuid-movie-2",
+      "targetScreeningsPerDay": 4
+    }
+  ],
+  "auditoriumIds": ["uuid-aud-1", "uuid-aud-2"],
+  "startDate": "2026-09-10",
+  "endDate": "2026-09-12",
+  "openingTime": "08:00:00",
+  "closingTime": "23:30:00",
+  "snapIntervalMinutes": 15,
+  "format": "TWO_D",
+  "language": "Tiếng Việt",
+  "basePrice": 90000
+}
+```
+*(Note: `staggerIntervalMinutes` is completely removed. Legacy requests with single `movieId` are backward compatible and calculate default target quota from auditorium capacity).*
+
+#### 7.4.2 Generation Preview Response (`ShowtimeGenerationPreviewResponse`)
+```json
+{
+  "totalProposed": 30,
+  "totalValid": 28,
+  "totalConflicted": 2,
+  "totalRequested": 30,
+  "totalScheduled": 28,
+  "totalUnscheduled": 2,
+  "movieSummaries": [
+    {
+      "movieId": "uuid-movie-1",
+      "movieTitle": "Avatar: Dòng Chảy Của Nước",
+      "targetScreenings": 18,
+      "scheduledScreenings": 18,
+      "remainingScreenings": 0
+    },
+    {
+      "movieId": "uuid-movie-2",
+      "movieTitle": "Minecraft Phim",
+      "targetScreenings": 12,
+      "scheduledScreenings": 10,
+      "remainingScreenings": 2
+    }
+  ],
+  "warnings": [
+    "Phim Minecraft Phim: không thể xếp thêm 2 suất vì thời gian khả dụng của các phòng không đủ."
+  ],
+  "qualityIndicators": [
+    "⚠ Một số suất chiếu chưa thể xếp do giới hạn công suất",
+    "✓ Các phim được phân bổ xen kẽ nhịp nhàng giữa các phòng chiếu",
+    "✓ Không có xung đột với các suất chiếu đã tồn tại"
+  ],
+  "slots": [
+    {
+      "auditoriumId": "uuid-aud-1",
+      "auditoriumName": "Room 1",
+      "movieId": "uuid-movie-1",
+      "movieTitle": "Avatar",
+      "startTime": "2026-09-10T08:00:00",
+      "endTime": "2026-09-10T11:12:00",
+      "format": "TWO_D",
+      "basePrice": 90000,
+      "valid": true,
+      "conflicts": []
+    }
+  ]
+}
+```
+
+#### 7.4.3 Generation Result Response (`ShowtimeGenerationResultResponse`)
+- Re-uses the exact same planning result from `previewGeneration`.
+- Persists only valid candidate slots, skipping duplicates idempotently.
+- Returns `totalCreated`, `totalSkipped`, `totalConflicted`, `totalRequested`, `totalScheduled`, `totalUnscheduled`, `movieSummaries`, and `warnings`.
 
 ---
 

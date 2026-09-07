@@ -110,17 +110,58 @@ export interface CreateShowtimeRequest {
   startTime: string
   endTime?: string
   basePrice: number
-  status?: string
+  status?: ShowtimeStatus
 }
 
 export interface UpdateShowtimeRequest {
-  startTime?: string
-  endTime?: string
-  basePrice?: number
-  format?: string
-  language?: string
+  movieId: string
+  auditoriumId: string
+  format: string
+  language: string
   subtitle?: string
-  status?: string
+  startTime: string
+  endTime?: string
+  basePrice: number
+  status: ShowtimeStatus
+}
+
+export type SchedulingConflictType =
+  | 'SHOWTIME_OVERLAP'
+  | 'TURNAROUND_VIOLATION'
+  | 'OUTSIDE_OPERATING_HOURS'
+  | 'AUDITORIUM_INACTIVE'
+  | 'AUDITORIUM_MAINTENANCE'
+  | 'AUDITORIUM_DECOMMISSIONED'
+  | 'CINEMA_INACTIVE'
+  | 'MOVIE_NOT_AVAILABLE'
+  | 'INVALID_TIME'
+  | 'ALREADY_EXISTS'
+
+export interface SchedulingConflictResponse {
+  type: SchedulingConflictType
+  auditoriumId?: string
+  auditoriumName?: string
+  existingShowtimeId?: string
+  conflictingStartTime?: string
+  conflictingEndTime?: string
+  message?: string
+}
+
+export interface AuditoriumSchedulingConfigResponse {
+  id: string
+  name: string
+  type: string
+  status: string
+  turnaroundMinutes: number
+  snapIntervalMinutes: number
+}
+
+export interface CinemaSchedulingConfigResponse {
+  cinemaId: string
+  cinemaName: string
+  openingTime: string
+  closingTime: string
+  auditoriums: AuditoriumSchedulingConfigResponse[]
 }
 
 export interface ShowtimeSlotPreviewResponse {
@@ -137,35 +178,66 @@ export interface ShowtimeSlotPreviewResponse {
   subtitle?: string
   basePrice: number
   valid: boolean
-  conflicts?: Array<{
-    type: string
-    message: string
-    conflictingShowtimeId?: string
-  }>
+  conflicts: SchedulingConflictResponse[]
+}
+
+export interface MovieGenerationConfig {
+  movieId: string
+  targetScreeningsPerDay: number
+  format?: ShowtimeFormat
+  language?: string
+  subtitle?: string
+  basePrice?: number
+}
+
+export interface MovieGenerationSummary {
+  movieId: string
+  movieTitle: string
+  targetScreenings: number
+  scheduledScreenings: number
+  remainingScreenings: number
+}
+
+export interface MoveShowtimeScheduleRequest {
+  auditoriumId?: string
+  startTime: string
 }
 
 export interface ShowtimeGenerationPreviewResponse {
   totalProposed: number
   totalValid: number
   totalConflicted: number
+  totalRequested?: number
+  totalScheduled?: number
+  totalUnscheduled?: number
+  movieSummaries?: MovieGenerationSummary[]
+  warnings?: string[]
+  qualityIndicators?: string[]
   slots: ShowtimeSlotPreviewResponse[]
 }
 
 export interface ShowtimeGenerationResultResponse {
-  totalGenerated: number
+  totalCreated: number
   totalSkipped: number
-  showtimes: ShowtimeSummaryResponse[]
+  totalConflicted: number
+  totalRequested?: number
+  totalScheduled?: number
+  totalUnscheduled?: number
+  movieSummaries?: MovieGenerationSummary[]
+  warnings?: string[]
+  createdShowtimes: ShowtimeSummaryResponse[]
+  conflicts: SchedulingConflictResponse[]
 }
 
 export interface ShowtimeGenerationRequest {
-  movieId: string
+  movies?: MovieGenerationConfig[]
+  movieId?: string
   auditoriumIds: string[]
   startDate: string
   endDate?: string
   openingTime?: string
   closingTime?: string
   snapIntervalMinutes?: number
-  staggerIntervalMinutes?: number
   format?: string
   language?: string
   subtitle?: string
@@ -180,19 +252,59 @@ export interface CopyScheduleRequest {
 }
 
 export interface CopyScheduleResultResponse {
-  copiedCount: number
-  skippedCount: number
-  sourceDate: string
-  targetDate: string
+  totalCopied: number
+  totalSkipped: number
+  totalConflicted: number
+  createdShowtimes: ShowtimeSummaryResponse[]
+  conflicts: SchedulingConflictResponse[]
+}
+
+export interface CalendarAuditoriumShowtimesResponse {
+  auditoriumId: string
+  auditoriumName: string
+  auditoriumType: string
+  showtimes: ShowtimeSummaryResponse[]
 }
 
 export interface CalendarScheduleResponse {
   cinemaId: string
+  cinemaName: string
   from: string
   to: string
-  auditoriums: Array<{
-    auditoriumId: string
-    auditoriumName: string
-    showtimes: ShowtimeSummaryResponse[]
-  }>
+  auditoriums: CalendarAuditoriumShowtimesResponse[]
+}
+
+export interface ValidateShowtimeSlotRequest {
+  movieId: string
+  auditoriumId: string
+  startTime: string
+  format?: string
+  language?: string
+  subtitle?: string
+  excludeShowtimeId?: string
+}
+
+export interface ValidateShowtimeSlotResponse {
+  valid: boolean
+  calculatedStartTime?: string
+  calculatedEndTime?: string
+  movieDurationMinutes?: number
+  occupancyEndTime?: string
+  conflicts: SchedulingConflictResponse[]
+}
+
+export interface SuggestShowtimeSlotRequest {
+  movieId: string
+  auditoriumId: string
+  requestedStartTime: string
+  snapIntervalMinutes?: number
+}
+
+export interface SuggestShowtimeSlotResponse {
+  available: boolean
+  suggestedStartTime?: string
+  suggestedEndTime?: string
+  movieDurationMinutes?: number
+  occupancyEndTime?: string
+  message?: string
 }
