@@ -31,15 +31,59 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
 
+/**
+ * Triển khai dịch vụ Lập lịch và Tối ưu hóa Suất chiếu Tự động (Showtime Scheduling Service Implementation).
+ *
+ * Chịu trách nhiệm:
+ * 1. Tự động sinh lịch chiếu (Auto-generation): Phân bổ thông minh danh sách phim vào nhiều phòng chiếu theo các chỉ tiêu (Target Screenings).
+ * 2. Xem trước kế hoạch (Preview Generation): Mô phỏng kết quả xếp lịch và cảnh báo xung đột trước khi lưu vào DB.
+ * 3. Sao chép lịch chiếu (Copy Schedule): Sao chép toàn bộ lịch chiếu từ một ngày nguồn sang một hoặc nhiều ngày đích.
+ * 4. Gợi ý suất chiếu tiếp theo (Suggest Next Slot): Tìm kiếm khung giờ khả dụng sớm nhất cho một bộ phim trong phòng chiếu.
+ * 5. Xác thực khung giờ đơn lẻ (Validate Single Slot): Kiểm tra xung đột trước khi tạo mới hoặc cập nhật một suất chiếu.
+ * 6. Quản lý bảng lịch trực quan (Calendar Schedule Board) và Cấu hình lập lịch cụm rạp.
+ *
+ * KIẾN TRÚC THUẬT TOÁN TỰ ĐỘNG SINH LỊCH (GREEDY HEURISTIC WITH PENALTIES):
+ * - Hệ thống duyệt qua từng ngày và xoay vòng qua các phòng chiếu theo thứ tự tự nhiên (Natural Order: Hall 1 -> Hall 2 -> Hall 10).
+ * - Mỗi phòng duy trì một con trỏ thời gian (cursor) di chuyển từ giờ mở cửa (openingTime) đến giờ đóng cửa (closingTime).
+ * - Tại mỗi vị trí cursor, thuật toán lọc ra danh sách các phim khả thi (feasible movies) thỏa mãn:
+ *   + Thời gian chiếu + dọn phòng không vượt quá giờ đóng cửa.
+ *   + Không trùng lấn với các suất chiếu đã có sẵn trong phòng hoặc vi phạm thời gian dọn phòng (turnaround buffer).
+ * - Sau đó, hệ thống chấm điểm từng phim ứng viên để chọn ra phim có điểm cao nhất (bestScore) theo các trọng số và hình phạt:
+ *
+ * CÁC HẰNG SỐ TRỌNG SỐ VÀ HÌNH PHẠT (SCORING & PENALTIES):
+ * 1. QUOTA_DEFICIT_WEIGHT (1000.0): Trọng số thiếu hụt chỉ tiêu.
+ *    - Công thức: (target - scheduled) / target * 1000.0.
+ *    - Mục đích: Ưu tiên cao nhất cho những phim còn thiếu nhiều suất chiếu so với chỉ tiêu trong ngày.
+ * 2. DISTRIBUTION_WEIGHT (10.0): Trọng số phân bổ số lượng.
+ *    - Mục đích: Khuyến khích xếp thêm các phim còn nhiều suất cần chiếu để đẩy nhanh tiến độ lấp đầy lịch.
+ * 3. CONSECUTIVE_MOVIE_PENALTY (350.0): Phạt chiếu liên tiếp cùng một phim.
+ *    - Mục đích: Trừ điểm nếu một phòng chiếu vừa chiếu phim A xong lại tiếp tục chiếu tiếp phim A, tránh đơn điệu và nhàm chán cho khán giả.
+ * 4. SIMULTANEOUS_DUPLICATE_PENALTY (120.0): Phạt trùng lấn giờ bắt đầu của cùng một phim ở hai phòng khác nhau.
+ *    - Mục đích: Trừ điểm nếu cùng một phim bắt đầu chiếu cùng một lúc ở 2 phòng trong cùng cụm rạp, tránh phân tán lượng khách và lãng phí tài nguyên.
+ * 5. CONCENTRATION_PENALTY (50.0): Phạt tập trung một phim vào một phòng.
+ *    - Công thức: - countInRoom * 50.0.
+ *    - Mục đích: Trừ điểm theo số lượng suất của phim đó đã được xếp vào phòng này, thúc đẩy phân bổ đều các phim ra nhiều phòng chiếu khác nhau.
+ *
+ * ĐẶC TÍNH: Điểm số càng cao càng tốt (Maximized Score). Nếu hai phim có điểm bằng nhau, cơ chế tie-breaker ổn định sẽ chọn phim có movieId nhỏ hơn theo thứ tự từ điển (Deterministic).
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService {
 
+    /** Trọng số ưu tiên cho phim có tỷ lệ thiếu hụt chỉ tiêu suất chiếu lớn nhất trong ngày */
     public static final double QUOTA_DEFICIT_WEIGHT = 1000.0;
+
+    /** Trọng số cộng thêm cho số lượng suất chiếu còn lại cần xếp */
     public static final double DISTRIBUTION_WEIGHT = 10.0;
+
+    /** Điểm phạt khi xếp liên tiếp cùng một bộ phim trong cùng một phòng chiếu */
     public static final double CONSECUTIVE_MOVIE_PENALTY = 350.0;
+
+    /** Điểm phạt khi cùng một bộ phim bắt đầu chiếu cùng một thời điểm ở hai phòng khác nhau trong rạp */
     public static final double SIMULTANEOUS_DUPLICATE_PENALTY = 120.0;
+
+    /** Điểm phạt tỷ lệ thuận với số lượng suất của phim đó đã được xếp vào phòng chiếu hiện tại (khuyến khích phân bổ đa dạng) */
     public static final double CONCENTRATION_PENALTY = 50.0;
 
     private final ShowtimeRepository showtimeRepository;
@@ -49,6 +93,10 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
     private final SchedulingValidationService validationService;
     private final ShowtimeMapper showtimeMapper;
 
+    /**
+     * Bộ so sánh sắp xếp phòng chiếu theo thứ tự tự nhiên của con người (Natural Order).
+     * Ví dụ: "Phòng 1", "Phòng 2", ..., "Phòng 9", "Phòng 10" (thay vì "Phòng 1", "Phòng 10", "Phòng 2" theo mã ASCII thuần túy).
+     */
     public static final Comparator<Auditorium> AUDITORIUM_NATURAL_ORDER = (a1, a2) -> {
         if (a1 == a2) return 0;
         if (a1 == null) return 1;
@@ -64,6 +112,14 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
         return id1.compareTo(id2);
     };
 
+    /**
+     * Thuật toán so sánh tự nhiên giữa hai chuỗi ký tự (Natural Sort Comparator).
+     * Tự động nhận diện các đoạn số nguyên nằm xen kẽ trong chuỗi để so sánh theo giá trị số học thay vì thứ tự ký tự.
+     *
+     * @param s1 Chuỗi thứ nhất
+     * @param s2 Chuỗi thứ hai
+     * @return Giá trị âm nếu s1 < s2, dương nếu s1 > s2, 0 nếu tương đương
+     */
     public static int compareNatural(String s1, String s2) {
         if (s1 == null && s2 == null) return 0;
         if (s1 == null) return 1;
@@ -142,6 +198,23 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
         }
     }
 
+    /**
+     * Lập kế hoạch sinh lịch chiếu tự động (Core Generation Planning Engine).
+     *
+     * Luồng xử lý chi tiết:
+     * 1. Chuẩn hóa và xác thực danh sách phim cần xếp lịch kèm chỉ tiêu suất chiếu/ngày (Target Screenings).
+     * 2. Xác thực danh sách phòng chiếu: loại bỏ trùng lặp, kiểm tra tồn tại và sắp xếp theo Natural Order.
+     * 3. Xác thực khoảng ngày lập lịch (startDate -> endDate) và khung giờ hoạt động của rạp (opening -> closing).
+     * 4. Duyệt qua từng ngày trong khoảng lập lịch:
+     *    - Khởi tạo trạng thái từng phòng với con trỏ cursor bắt đầu từ openingTime.
+     *    - Duyệt xoay vòng qua các phòng: Tìm kiếm các phim khả thi (không vượt giờ đóng cửa, không xung đột lịch).
+     *    - Chấm điểm từng phim dựa trên công thức trọng số thiếu hụt (QUOTA_DEFICIT_WEIGHT) và các hình phạt (Penalties).
+     *    - Chọn phim có điểm cao nhất, tạo slot ứng viên, tăng bộ đếm suất chiếu, và đẩy cursor của phòng lên mốc tiếp theo.
+     * 5. Tổng hợp báo cáo thống kê: số suất yêu cầu, số suất đã xếp, số suất thiếu hụt và các chỉ số chất lượng lịch.
+     *
+     * @param request Yêu cầu sinh lịch chiếu từ quản trị viên
+     * @return Đối tượng GenerationPlanningResult chứa toàn bộ danh sách suất chiếu đề xuất và phân tích
+     */
     public GenerationPlanningResult planGeneration(ShowtimeGenerationRequest request) {
         // 1. Normalize and validate movies input
         List<MovieGenerationConfigDto> movieConfigs = new ArrayList<>();
@@ -622,6 +695,17 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                 .build();
     }
 
+    /**
+     * Xem trước kết quả sinh lịch chiếu tự động (Preview Generation - Read Only).
+     *
+     * Mục đích:
+     * - Cung cấp cho Admin cái nhìn tổng quan trực quan về các suất chiếu dự kiến được sinh ra,
+     *   tỷ lệ hoàn thành chỉ tiêu từng phim, các cảnh báo thiếu hụt hoặc xung đột nếu có.
+     * - Hoàn toàn không ghi đè hay thay đổi dữ liệu trong cơ sở dữ liệu (Transaction readOnly = true).
+     *
+     * @param request Yêu cầu cấu hình sinh lịch
+     * @return Kết quả xem trước kèm danh sách các slot ứng viên và các chỉ báo chất lượng
+     */
     @Override
     @Transactional(readOnly = true)
     public ShowtimeGenerationPreviewResponse previewGeneration(ShowtimeGenerationRequest request) {
@@ -644,6 +728,20 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                 .build();
     }
 
+    /**
+     * Thực thi sinh lịch chiếu tự động và lưu các suất chiếu hợp lệ vào cơ sở dữ liệu.
+     *
+     * Cơ chế đảm bảo an toàn & Bất biến:
+     * 1. Lập kế hoạch sinh lịch thông qua planGeneration().
+     * 2. Duyệt qua từng slot ứng viên hợp lệ:
+     *    - Kiểm tra lại trạng thái thực tế của phòng chiếu và phim từ DB để tránh race condition khi có thay đổi đồng thời.
+     *    - Đảm bảo tính Idempotent: Kiểm tra trùng lặp (existsByMovieIdAndAuditoriumIdAndStartTimeAndStatusNot) để không tạo trùng suất chiếu nếu bấm nhiều lần.
+     *    - Xác thực lại xung đột lần cuối với các suất chiếu vừa được tạo trong cùng phiên.
+     * 3. Lưu đối tượng Showtime với trạng thái khởi tạo SCHEDULED.
+     *
+     * @param request Yêu cầu sinh lịch chiếu
+     * @return Báo cáo kết quả số suất chiếu đã tạo thành công, số suất bỏ qua và các xung đột phát sinh
+     */
     @Override
     @Transactional
     public ShowtimeGenerationResultResponse generateShowtimes(ShowtimeGenerationRequest request) {
@@ -745,6 +843,21 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                 .build();
     }
 
+    /**
+     * Sao chép toàn bộ lịch chiếu từ một ngày nguồn sang một ngày đích (Copy Schedule).
+     *
+     * Luồng xử lý:
+     * 1. Truy vấn các suất chiếu còn hiệu lực (không bị CANCELLED) trong ngày nguồn (sourceDate).
+     * 2. Với mỗi suất chiếu nguồn:
+     *    - Giữ nguyên giờ bắt đầu (LocalTime) nhưng ánh xạ sang ngày đích (targetDate).
+     *    - Kiểm tra xung đột với các suất chiếu đã có sẵn tại phòng đó trong ngày đích thông qua validateSlot().
+     *    - Bỏ qua nếu suất chiếu đã tồn tại (Idempotency).
+     *    - Lưu suất chiếu mới ở trạng thái SCHEDULED nếu hợp lệ.
+     * 3. Trả về thống kê số lượng: tổng sao chép thành công, bỏ qua, hoặc xung đột.
+     *
+     * @param request Yêu cầu sao chép lịch (ngày nguồn, ngày đích, rạp/phòng chiếu)
+     * @return Báo cáo kết quả sao chép lịch chiếu
+     */
     @Override
     @Transactional
     public CopyScheduleResultResponse copySchedule(CopyScheduleRequest request) {
@@ -832,6 +945,18 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                 .build();
     }
 
+    /**
+     * Lấy dữ liệu bảng lịch trực quan (Calendar Schedule Board) của một cụm rạp trong khoảng thời gian.
+     *
+     * Mục đích:
+     * - Phục vụ giao diện xem lịch dạng ma trận (Timeline Grid) theo từng phòng chiếu và thời gian.
+     * - Hỗ trợ ban quản lý rạp theo dõi mật độ suất chiếu và chỗ trống phòng chiếu.
+     *
+     * @param cinemaId Mã rạp chiếu
+     * @param from Ngày bắt đầu (mặc định hôm nay)
+     * @param to Ngày kết thúc (mặc định hôm nay + 7 ngày)
+     * @return Dữ liệu lịch chiếu được gom nhóm theo từng phòng chiếu
+     */
     @Override
     @Transactional(readOnly = true)
     public CalendarScheduleResponse getCalendarSchedule(String cinemaId, LocalDate from, LocalDate to) {
@@ -877,6 +1002,15 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                 .build();
     }
 
+    /**
+     * Xác thực tính hợp lệ của một khung giờ suất chiếu đơn lẻ trước khi lưu vào DB.
+     *
+     * Mục đích:
+     * - Trả về phân tích chi tiết: tính toán endTime, occupancyEndTime, và phát hiện các xung đột nếu có mà không ghi dữ liệu.
+     *
+     * @param request Thông tin suất chiếu cần kiểm tra (phim, phòng, giờ bắt đầu)
+     * @return Kết quả xác thực (hợp lệ hoặc danh sách lỗi xung đột)
+     */
     @Override
     @Transactional(readOnly = true)
     public ValidateShowtimeSlotResponse validateSingleSlot(ValidateShowtimeSlotRequest request) {
@@ -908,6 +1042,20 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                 .build();
     }
 
+    /**
+     * Gợi ý khung giờ chiếu khả dụng sớm nhất tiếp theo (Suggest Next Earliest Slot).
+     *
+     * Thuật toán:
+     * - Bắt đầu từ mốc requestedStartTime (hoặc openingTime nếu sớm hơn giờ mở cửa).
+     * - Làm tròn lên theo snapIntervalMinutes.
+     * - Kiểm tra validateSlot() với thời lượng phim:
+     *   + Nếu hợp lệ -> Trả về kết quả ngay (suggestedStartTime, suggestedEndTime, occupancyEndTime).
+     *   + Nếu gặp xung đột với một suất chiếu có sẵn -> Nhảy con trỏ tới sau thời điểm kết thúc + dọn phòng của suất đó,
+     *     sau đó snap lên mốc kế tiếp và lặp lại cho đến khi tìm thấy slot hoặc vượt quá closingTime.
+     *
+     * @param request Yêu cầu tìm kiếm slot (phim, phòng, mốc thời gian mong muốn)
+     * @return Kết quả khung giờ đề xuất hoặc thông báo không tìm thấy slot phù hợp
+     */
     @Override
     @Transactional(readOnly = true)
     public SuggestShowtimeSlotResponse suggestNextSlot(SuggestShowtimeSlotRequest request) {
@@ -972,6 +1120,16 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
         }
     }
 
+    /**
+     * Lấy cấu hình vận hành và lập lịch của một cụm rạp.
+     *
+     * Bao gồm:
+     * - Giờ mở cửa / đóng cửa của rạp.
+     * - Danh sách các phòng chiếu kèm thời gian dọn phòng (turnaroundMinutes) và bước nhảy làm tròn (snapIntervalMinutes) riêng từng phòng.
+     *
+     * @param cinemaId Mã rạp chiếu
+     * @return Cấu hình vận hành rạp
+     */
     @Override
     @Transactional(readOnly = true)
     public CinemaSchedulingConfigResponse getCinemaSchedulingConfig(String cinemaId) {
@@ -999,6 +1157,19 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                 .build();
     }
 
+    /**
+     * Phân tích các khoảng thời gian trống và chiếm dụng của một phòng chiếu trong ngày (Auditorium Availability).
+     *
+     * Mục đích:
+     * - Chia dòng thời gian trong ngày (từ mở cửa đến đóng cửa) thành các phân đoạn TimeIntervalDto:
+     *   + "AVAILABLE": Khoảng trống có thể chèn thêm suất chiếu.
+     *   + "SHOWTIME": Khoảng thời gian đang chiếu phim.
+     *   + "TURNAROUND": Khoảng thời gian dọn dẹp phòng sau suất chiếu.
+     *
+     * @param auditoriumId Mã phòng chiếu
+     * @param date Ngày cần tra cứu
+     * @return Danh sách các phân đoạn thời gian trực quan của phòng
+     */
     @Override
     @Transactional(readOnly = true)
     public AuditoriumAvailabilityResponse getAuditoriumAvailability(String auditoriumId, LocalDate date) {

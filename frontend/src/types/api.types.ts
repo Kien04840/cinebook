@@ -5,6 +5,7 @@ export interface FieldErrorDetail {
 
 export interface ApiError {
   status: number
+  code?: string
   error?: string
   message: string
   path?: string

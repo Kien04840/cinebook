@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import type { CinemaSummaryResponse } from '@/types/cinema.types'
 import cinemaService from '@/services/cinema.service'
 import { useI18n } from '@/composables/useI18n'
+import { getCityLabel } from '@/utils/constants'
 import Card from '@/components/common/Card.vue'
 import Button from '@/components/common/Button.vue'
 import Input from '@/components/common/Input.vue'
@@ -12,7 +13,7 @@ import Pagination from '@/components/common/Pagination.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
 
 const cinemas = ref<CinemaSummaryResponse[]>([])
@@ -153,7 +154,7 @@ onMounted(async () => {
           ]"
           @click="selectCity(city)"
         >
-          {{ city }}
+          {{ getCityLabel(city, locale) }}
         </button>
       </div>
     </div>
@@ -204,7 +205,7 @@ onMounted(async () => {
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <span class="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 mb-1.5">
-                    {{ cinema.city }}
+                    {{ getCityLabel(cinema.city, locale) }}
                   </span>
                   <h3 class="text-lg font-bold text-white group-hover:text-indigo-400 transition-colors">
                     {{ cinema.name }}

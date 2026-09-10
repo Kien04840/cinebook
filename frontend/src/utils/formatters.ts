@@ -3,10 +3,13 @@
  */
 
 export function formatCurrency(amount: number | string | null | undefined): string {
-  if (amount === null || amount === undefined || isNaN(Number(amount))) {
+  if (amount === null || amount === undefined || amount === '') {
     return '0 ₫'
   }
-  const numeric = typeof amount === 'string' ? parseFloat(amount) : amount
+  const numeric = typeof amount === 'string' ? parseFloat(amount.replace(/,/g, '')) : amount
+  if (isNaN(numeric)) {
+    return '0 ₫'
+  }
   return new Intl.NumberFormat('vi-VN', {
     style: 'currency',
     currency: 'VND',
@@ -60,8 +63,17 @@ export function formatTime(timeStr: string | null | undefined): string {
   }
 }
 
-export function formatDuration(minutes: number | null | undefined, locale: 'vi' | 'en' | string = 'vi'): string {
-  const isEn = locale === 'en'
+function getActiveLocale(): string {
+  try {
+    return localStorage.getItem('cinebook_lang') || 'vi'
+  } catch {
+    return 'vi'
+  }
+}
+
+export function formatDuration(minutes: number | null | undefined, locale?: 'vi' | 'en' | string): string {
+  const effectiveLocale = locale || getActiveLocale()
+  const isEn = effectiveLocale === 'en'
   const hourUnit = isEn ? 'h' : 'g'
   const minUnit = isEn ? 'm' : 'p'
 
@@ -81,9 +93,10 @@ export function formatDuration(minutes: number | null | undefined, locale: 'vi' 
   return `${hours}${hourUnit} ${mins}${minUnit}`
 }
 
-export function formatStatus(status: string | null | undefined, locale: 'vi' | 'en' | string = 'vi'): string {
+export function formatStatus(status: string | null | undefined, locale?: 'vi' | 'en' | string): string {
   if (!status) return ''
-  const isEn = locale === 'en'
+  const effectiveLocale = locale || getActiveLocale()
+  const isEn = effectiveLocale === 'en'
   const mapVi: Record<string, string> = {
     ACTIVE: 'Đang hoạt động',
     INACTIVE: 'Không hoạt động',
@@ -101,6 +114,8 @@ export function formatStatus(status: string | null | undefined, locale: 'vi' | '
     EXPIRED: 'Hết hạn',
     VALID: 'Hợp lệ',
     USED: 'Đã sử dụng',
+    REDEEMED: 'Đã soát vé',
+    UNREDEEMED: 'Chưa soát',
     SUCCESS: 'Thành công',
     FAILED: 'Thất bại',
     PENDING: 'Đang xử lý',
@@ -122,6 +137,8 @@ export function formatStatus(status: string | null | undefined, locale: 'vi' | '
     EXPIRED: 'Expired',
     VALID: 'Valid',
     USED: 'Used',
+    REDEEMED: 'Redeemed',
+    UNREDEEMED: 'Unredeemed',
     SUCCESS: 'Success',
     FAILED: 'Failed',
     PENDING: 'Pending',
@@ -138,7 +155,10 @@ export function formatNumber(val: number | string | null | undefined): string {
 export function formatPercent(val: number | string | null | undefined): string {
   if (val === null || val === undefined || isNaN(Number(val))) return '0%'
   const num = Number(val)
-  return `${(num * 100).toFixed(1)}%`
+  if (num === 0) return '0%'
+  return `${Number(num.toFixed(1))}%`
 }
+
+export { getErrorMessage, getApiErrorMessage } from './error'
 
 

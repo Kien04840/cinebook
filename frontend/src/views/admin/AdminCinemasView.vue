@@ -25,6 +25,7 @@ import seatTypeService from '@/services/seatType.service'
 import { formatStatus } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import { useToast } from '@/composables/useToast'
+import { CANONICAL_CITIES, getCityLabel } from '@/utils/constants'
 import Card from '@/components/common/Card.vue'
 import Button from '@/components/common/Button.vue'
 import Input from '@/components/common/Input.vue'
@@ -33,7 +34,7 @@ import Modal from '@/components/common/Modal.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const toast = useToast()
 
 const cinemas = ref<CinemaSummaryResponse[]>([])
@@ -57,7 +58,7 @@ const isSavingCinema = ref(false)
 const cinemaForm = ref<CreateCinemaRequest>({
   name: '',
   address: '',
-  city: 'Hà Nội',
+  city: 'Hanoi',
   status: 'ACTIVE',
   openingTime: '08:00',
   closingTime: '23:30',
@@ -147,7 +148,7 @@ const isDeleteAuditoriumModalOpen = ref(false)
 const deletingAuditoriumId = ref('')
 const isDeletingAuditorium = ref(false)
 
-const cities = ['Hà Nội', 'TP. Hồ Chí Minh', 'Đà Nẵng', 'Hải Phòng', 'Cần Thơ', 'Nha Trang']
+const cities = CANONICAL_CITIES
 
 function getCinemaStatusBadgeVariant(status: CinemaStatus) {
   return status === 'ACTIVE' ? 'success' : 'danger'
@@ -193,7 +194,7 @@ function openCreateCinemaModal() {
   cinemaForm.value = {
     name: '',
     address: '',
-    city: 'Hà Nội',
+    city: 'Hanoi',
     status: 'ACTIVE',
     openingTime: '08:00',
     closingTime: '23:30',
@@ -720,7 +721,9 @@ onMounted(() => {
             class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
             <option value="">Tất cả thành phố</option>
-            <option v-for="c in cities" :key="c" :value="c">{{ c }}</option>
+            <option v-for="c in cities" :key="c.value" :value="c.value">
+              {{ locale === 'en' ? c.labelEn : c.labelVi }}
+            </option>
           </select>
         </div>
 
@@ -783,7 +786,7 @@ onMounted(() => {
           <div class="flex items-start justify-between gap-2">
             <div>
               <h3 class="text-base font-bold text-white">{{ c.name }}</h3>
-              <p class="text-xs text-indigo-400 font-medium mt-0.5">{{ c.city }}</p>
+              <p class="text-xs text-indigo-400 font-medium mt-0.5">{{ getCityLabel(c.city, locale) }}</p>
             </div>
             <Badge :variant="getCinemaStatusBadgeVariant(c.status)" size="sm">
               {{ formatStatus(c.status) }}
@@ -857,7 +860,9 @@ onMounted(() => {
               required
               class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option v-for="city in cities" :key="city" :value="city">{{ city }}</option>
+              <option v-for="city in cities" :key="city.value" :value="city.value">
+                {{ locale === 'en' ? city.labelEn : city.labelVi }}
+              </option>
             </select>
           </div>
 
@@ -874,46 +879,36 @@ onMounted(() => {
         </div>
 
         <div>
-          <label class="text-xs text-slate-400 font-medium block mb-1">Địa chỉ chi tiết *</label>
-          <Input v-model="cinemaForm.address" placeholder="Tầng 6, Vincom Center, 191 Bà Triệu, Q. Hai Bà Trưng" required />
+          <label class="text-xs text-slate-400 font-medium block mb-1">Địa chỉ *</label>
+          <Input v-model="cinemaForm.address" placeholder="Tầng 5, Vincom Center, 191 Bà Triệu" required />
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label class="text-xs text-slate-400 font-medium block mb-1">Giờ mở cửa *</label>
-            <input
-              v-model="cinemaForm.openingTime"
-              type="time"
-              required
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <label class="text-xs text-slate-400 font-medium block mb-1">Giờ mở cửa</label>
+            <Input v-model="cinemaForm.openingTime" type="time" placeholder="08:00" />
           </div>
           <div>
-            <label class="text-xs text-slate-400 font-medium block mb-1">Giờ đóng cửa *</label>
-            <input
-              v-model="cinemaForm.closingTime"
-              type="time"
-              required
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <label class="text-xs text-slate-400 font-medium block mb-1">Giờ đóng cửa</label>
+            <Input v-model="cinemaForm.closingTime" type="time" placeholder="23:30" />
           </div>
         </div>
-      </form>
 
-      <template #footer>
-        <Button variant="secondary" size="md" :disabled="isSavingCinema" @click="isCinemaModalOpen = false">
-          Hủy bỏ
-        </Button>
-        <Button variant="primary" size="md" :loading="isSavingCinema" @click="handleSaveCinema">
-          {{ isEditing ? 'Cập nhật' : 'Tạo mới' }}
-        </Button>
-      </template>
+        <div class="pt-4 border-t border-slate-800 flex justify-end space-x-3">
+          <Button variant="secondary" type="button" @click="isCinemaModalOpen = false">
+            Hủy
+          </Button>
+          <Button variant="primary" type="submit" :loading="isSavingCinema">
+            {{ isEditing ? 'Lưu thay đổi' : 'Tạo cụm rạp' }}
+          </Button>
+        </div>
+      </form>
     </Modal>
 
     <!-- Manage Auditoriums Modal -->
     <Modal
       v-model="isAuditoriumsModalOpen"
-      title="Quản Lý Phòng Chiếu & Sơ Đồ Ghế"
+      :title="`Quản Lý Phòng Chiếu — ${selectedCinemaForAuditoriums?.name || ''}`"
       size="xl"
     >
       <div class="space-y-6">
@@ -921,7 +916,7 @@ onMounted(() => {
           <div>
             <h4 class="text-base font-bold text-white">{{ selectedCinemaForAuditoriums?.name }}</h4>
             <p class="text-xs text-slate-400 mt-0.5">
-              {{ selectedCinemaForAuditoriums?.address }} — {{ selectedCinemaForAuditoriums?.city }}
+              {{ selectedCinemaForAuditoriums?.address }} — {{ getCityLabel(selectedCinemaForAuditoriums?.city, locale) }}
             </p>
           </div>
           <div class="flex items-center gap-2">

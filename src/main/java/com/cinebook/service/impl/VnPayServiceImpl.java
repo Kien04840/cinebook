@@ -37,6 +37,24 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
+/**
+ * Triển khai dịch vụ kết nối trực tiếp Cổng thanh toán VNPay Sandbox (VNPay Service Implementation).
+ * Kích hoạt khi thuộc tính `cinebook.payment.gateway=vnpay`.
+ * 
+ * Các thuật toán & Kỹ thuật tích hợp chuẩn VNPay:
+ * 1. Định dạng số tiền VNPay: Số tiền phải nhân với 100 (vnp_Amount = amount * 100)
+ *    theo quy định số nguyên không có phần thập phân của VNPay.
+ * 2. Thuật toán ký số HMAC-SHA512:
+ *    - Toàn bộ tham số được chuẩn hóa UTF-8 URL-encoded.
+ *    - Sắp xếp các tên tham số theo thứ tự alphabet tăng dần (ASCII Dictionary Order).
+ *    - Nối chuỗi dữ liệu băm: key1=value1&key2=value2... (loại bỏ tham số vnp_SecureHash và vnp_SecureHashType).
+ *    - Băm chuỗi dữ liệu bằng khóa bí mật (hashSecret) qua thuật toán HmacSHA512.
+ * 3. Chống tấn công giả mạo dữ liệu (Tampering) & Chống Timing Attack:
+ *    - Xác thực chữ ký số bằng MessageDigest.isEqual để thời gian so sánh chuỗi không đổi, ngăn chặn tấn công timing.
+ * 4. Đồng bộ thời gian hết hạn giữ chỗ:
+ *    - vnp_ExpireDate được gán bằng booking.holdExpiresAt (5 phút) để nếu người dùng nán lại trên trang VNPay
+ *      quá 5 phút thì cổng thanh toán tự động từ chối giao dịch.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -68,6 +86,14 @@ public class VnPayServiceImpl implements VnPayService {
         return !trimmed.startsWith("YOUR_") && !trimmed.contains("CHANGE_ME");
     }
 
+    /**
+     * Khởi tạo URL chuyển hướng sang cổng thanh toán VNPay Sandbox kèm chữ ký bảo mật HMAC-SHA512.
+     * 
+     * @param payment Thông tin bản ghi Payment (chứa mã paymentCode và số tiền amount)
+     * @param booking Đơn đặt vé cần thanh toán
+     * @param clientIp Địa chỉ IP của máy khách hàng
+     * @return Chuỗi URL đầy đủ dẫn tới cổng VNPay Sandbox
+     */
     @Override
     public String buildPaymentUrl(Payment payment, Booking booking, String clientIp) {
         if (!isConfigured(vnPayConfig.getTmnCode()) || !isConfigured(vnPayConfig.getHashSecret())) {
@@ -77,10 +103,12 @@ public class VnPayServiceImpl implements VnPayService {
 
         Map<String, String> vnpParams = new HashMap<>();
 
+        // 1. Tham số chuẩn của VNPay 2.1.0
         vnpParams.put("vnp_Version", vnPayConfig.getVersion());
         vnpParams.put("vnp_Command", vnPayConfig.getCommand());
         vnpParams.put("vnp_TmnCode", vnPayConfig.getTmnCode());
 
+        // 2. Số tiền thanh toán nhân 100 theo đơn vị minor currency (VND)
         long vnpAmount = payment.getAmount().multiply(BigDecimal.valueOf(100)).longValue();
         vnpParams.put("vnp_Amount", String.valueOf(vnpAmount));
         vnpParams.put("vnp_CurrCode", "VND");
@@ -91,6 +119,7 @@ public class VnPayServiceImpl implements VnPayService {
         vnpParams.put("vnp_ReturnUrl", vnPayConfig.getReturnUrl());
         vnpParams.put("vnp_IpAddr", StringUtils.hasText(clientIp) ? clientIp : "127.0.0.1");
 
+        // 3. Thời gian tạo đơn và thời gian hết hạn (khớp với thời gian giữ chỗ 5 phút của booking)
         LocalDateTime now = LocalDateTime.now(VIETNAM_ZONE);
         vnpParams.put("vnp_CreateDate", now.format(DATE_FORMATTER));
 
@@ -99,6 +128,7 @@ public class VnPayServiceImpl implements VnPayService {
                 : now.plusMinutes(5);
         vnpParams.put("vnp_ExpireDate", expireTime.format(DATE_FORMATTER));
 
+        // 4. Sắp xếp các tham số theo thứ tự bảng chữ cái alphabet tăng dần
         List<String> fieldNames = new ArrayList<>(vnpParams.keySet());
         Collections.sort(fieldNames);
 
@@ -112,10 +142,10 @@ public class VnPayServiceImpl implements VnPayService {
                     String encodedKey = URLEncoder.encode(fieldName, StandardCharsets.UTF_8.toString());
                     String encodedValue = URLEncoder.encode(fieldValue, StandardCharsets.UTF_8.toString());
 
-                    // Build hash data
+                    // Nối chuỗi dữ liệu phục vụ việc băm mã xác thực
                     hashData.append(encodedKey).append('=').append(encodedValue).append('&');
 
-                    // Build query string
+                    // Nối chuỗi query string của URL
                     query.append(encodedKey).append('=').append(encodedValue).append('&');
                 } catch (Exception e) {
                     log.error("Error encoding VNPay parameter {}: {}", fieldName, e.getMessage());
@@ -123,7 +153,7 @@ public class VnPayServiceImpl implements VnPayService {
             }
         }
 
-        // Remove trailing '&'
+        // Loại bỏ ký tự '&' dư thừa ở cuối chuỗi
         if (hashData.length() > 0) {
             hashData.setLength(hashData.length() - 1);
         }
@@ -131,6 +161,7 @@ public class VnPayServiceImpl implements VnPayService {
             query.setLength(query.length() - 1);
         }
 
+        // 5. Băm HMAC-SHA512 chuỗi hashData bằng hashSecret
         String secureHash = hmacSha512(vnPayConfig.getHashSecret(), hashData.toString());
         query.append("&vnp_SecureHash=").append(secureHash);
 
@@ -186,22 +217,32 @@ public class VnPayServiceImpl implements VnPayService {
         return hmacSha512(secretKey, hashData.toString());
     }
 
+    /**
+     * Gửi yêu cầu hoàn tiền (Refund API) trực tiếp sang máy chủ VNPay Sandbox:
+     * 
+     * Quy tắc tạo chuỗi dữ liệu băm (rawHashData) theo tài liệu tích hợp VNPay Refund API:
+     * vnp_RequestId|vnp_Version|vnp_Command|vnp_TmnCode|vnp_TransactionType|vnp_TxnRef|vnp_Amount|vnp_TransactionNo|vnp_TransactionDate|vnp_CreateBy|vnp_CreateDate|vnp_IpAddr|vnp_OrderInfo
+     * 
+     * @param payment Bản ghi thanh toán gốc cần hoàn tiền
+     * @param refund Bản ghi yêu cầu hoàn tiền
+     * @param userEmail Email người yêu cầu hoàn tiền
+     * @param clientIp Địa chỉ IP của máy khách
+     * @return Map chứa kết quả phản hồi từ máy chủ VNPay (vnp_ResponseCode, vnp_ResponseId, vnp_Message)
+     */
     @Override
-
     public Map<String, String> refundPayment(Payment payment, Refund refund, String userEmail, String clientIp) {
         Map<String, String> result = new HashMap<>();
         String requestId = UUID.randomUUID().toString().replace("-", "").substring(0, 32);
         String version = vnPayConfig.getVersion();
         String command = "refund";
         String tmnCode = vnPayConfig.getTmnCode();
-        String transactionType = "02"; // Full refund
+        String transactionType = "02"; // 02: Hoàn tiền toàn phần (Full Refund)
         String txnRef = payment.getPaymentCode();
         long amount = refund.getAmount().multiply(BigDecimal.valueOf(100)).longValue();
         String orderInfo = "Hoan tien giao dich " + txnRef;
         String transactionNo = (StringUtils.hasText(payment.getGatewayTransactionId()) && payment.getGatewayTransactionId().matches("\\d+"))
                 ? payment.getGatewayTransactionId()
                 : "0";
-
 
         LocalDateTime now = LocalDateTime.now(VIETNAM_ZONE);
         String createDate = now.format(DATE_FORMATTER);
@@ -211,7 +252,8 @@ public class VnPayServiceImpl implements VnPayService {
         String createBy = StringUtils.hasText(userEmail) ? userEmail : "System";
         String ipAddr = StringUtils.hasText(clientIp) ? clientIp : "127.0.0.1";
 
-        // Raw data format: vnp_RequestId|vnp_Version|vnp_Command|vnp_TmnCode|vnp_TransactionType|vnp_TxnRef|vnp_Amount|vnp_TransactionNo|vnp_TransactionDate|vnp_CreateBy|vnp_CreateDate|vnp_IpAddr|vnp_OrderInfo
+        // Định dạng chuỗi ký dữ liệu thô:
+        // vnp_RequestId|vnp_Version|vnp_Command|vnp_TmnCode|vnp_TransactionType|vnp_TxnRef|vnp_Amount|vnp_TransactionNo|vnp_TransactionDate|vnp_CreateBy|vnp_CreateDate|vnp_IpAddr|vnp_OrderInfo
         String rawHashData = String.join("|",
                 requestId,
                 version,
@@ -265,7 +307,6 @@ public class VnPayServiceImpl implements VnPayService {
                     .connectTimeout(Duration.ofSeconds(10))
                     .build();
 
-
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(vnPayConfig.getApiUrl()))
                     .header("Content-Type", "application/json")
@@ -274,7 +315,7 @@ public class VnPayServiceImpl implements VnPayService {
                     .build();
 
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            log.info("VNPay Refund API response status {}: {}", response.statusCode(), response.body());
+            log.info("Mã trạng thái phản hồi VNPay Refund API {}: {}", response.statusCode(), response.body());
 
             if (response.statusCode() == 200 && StringUtils.hasText(response.body())) {
                 @SuppressWarnings("unchecked")
@@ -290,18 +331,27 @@ public class VnPayServiceImpl implements VnPayService {
                 return result;
             } else {
                 result.put("vnp_ResponseCode", "99");
-                result.put("vnp_Message", "HTTP error " + response.statusCode());
+                result.put("vnp_Message", "Lỗi HTTP " + response.statusCode());
                 result.put("rawResponse", response.body());
                 return result;
             }
         } catch (Exception e) {
-            log.error("Exception while sending VNPay refund request: {}", e.getMessage());
+            log.error("Ngoại lệ khi gửi yêu cầu hoàn tiền VNPay: {}", e.getMessage());
             result.put("vnp_ResponseCode", "99");
             result.put("vnp_Message", "Exception: " + e.getMessage());
             return result;
         }
     }
 
+    /**
+     * Trích xuất địa chỉ IP của máy khách (Client IP) từ các header HTTP:
+     * - Ưu tiên đọc header X-Forwarded-For (trong trường hợp request đi qua Reverse Proxy / Load Balancer).
+     * - Kế tiếp kiểm tra header X-Real-IP.
+     * - Cuối cùng sử dụng remoteAddr mặc định của ServletRequest.
+     * 
+     * @param request HttpServletRequest của người dùng
+     * @return Chuỗi IP hợp lệ (mặc định 127.0.0.1 nếu là IPv6 loopback hoặc không xác định)
+     */
     @Override
     public String extractClientIp(HttpServletRequest request) {
         if (request == null) {
@@ -310,7 +360,7 @@ public class VnPayServiceImpl implements VnPayService {
 
         String ip = request.getHeader("X-Forwarded-For");
         if (StringUtils.hasText(ip) && !"unknown".equalsIgnoreCase(ip)) {
-            // In case of multiple proxies, take first client IP
+            // Trong trường hợp qua nhiều tầng proxy, lấy địa chỉ IP đầu tiên trong danh sách
             int commaIndex = ip.indexOf(',');
             if (commaIndex > 0) {
                 return sanitizeClientIp(ip.substring(0, commaIndex));
@@ -326,6 +376,9 @@ public class VnPayServiceImpl implements VnPayService {
         return sanitizeClientIp(request.getRemoteAddr());
     }
 
+    /**
+     * Chuẩn hóa địa chỉ IP, chuyển đổi các định dạng IPv6 localhost (::1) về IPv4 chuẩn 127.0.0.1.
+     */
     private String sanitizeClientIp(String ip) {
         if (!StringUtils.hasText(ip) || "0:0:0:0:0:0:0:1".equals(ip) || "::1".equals(ip) || "localhost".equalsIgnoreCase(ip) || ip.contains(":")) {
             return "127.0.0.1";
@@ -333,6 +386,14 @@ public class VnPayServiceImpl implements VnPayService {
         return ip.trim();
     }
 
+    /**
+     * Tính toán mã băm HMAC-SHA512 cho chuỗi dữ liệu đầu vào bằng secretKey.
+     * Trả về chuỗi Hexadecimal viết thường.
+     * 
+     * @param key Khóa bí mật hashSecret
+     * @param data Chuỗi dữ liệu cần băm
+     * @return Chuỗi mã băm Hexadecimal
+     */
     private String hmacSha512(String key, String data) {
         try {
             if (!StringUtils.hasText(key) || data == null) {
@@ -349,7 +410,7 @@ public class VnPayServiceImpl implements VnPayService {
             }
             return sb.toString();
         } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-            log.error("Failed to calculate HMAC-SHA512: {}", e.getMessage());
+            log.error("Không thể tính toán HMAC-SHA512: {}", e.getMessage());
             return "";
         }
     }

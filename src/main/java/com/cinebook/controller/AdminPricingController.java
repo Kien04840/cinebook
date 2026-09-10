@@ -21,7 +21,15 @@ import java.math.BigDecimal;
 import java.time.DayOfWeek;
 import java.util.List;
 
-@Tag(name = "Admin Pricing", description = "Administrator dynamic ticket pricing rules (Day of week & Time slot)")
+/**
+ * Controller quản trị các quy tắc định giá động (Admin Dynamic Pricing Controller).
+ *
+ * Chịu trách nhiệm:
+ * - Cấu hình mức phụ thu giá vé theo các thứ trong tuần (Thứ 2 - Chủ nhật).
+ * - Cấu hình mức phụ thu giá vé theo khung giờ chiếu (Khung giờ sáng, chiều, tối, giờ vàng).
+ * - Xem trước cấu phần chi tiết giá vé cho từng loại ghế của một suất chiếu.
+ */
+@Tag(name = "Admin Pricing", description = "Quản trị quy tắc định giá vé động (theo ngày trong tuần và khung giờ chiếu)")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/v1/admin/pricing")
@@ -31,21 +39,21 @@ public class AdminPricingController {
 
     private final PricingService pricingService;
 
-    // --- DAY PRICING RULES ---
+    // --- QUY TẮC GIÁ THEO THỨ TRONG TUẦN ---
 
-    @Operation(summary = "Get all weekday pricing rules (Monday to Sunday)")
+    @Operation(summary = "Lấy danh sách quy tắc phụ thu cho tất cả các ngày trong tuần (Thứ 2 đến Chủ nhật)")
     @GetMapping("/day-rules")
     public ResponseEntity<List<DayPricingRuleResponse>> getAllDayPricingRules() {
         return ResponseEntity.ok(pricingService.getAllDayPricingRules());
     }
 
-    @Operation(summary = "Get a specific weekday pricing rule by ID")
+    @Operation(summary = "Lấy thông tin quy tắc phụ thu ngày theo ID")
     @GetMapping("/day-rules/{id}")
     public ResponseEntity<DayPricingRuleResponse> getDayPricingRuleById(@PathVariable String id) {
         return ResponseEntity.ok(pricingService.getDayPricingRuleById(id));
     }
 
-    @Operation(summary = "Update price modifier for a specific weekday rule by ID")
+    @Operation(summary = "Cập nhật mức phụ thu cho một ngày trong tuần theo ID quy tắc")
     @PutMapping("/day-rules/{id}")
     public ResponseEntity<DayPricingRuleResponse> updateDayPricingRule(
             @PathVariable String id,
@@ -54,7 +62,7 @@ public class AdminPricingController {
         return ResponseEntity.ok(pricingService.updateDayPricingRule(id, request));
     }
 
-    @Operation(summary = "Update price modifier for a day of week directly")
+    @Operation(summary = "Cập nhật trực tiếp mức phụ thu cho một thứ trong tuần")
     @PutMapping("/day-rules/by-day/{dayOfWeek}")
     public ResponseEntity<DayPricingRuleResponse> updateDayPricingRuleByDay(
             @PathVariable DayOfWeek dayOfWeek,
@@ -63,21 +71,21 @@ public class AdminPricingController {
         return ResponseEntity.ok(pricingService.updateDayPricingRuleByDay(dayOfWeek, modifier));
     }
 
-    // --- TIME SLOT PRICING RULES ---
+    // --- QUY TẮC GIÁ THEO KHUNG GIỜ CHIẾU ---
 
-    @Operation(summary = "Get all time slot pricing rules")
+    @Operation(summary = "Lấy danh sách tất cả các quy tắc phụ thu theo khung giờ chiếu")
     @GetMapping({"/time-slots", "/time-slot-rules"})
     public ResponseEntity<List<TimeSlotPricingRuleResponse>> getAllTimeSlotPricingRules() {
         return ResponseEntity.ok(pricingService.getAllTimeSlotPricingRules());
     }
 
-    @Operation(summary = "Get a specific time slot pricing rule by ID")
+    @Operation(summary = "Lấy thông tin chi tiết một quy tắc khung giờ chiếu theo ID")
     @GetMapping({"/time-slots/{id}", "/time-slot-rules/{id}"})
     public ResponseEntity<TimeSlotPricingRuleResponse> getTimeSlotPricingRuleById(@PathVariable String id) {
         return ResponseEntity.ok(pricingService.getTimeSlotPricingRuleById(id));
     }
 
-    @Operation(summary = "Create a new time slot pricing rule")
+    @Operation(summary = "Tạo mới một quy tắc phụ thu theo khung giờ chiếu")
     @PostMapping({"/time-slots", "/time-slot-rules"})
     public ResponseEntity<TimeSlotPricingRuleResponse> createTimeSlotPricingRule(
             @Valid @RequestBody CreateTimeSlotPricingRuleRequest request
@@ -86,7 +94,7 @@ public class AdminPricingController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    @Operation(summary = "Update an existing time slot pricing rule")
+    @Operation(summary = "Cập nhật quy tắc phụ thu khung giờ chiếu theo ID")
     @PutMapping({"/time-slots/{id}", "/time-slot-rules/{id}"})
     public ResponseEntity<TimeSlotPricingRuleResponse> updateTimeSlotPricingRule(
             @PathVariable String id,
@@ -95,16 +103,16 @@ public class AdminPricingController {
         return ResponseEntity.ok(pricingService.updateTimeSlotPricingRule(id, request));
     }
 
-    @Operation(summary = "Delete a time slot pricing rule")
+    @Operation(summary = "Xóa một quy tắc phụ thu khung giờ chiếu theo ID")
     @DeleteMapping({"/time-slots/{id}", "/time-slot-rules/{id}"})
     public ResponseEntity<Void> deleteTimeSlotPricingRule(@PathVariable String id) {
         pricingService.deleteTimeSlotPricingRule(id);
         return ResponseEntity.noContent().build();
     }
 
-    // --- PREVIEW ---
+    // --- XEM TRƯỚC BẢNG GIÁ ---
 
-    @Operation(summary = "Preview pricing breakdown for a showtime")
+    @Operation(summary = "Xem trước cấu phần giá vé chi tiết cho một suất chiếu")
     @GetMapping("/preview/{showtimeId}")
     public ResponseEntity<ShowtimePricingPreviewResponse> previewShowtimePricing(@PathVariable String showtimeId) {
         return ResponseEntity.ok(pricingService.previewShowtimePricing(showtimeId));

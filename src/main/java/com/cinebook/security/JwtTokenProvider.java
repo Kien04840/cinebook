@@ -18,6 +18,17 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.List;
 
+/**
+ * Thành phần tiện ích chịu trách nhiệm tạo, phân tích cú pháp và xác thực JSON Web Token (JWT).
+ * 
+ * Đặc tả kỹ thuật:
+ * - Chuẩn mã hóa: HMAC-SHA256 / SHA512 với khóa đối xứng bí mật (jwt.secret).
+ * - Thời hạn sống Access Token: 15 phút (900,000 ms) theo chuẩn stateless ngắn hạn nhằm giảm thiểu
+ *   rủi ro khi token bị lộ trên đường truyền.
+ * - Nội dung Payload (Claims): Chứa thông tin định danh người dùng (userId làm Subject),
+ *   email, họ tên (fullName) và danh sách vai trò (roles: ROLE_CUSTOMER, ROLE_ADMIN) để Spring Security
+ *   tiến hành phân quyền mà không cần truy vấn lại cơ sở dữ liệu ở mọi request.
+ */
 @Slf4j
 @Component
 public class JwtTokenProvider {
@@ -33,6 +44,12 @@ public class JwtTokenProvider {
         this.jwtExpiration = jwtExpiration;
     }
 
+    /**
+     * Tạo Access Token mới từ thông tin chi tiết của người dùng đã xác thực thành công.
+     * 
+     * @param userDetails Đối tượng UserDetails chứa thông tin định danh và quyền hạn
+     * @return Chuỗi JWT đã được ký số dạng chuỗi Base64 URL-safe (Header.Payload.Signature)
+     */
     public String generateAccessToken(UserDetailsImpl userDetails) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpiration);
@@ -52,6 +69,12 @@ public class JwtTokenProvider {
                 .compact();
     }
 
+    /**
+     * Trích xuất mã định danh người dùng (userId) được lưu trữ trong trường Subject của JWT.
+     * 
+     * @param token Chuỗi Access Token hợp lệ
+     * @return Chuỗi UUID của người dùng
+     */
     public String getUserIdFromToken(String token) {
         Claims claims = Jwts.parser()
                 .verifyWith(key)
@@ -62,6 +85,9 @@ public class JwtTokenProvider {
         return claims.getSubject();
     }
 
+    /**
+     * Trích xuất địa chỉ email từ trường claims mở rộng của JWT.
+     */
     public String getEmailFromToken(String token) {
         Claims claims = Jwts.parser()
                 .verifyWith(key)
@@ -72,6 +98,15 @@ public class JwtTokenProvider {
         return claims.get("email", String.class);
     }
 
+    /**
+     * Kiểm tra tính hợp lệ và toàn vẹn của chuỗi JWT:
+     * - Kiểm tra chữ ký số có khớp với SecretKey của máy chủ không (chống giả mạo dữ liệu).
+     * - Kiểm tra thời hạn hiệu lực (chống dùng lại token đã hết hạn ExpiredJwtException).
+     * - Kiểm tra định dạng cấu trúc 3 phần (MalformedJwtException).
+     *
+     * @param token Chuỗi JWT cần kiểm tra
+     * @return true nếu token hợp lệ và còn hạn; false nếu có bất kỳ lỗi nào
+     */
     public boolean validateToken(String token) {
         try {
             Jwts.parser()

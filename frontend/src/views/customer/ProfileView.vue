@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { useI18n } from '@/composables/useI18n'
 import userService from '@/services/user.service'
+import authService from '@/services/auth.service'
 import type { UserProfileResponse } from '@/types/auth.types'
 import { formatDate } from '@/utils/formatters'
 import Card from '@/components/common/Card.vue'
@@ -165,8 +166,42 @@ async function handleChangePassword() {
   }
 }
 
+const isResendingVerification = ref(false)
+const resendCountdown = ref(0)
+let resendInterval: number | null = null
+
+function startResendCountdown(seconds = 60) {
+  resendCountdown.value = seconds
+  if (resendInterval) clearInterval(resendInterval)
+  resendInterval = window.setInterval(() => {
+    resendCountdown.value--
+    if (resendCountdown.value <= 0) {
+      if (resendInterval) clearInterval(resendInterval)
+      resendInterval = null
+    }
+  }, 1000)
+}
+
+async function handleResendVerification() {
+  if (!profileData.value?.email) return
+  isResendingVerification.value = true
+  try {
+    const res = await authService.resendVerification(profileData.value.email)
+    toast.success(res.message || t('auth.resendSuccessToast'))
+    startResendCountdown(60)
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || t('common.errorTitle'))
+  } finally {
+    isResendingVerification.value = false
+  }
+}
+
 onMounted(() => {
   loadProfile()
+})
+
+onUnmounted(() => {
+  if (resendInterval) clearInterval(resendInterval)
 })
 </script>
 
@@ -179,6 +214,36 @@ onMounted(() => {
         {{ t('profile.subtitle') }}
       </p>
     </div>
+
+    <!-- Unverified Email Banner -->
+    <transition name="fade-fast">
+      <div
+        v-if="profileData && !profileData.emailVerified && !isLoading"
+        class="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-950/10"
+      >
+        <div class="flex items-start gap-3">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-amber-200">{{ t('profile.unverifiedEmailTitle') }}</h3>
+            <p class="text-xs text-amber-300/80 mt-0.5">{{ t('profile.unverifiedEmailDesc') }}</p>
+          </div>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          class="shrink-0 text-xs border-amber-500/40 text-amber-300 hover:bg-amber-500/20"
+          :loading="isResendingVerification"
+          :disabled="resendCountdown > 0"
+          @click="handleResendVerification"
+        >
+          {{ resendCountdown > 0 ? `${t('auth.resendIn')} (${resendCountdown}s)` : t('auth.resendEmailBtn') }}
+        </Button>
+      </div>
+    </transition>
 
     <!-- Content / Loading with Fade Transition -->
     <transition name="fade-fast" mode="out-in">
@@ -231,6 +296,12 @@ onMounted(() => {
               <span>{{ t('profile.accountStatus') }}:</span>
               <Badge :variant="profileData?.status === 'ACTIVE' ? 'success' : 'danger'">
                 {{ profileData?.status === 'ACTIVE' ? t('status.ACTIVE') : profileData?.status }}
+              </Badge>
+            </div>
+            <div class="flex justify-between text-slate-400">
+              <span>{{ t('profile.emailStatus') }}:</span>
+              <Badge :variant="profileData?.emailVerified ? 'success' : 'warning'">
+                {{ profileData?.emailVerified ? t('profile.emailVerified') : t('profile.emailUnverified') }}
               </Badge>
             </div>
             <div class="flex justify-between text-slate-400">

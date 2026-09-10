@@ -29,6 +29,23 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * Dịch vụ quản lý thông tin ghế và quy trình cập nhật loại ghế (Seat Management Engine).
+ * 
+ * Kiến trúc & Cơ chế xử lý ghế đôi (Couple Seat Invariants):
+ * 1. Quy tắc bố trí ghế đôi (COUPLE):
+ *    - Chỉ được đặt ở hàng cuối cùng (lastRowLabel) của phòng chiếu.
+ *    - Phải bắt đầu từ cột lẻ (cột 1, 3, 5,...) để đảm bảo đồng bộ với cấu trúc phòng chiếu thực tế.
+ *    - Ghế đôi chiếm span 2 cột vật lý (ví dụ: E1 chiếm vị trí của E1 và E2).
+ * 2. Cơ chế xóa ghế đè tự động (Atomic Overlap Removal):
+ *    - Khi quản trị viên chuyển ghế đơn (E1) thành ghế đôi, hệ thống tự động phát hiện và xóa ghế đơn liền kề (E2)
+ *      để đảm bảo không bị trùng lặp vị trí tọa độ trong phòng chiếu.
+ * 3. Hỗ trợ xem trước (Preview API):
+ *    - Cung cấp endpoint previewBatchUpdateSeatType giúp Admin kiểm tra danh sách ghế sẽ bị xóa tự động
+ *      và xác thực tính hợp lệ trước khi thực sự lưu vào CSDL.
+ * 4. Bảo vệ phòng chiếu đã phát sinh dữ liệu:
+ *    - Từ chối mọi thao tác chỉnh sửa loại ghế nếu phòng chiếu đã có booking, vé hoặc ghế đang giữ chỗ.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -53,6 +70,9 @@ public class SeatServiceImpl implements SeatService {
                 .toList();
     }
 
+    /**
+     * Cập nhật loại ghế cho một ghế đơn lẻ, tự động xóa ghế đè liền kề nếu gán thành ghế đôi (Couple).
+     */
     @Override
     @Transactional
     public SeatResponse updateSeatType(String seatId, String seatTypeId) {
@@ -65,6 +85,7 @@ public class SeatServiceImpl implements SeatService {
         Auditorium auditorium = seat.getAuditorium();
         LocalDateTime now = LocalDateTime.now();
 
+        // Kiểm tra điều kiện bảo vệ phòng chiếu
         if (bookingRepository.existsByAuditoriumId(auditorium.getId()) || ticketRepository.existsByAuditoriumId(auditorium.getId())) {
             throw new ConflictException("Không thể thay đổi loại ghế của phòng chiếu đã phát sinh giao dịch đặt vé.");
         }

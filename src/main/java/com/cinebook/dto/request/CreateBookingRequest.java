@@ -27,6 +27,9 @@ public class CreateBookingRequest {
 
     @Size(max = 50, message = "Promotion code must not exceed 50 characters")
     private String promotionCode;
+
+    @jakarta.validation.Valid
+    private List<BookingFoodItemRequest> foodItems;
 }
 
 

@@ -9,7 +9,6 @@ import org.springframework.http.HttpStatus;
 public class TmdbAuthException extends TmdbApiException {
 
     public TmdbAuthException(String message) {
-        super("TMDB authentication failed (check TMDB_API_KEY configuration): " + message,
-                HttpStatus.SERVICE_UNAVAILABLE);
+        super("TMDB authentication failed: " + message, HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.TMDB_SERVICE_UNAVAILABLE);
     }
 }

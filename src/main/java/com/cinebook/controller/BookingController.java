@@ -19,7 +19,18 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-@Tag(name = "Booking", description = "Customer booking and seat reservation endpoints")
+/**
+ * Controller xử lý các yêu cầu đặt vé của khách hàng (Customer Booking Controller).
+ * Tất cả endpoints đều yêu cầu đăng nhập và có token Bearer hợp lệ.
+ * 
+ * Các chức năng chính:
+ * - Tạo đơn đặt vé & giữ chỗ 5 phút (POST /api/v1/bookings)
+ * - Lịch sử đặt vé cá nhân phân trang (GET /api/v1/bookings/me)
+ * - Tra cứu đơn giữ chỗ đang hoạt động của khách cho suất chiếu (GET /api/v1/bookings/active)
+ * - Xem chi tiết đơn hàng (GET /api/v1/bookings/{id})
+ * - Khách chủ động hủy đơn giữ chỗ chưa thanh toán (POST /api/v1/bookings/{id}/cancel)
+ */
+@Tag(name = "Booking", description = "Các API đặt vé và giữ chỗ xem phim dành cho khách hàng")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/v1/bookings")
@@ -28,7 +39,11 @@ public class BookingController {
 
     private final BookingService bookingService;
 
-    @Operation(summary = "Start booking / hold seats with 5-minute reservation window")
+    /**
+     * Khởi tạo đơn đặt vé và kích hoạt cơ chế giữ chỗ tạm thời trong 5 phút.
+     * Trả về HTTP 201 CREATED kèm thông tin đơn hàng, danh sách ghế giữ chỗ và thời điểm hết hạn.
+     */
+    @Operation(summary = "Tạo đơn đặt vé mới và giữ chỗ tạm thời trong 5 phút")
     @PostMapping
     public ResponseEntity<BookingDetailResponse> createBooking(
             @Valid @RequestBody CreateBookingRequest request
@@ -37,7 +52,10 @@ public class BookingController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    @Operation(summary = "Get paginated booking history of authenticated customer")
+    /**
+     * Lấy danh sách lịch sử đặt vé có phân trang của người dùng hiện tại đang đăng nhập.
+     */
+    @Operation(summary = "Lấy danh sách lịch sử đặt vé có phân trang của khách hàng")
     @GetMapping("/me")
     public ResponseEntity<PageResponse<BookingSummaryResponse>> getMyBookings(
             @RequestParam(name = "status", required = false) BookingStatus status,
@@ -47,7 +65,10 @@ public class BookingController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Get current user's active pending booking for a showtime (if any)")
+    /**
+     * Tra cứu đơn đặt vé đang chờ thanh toán (PENDING_PAYMENT) của khách hàng cho suất chiếu cụ thể.
+     */
+    @Operation(summary = "Tra cứu đơn giữ chỗ đang chờ thanh toán của người dùng cho suất chiếu")
     @GetMapping("/active")
     public ResponseEntity<BookingDetailResponse> getActiveBooking(
             @RequestParam(name = "showtimeId") String showtimeId
@@ -56,14 +77,20 @@ public class BookingController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Get detailed booking information by ID (Owner or Admin)")
+    /**
+     * Xem thông tin chi tiết của một đơn đặt vé theo mã định danh ID.
+     */
+    @Operation(summary = "Xem thông tin chi tiết đơn đặt vé theo ID (chính chủ hoặc Admin)")
     @GetMapping("/{id}")
     public ResponseEntity<BookingDetailResponse> getBookingDetail(@PathVariable String id) {
         BookingDetailResponse response = bookingService.getBookingDetail(id);
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Cancel unpaid pending booking and release held seats")
+    /**
+     * Khách hàng hoặc Admin chủ động hủy đơn đặt vé đang chờ thanh toán để giải phóng ghế.
+     */
+    @Operation(summary = "Hủy đơn đặt vé chưa thanh toán và giải phóng ghế giữ chỗ")
     @PostMapping("/{id}/cancel")
     public ResponseEntity<BookingDetailResponse> cancelBooking(
             @PathVariable String id,

@@ -11,6 +11,8 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface PromotionRepository extends JpaRepository<Promotion, String> {
@@ -40,4 +42,7 @@ public interface PromotionRepository extends JpaRepository<Promotion, String> {
             @Param("keyword") String keyword,
             Pageable pageable
     );
+
+    @Query("SELECT p FROM Promotion p WHERE p.status = com.cinebook.enums.PromotionStatus.ACTIVE AND p.startAt <= :now AND p.endAt >= :now AND (p.usageLimit IS NULL OR p.usedCount < p.usageLimit) ORDER BY p.endAt ASC")
+    List<Promotion> findAvailablePromotions(@Param("now") LocalDateTime now);
 }

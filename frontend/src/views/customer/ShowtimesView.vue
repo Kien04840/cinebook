@@ -8,6 +8,7 @@ import showtimeService from '@/services/showtime.service'
 import movieService from '@/services/movie.service'
 import cinemaService from '@/services/cinema.service'
 import { formatCurrency, formatDuration } from '@/utils/formatters'
+import { getCityLabel } from '@/utils/constants'
 import { useI18n } from '@/composables/useI18n'
 import DateSelector from '@/components/showtime/DateSelector.vue'
 import Badge from '@/components/common/Badge.vue'
@@ -300,7 +301,7 @@ onMounted(async () => {
               :key="city"
               :value="city"
             >
-              📍 {{ city }}
+              📍 {{ getCityLabel(city, locale) }}
             </option>
           </select>
         </div>
@@ -317,7 +318,7 @@ onMounted(async () => {
               :key="c.id"
               :value="c.id"
             >
-              {{ c.name }} {{ c.city && !selectedCity ? `(${c.city})` : '' }}
+              {{ c.name }} {{ c.city && !selectedCity ? `(${getCityLabel(c.city, locale)})` : '' }}
             </option>
           </select>
         </div>
@@ -464,7 +465,7 @@ onMounted(async () => {
                 {{ cinema.cinemaName }}
               </h3>
               <span v-if="cinema.cinemaCity" class="text-xs text-slate-400">
-                ({{ cinema.cinemaCity }})
+                ({{ getCityLabel(cinema.cinemaCity, locale) }})
               </span>
             </div>
 
@@ -502,7 +503,7 @@ onMounted(async () => {
                     {{ st.auditoriumName }}
                   </span>
                   <span class="text-[11px] font-bold text-emerald-400 mt-1">
-                    {{ formatCurrency(st.basePrice) }}
+                    {{ t('showtimes.fromPrice', { price: formatCurrency(st.minPrice ?? st.basePrice) }) }}
                   </span>
                 </button>
               </div>

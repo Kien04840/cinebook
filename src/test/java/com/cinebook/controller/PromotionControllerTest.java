@@ -1,8 +1,11 @@
 package com.cinebook.controller;
 
+import com.cinebook.dto.response.PromotionResponse;
 import com.cinebook.dto.response.ValidatePromotionResponse;
 import com.cinebook.enums.PromotionDiscountType;
 import com.cinebook.service.PromotionService;
+
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -87,6 +90,27 @@ class PromotionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(false))
                 .andExpect(jsonPath("$.message").value("Mã giảm giá đã hết hạn sử dụng."));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/promotions/available - Returns list of available promotions -> 200 OK")
+    void testGetAvailablePromotions() throws Exception {
+        PromotionResponse promo = PromotionResponse.builder()
+                .id("promo-1")
+                .code("SUMMER20")
+                .name("Giảm 20% mùa hè")
+                .discountType(PromotionDiscountType.PERCENTAGE)
+                .discountValue(new BigDecimal("20.00"))
+                .minOrderAmount(new BigDecimal("100000.00"))
+                .build();
+
+        when(promotionService.getAvailablePromotions()).thenReturn(List.of(promo));
+
+        mockMvc.perform(get("/api/v1/promotions/available"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].code").value("SUMMER20"))
+                .andExpect(jsonPath("$[0].name").value("Giảm 20% mùa hè"))
+                .andExpect(jsonPath("$[0].discountValue").value(20.00));
     }
 }
 

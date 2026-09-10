@@ -21,7 +21,18 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 
-@Tag(name = "Admin Showtime", description = "Administrator showtime scheduling and management endpoints")
+/**
+ * Controller quản trị lập lịch và điều phối suất chiếu (Admin Showtime Scheduling Controller).
+ *
+ * Chịu trách nhiệm:
+ * - Tra cứu và lọc danh sách suất chiếu của ban quản lý.
+ * - Hiển thị bảng lịch chiếu trực quan (Calendar Grid) và cấu hình phòng/rạp.
+ * - Tự động sinh lịch chiếu theo thuật toán heuristic thông minh (preview / execute).
+ * - Sao chép lịch chiếu giữa các ngày (Copy Schedule).
+ * - Xác thực và gợi ý khung giờ chiếu tối ưu (Validate Slot / Suggest Next Slot).
+ * - Cập nhật, di chuyển hoặc hủy suất chiếu có kiểm tra giao dịch đặt vé.
+ */
+@Tag(name = "Admin Showtime", description = "Quản lý và lập lịch suất chiếu tự động cho Quản trị viên")
 @SecurityRequirement(name = "bearerAuth")
 @RestController
 @RequestMapping("/api/v1/admin/showtimes")
@@ -31,7 +42,7 @@ public class AdminShowtimeController {
     private final ShowtimeService showtimeService;
     private final ShowtimeSchedulingService schedulingService;
 
-    @Operation(summary = "List showtimes for administration with search and filtering")
+    @Operation(summary = "Tìm kiếm và lọc danh sách suất chiếu cho quản trị viên")
     @GetMapping
     public ResponseEntity<PageResponse<ShowtimeSummaryResponse>> getAdminShowtimes(
             @RequestParam(name = "movieId", required = false) String movieId,
@@ -48,7 +59,7 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Get calendar schedule board for a cinema")
+    @Operation(summary = "Lấy bảng lịch chiếu trực quan dạng ma trận cho một cụm rạp")
     @GetMapping("/calendar")
     public ResponseEntity<CalendarScheduleResponse> getCalendarSchedule(
             @RequestParam(name = "cinemaId") String cinemaId,
@@ -59,7 +70,7 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Get scheduling configuration for a cinema")
+    @Operation(summary = "Lấy thông tin cấu hình vận hành và lập lịch của một cụm rạp")
     @GetMapping("/scheduling-config")
     public ResponseEntity<CinemaSchedulingConfigResponse> getCinemaSchedulingConfig(
             @RequestParam(name = "cinemaId") String cinemaId
@@ -68,7 +79,7 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Get auditorium occupancy and availability intervals on a date")
+    @Operation(summary = "Phân tích các khoảng thời gian trống và chiếm dụng của phòng chiếu trong ngày")
     @GetMapping("/auditorium-availability")
     public ResponseEntity<AuditoriumAvailabilityResponse> getAuditoriumAvailability(
             @RequestParam(name = "auditoriumId") String auditoriumId,
@@ -78,21 +89,21 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Get showtime detail for administration by ID")
+    @Operation(summary = "Xem chi tiết một suất chiếu theo ID cho quản trị viên")
     @GetMapping("/{id}")
     public ResponseEntity<ShowtimeDetailResponse> getAdminShowtimeDetail(@PathVariable String id) {
         ShowtimeDetailResponse response = showtimeService.getAdminShowtimeDetail(id);
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Create a new showtime schedule (endTime is automatically derived from movie duration)")
+    @Operation(summary = "Tạo mới một suất chiếu (endTime tự động tính từ thời lượng phim)")
     @PostMapping
     public ResponseEntity<ShowtimeDetailResponse> createShowtime(@Valid @RequestBody CreateShowtimeRequest request) {
         ShowtimeDetailResponse response = showtimeService.createShowtime(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    @Operation(summary = "Validate a proposed single showtime slot without persisting")
+    @Operation(summary = "Kiểm tra tính hợp lệ của một khung giờ chiếu đề xuất (không lưu vào DB)")
     @PostMapping("/validate")
     public ResponseEntity<ValidateShowtimeSlotResponse> validateSingleSlot(
             @Valid @RequestBody ValidateShowtimeSlotRequest request
@@ -101,7 +112,7 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Suggest the next earliest available slot for a movie in an auditorium")
+    @Operation(summary = "Gợi ý khung giờ chiếu khả dụng sớm nhất cho một bộ phim trong phòng chiếu")
     @PostMapping("/suggest-next-slot")
     public ResponseEntity<SuggestShowtimeSlotResponse> suggestNextSlot(
             @Valid @RequestBody SuggestShowtimeSlotRequest request
@@ -110,7 +121,7 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Preview rule-based auto-generation of showtime slots (transient)")
+    @Operation(summary = "Mô phỏng xem trước kết quả sinh lịch chiếu tự động theo quy tắc tối ưu")
     @PostMapping("/generate/preview")
     public ResponseEntity<ShowtimeGenerationPreviewResponse> previewGeneration(
             @Valid @RequestBody ShowtimeGenerationRequest request
@@ -119,7 +130,7 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Execute rule-based auto-generation and persist valid showtimes")
+    @Operation(summary = "Thực thi thuật toán sinh lịch tự động và lưu các suất chiếu hợp lệ vào DB")
     @PostMapping("/generate")
     public ResponseEntity<ShowtimeGenerationResultResponse> generateShowtimes(
             @Valid @RequestBody ShowtimeGenerationRequest request
@@ -128,7 +139,7 @@ public class AdminShowtimeController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    @Operation(summary = "Copy showtime schedule from a source date to a target date")
+    @Operation(summary = "Sao chép toàn bộ lịch chiếu từ một ngày nguồn sang một ngày đích")
     @PostMapping("/copy")
     public ResponseEntity<CopyScheduleResultResponse> copySchedule(
             @Valid @RequestBody CopyScheduleRequest request
@@ -137,7 +148,7 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Update an existing showtime schedule")
+    @Operation(summary = "Cập nhật thông tin một suất chiếu đã có")
     @PutMapping("/{id}")
     public ResponseEntity<ShowtimeDetailResponse> updateShowtime(
             @PathVariable String id,
@@ -147,7 +158,7 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Move showtime schedule (auditorium and/or startTime)")
+    @Operation(summary = "Di chuyển suất chiếu sang phòng khác hoặc giờ chiếu khác")
     @PatchMapping("/{id}/schedule")
     public ResponseEntity<ShowtimeDetailResponse> moveShowtimeSchedule(
             @PathVariable String id,
@@ -157,14 +168,14 @@ public class AdminShowtimeController {
         return ResponseEntity.ok(response);
     }
 
-    @Operation(summary = "Delete or cancel a showtime schedule based on booking transactions")
+    @Operation(summary = "Xóa hoặc hủy suất chiếu (kiểm tra an toàn nếu đã có vé hoặc ghế đang giữ)")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteShowtime(@PathVariable String id) {
         showtimeService.deleteShowtime(id);
         return ResponseEntity.noContent().build();
     }
 
-    @Operation(summary = "Reconcile showtime lifecycle: automatically transition expired scheduled showtimes to FINISHED")
+    @Operation(summary = "Đồng bộ trạng thái vòng đời: tự động chuyển các suất chiếu đã qua thời gian kết thúc sang FINISHED")
     @PostMapping("/cleanup-finished")
     public ResponseEntity<java.util.Map<String, Object>> cleanupFinishedShowtimes() {
         int updated = showtimeService.cleanupFinishedShowtimes();

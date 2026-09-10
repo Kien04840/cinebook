@@ -25,6 +25,7 @@ public class BookingDetailResponse {
     private BigDecimal totalAmount;
     private BigDecimal grossAmount;
     private BigDecimal discountAmount;
+    private BigDecimal foodAmount;
     private LocalDateTime holdExpiresAt;
     private LocalDateTime createdAt;
     private LocalDateTime cancelledAt;
@@ -34,6 +35,7 @@ public class BookingDetailResponse {
     private List<TicketResponse> tickets;
     private List<PaymentSummaryResponse> payments;
     private BookingPromotionResponse promotion;
+    private List<BookingFoodResponse> foods;
     private UserSummaryResponse user;
 }
 

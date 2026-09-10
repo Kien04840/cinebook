@@ -36,6 +36,7 @@ public class ShowtimeSummaryResponse {
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private BigDecimal basePrice;
+    private BigDecimal minPrice;
     private ShowtimeStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -37,6 +37,11 @@ public interface PricingService {
      */
     ShowtimePricingPreviewResponse previewShowtimePricing(String showtimeId);
 
+    /**
+     * Calculates the minimum starting ticket price for a showtime (including base price and day/time slot modifiers).
+     */
+    BigDecimal calculateMinimumTicketPrice(Showtime showtime);
+
     // Day pricing rules
     List<DayPricingRuleResponse> getAllDayPricingRules();
 

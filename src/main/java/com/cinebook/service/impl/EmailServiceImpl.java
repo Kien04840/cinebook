@@ -78,6 +78,44 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Override
+    public void sendVerificationEmail(String toEmail, String customerName, String verificationToken) {
+        try {
+            String verifyLink = frontendUrl + "/verify-email?token=" + verificationToken;
+            log.info("==================================================================");
+            log.info("[EMAIL] EMAIL VERIFICATION FOR: {}", toEmail);
+            log.info("[EMAIL] VERIFY LINK: {}", verifyLink);
+            log.info("==================================================================");
+
+            if (mailEnabled && mailSender != null) {
+                MimeMessage message = mailSender.createMimeMessage();
+                MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+                helper.setFrom(mailFrom, "CineBook Cinema");
+                helper.setTo(toEmail);
+                helper.setSubject("CineBook — Xác thực địa chỉ email tài khoản");
+
+                String htmlContent = """
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                        <h2 style="color: #dc2626; text-align: center;">CineBook Cinema</h2>
+                        <h3 style="color: #111827; text-align: center; margin-top: 0;">Chào mừng bạn đến với CineBook!</h3>
+                        <p>Xin chào <strong>%s</strong>,</p>
+                        <p>Cảm ơn bạn đã đăng ký tài khoản tại CineBook Cinema. Vui lòng xác thực địa chỉ email của bạn để kích hoạt đầy đủ các tính năng tài khoản:</p>
+                        <div style="text-align: center; margin: 30px 0;">
+                            <a href="%s" style="background-color: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Xác thực Email</a>
+                        </div>
+                        <p style="color: #6b7280; font-size: 13px;">Liên kết xác thực có hiệu lực trong vòng 24 giờ. Nếu bạn không tạo tài khoản này, vui lòng bỏ qua email này.</p>
+                    </div>
+                """.formatted(customerName != null ? customerName : "Quý khách", verifyLink);
+
+                helper.setText(htmlContent, true);
+                mailSender.send(message);
+                log.info("Verification email successfully dispatched to {}", toEmail);
+            }
+        } catch (Exception e) {
+            log.error("Failed to send verification email to {}: {}", toEmail, e.getMessage());
+        }
+    }
+
+    @Override
     public void sendBookingConfirmationEmail(String toEmail, String customerName, Booking booking, List<Ticket> tickets) {
         try {
             String movieTitle = booking.getShowtime() != null && booking.getShowtime().getMovie() != null

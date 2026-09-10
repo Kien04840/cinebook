@@ -2,10 +2,13 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useI18n } from '@/composables/useI18n'
+import NotificationBell from '@/components/common/NotificationBell.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+const { t, locale, setLocale } = useI18n()
 
 const isSidebarOpen = ref(false)
 
@@ -20,42 +23,44 @@ interface NavGroup {
   items: NavItem[]
 }
 
-const navGroups: NavGroup[] = [
+const navGroups = computed<NavGroup[]>(() => [
   {
-    groupName: 'Tổng quan',
+    groupName: t('adminMenu.groupOverview'),
     items: [
-      { name: 'Bảng điều khiển', path: '/admin/dashboard', icon: 'dashboard' },
-      { name: 'Báo cáo & Thống kê', path: '/admin/reports', icon: 'reports' },
+      { name: t('adminMenu.dashboard'), path: '/admin/dashboard', icon: 'dashboard' },
+      { name: t('adminMenu.reports'), path: '/admin/reports', icon: 'reports' },
     ],
   },
   {
-    groupName: 'Vận hành',
+    groupName: t('adminMenu.groupOperations'),
     items: [
-      { name: 'Soát vé (Box Office)', path: '/admin/tickets', icon: 'tickets' },
-      { name: 'Lịch chiếu', path: '/admin/showtimes', icon: 'showtimes' },
-      { name: 'Cụm rạp & Phòng', path: '/admin/cinemas', icon: 'cinemas' },
-      { name: 'Đặt vé & Vé', path: '/admin/bookings', icon: 'bookings' },
-      { name: 'Hoàn tiền & GD', path: '/admin/refunds', icon: 'refunds' },
+      { name: t('adminMenu.tickets'), path: '/admin/tickets', icon: 'tickets' },
+      { name: t('adminMenu.showtimes'), path: '/admin/showtimes', icon: 'showtimes' },
+      { name: t('adminMenu.cinemas'), path: '/admin/cinemas', icon: 'cinemas' },
+      { name: t('adminMenu.bookings'), path: '/admin/bookings', icon: 'bookings' },
+      { name: t('adminMenu.refunds'), path: '/admin/refunds', icon: 'refunds' },
     ],
   },
   {
-    groupName: 'Danh mục',
+    groupName: t('adminMenu.groupCatalog'),
     items: [
-      { name: 'Quản lý Phim', path: '/admin/movies', icon: 'movies' },
-      { name: 'Quản lý Khuyến mãi', path: '/admin/promotions', icon: 'promotions' },
-      { name: 'Bảng giá & Ghế', path: '/admin/pricing', icon: 'pricing' },
+      { name: t('adminMenu.movies'), path: '/admin/movies', icon: 'movies' },
+      { name: t('adminMenu.genres'), path: '/admin/genres', icon: 'genres' },
+      { name: t('adminMenu.foods'), path: '/admin/foods', icon: 'foods' },
+      { name: t('adminMenu.promotions'), path: '/admin/promotions', icon: 'promotions' },
+      { name: t('adminMenu.pricing'), path: '/admin/pricing', icon: 'pricing' },
     ],
   },
   {
-    groupName: 'Hệ thống',
+    groupName: t('adminMenu.groupSystem'),
     items: [
-      { name: 'Quản lý Người dùng', path: '/admin/users', icon: 'users' },
+      { name: t('adminMenu.users'), path: '/admin/users', icon: 'users' },
     ],
   },
-]
+])
 
 const currentRouteTitle = computed(() => {
-  return (route.meta.title as string) || 'Quản trị hệ thống'
+  return (route.meta.title as string) || t('adminMenu.portalTitle')
 })
 
 function isActive(path: string) {
@@ -155,6 +160,12 @@ function handleLogout() {
               <svg v-else-if="item.icon === 'movies'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
               </svg>
+              <svg v-else-if="item.icon === 'genres'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
+              </svg>
+              <svg v-else-if="item.icon === 'foods'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
               <svg v-else-if="item.icon === 'promotions'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
               </svg>
@@ -186,7 +197,7 @@ function handleLogout() {
           <button
             type="button"
             class="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition-colors"
-            title="Đăng xuất"
+            :title="t('adminMenu.logout')"
             @click="handleLogout"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -218,6 +229,31 @@ function handleLogout() {
         </div>
 
         <div class="flex items-center gap-3">
+          <!-- Language Switcher Pill -->
+          <div class="flex items-center bg-slate-800 p-0.5 rounded-lg border border-slate-700 text-xs font-semibold">
+            <button
+              type="button"
+              :class="[
+                'px-2 py-1 rounded transition-colors',
+                locale === 'vi' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+              ]"
+              @click="setLocale('vi')"
+            >
+              VI
+            </button>
+            <button
+              type="button"
+              :class="[
+                'px-2 py-1 rounded transition-colors',
+                locale === 'en' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+              ]"
+              @click="setLocale('en')"
+            >
+              EN
+            </button>
+          </div>
+
+          <NotificationBell />
           <router-link
             to="/"
             class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700 transition-colors"
@@ -225,7 +261,7 @@ function handleLogout() {
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
             </svg>
-            Xem Website Khách
+            {{ t('adminMenu.viewClientWebsite') }}
           </router-link>
         </div>
       </header>

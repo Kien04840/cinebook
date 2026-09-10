@@ -6,6 +6,7 @@ import seatTypeService from '@/services/seatType.service'
 import pricingService from '@/services/pricing.service'
 import { formatCurrency, formatDate, formatStatus } from '@/utils/formatters'
 import { useToast } from '@/composables/useToast'
+import { useI18n } from '@/composables/useI18n'
 import { ALLOWED_COLOR_TOKENS, ALLOWED_ICONS, getSeatColorConfig } from '@/utils/seatTypePresentation'
 import Card from '@/components/common/Card.vue'
 import Button from '@/components/common/Button.vue'
@@ -13,6 +14,7 @@ import Badge from '@/components/common/Badge.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
 
 const toast = useToast()
+const { t } = useI18n()
 
 // Active Tab
 type TabKey = 'seat-types' | 'day-rules' | 'time-slots'
@@ -351,10 +353,10 @@ onMounted(() => {
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-          🏷️ Quản Lý Bảng Giá & Định Giá Vé
+          🏷️ {{ t('adminPricing.title') }}
         </h1>
         <p class="text-xs sm:text-sm text-slate-400 mt-1">
-          Thiết lập phụ thu loại ghế, phụ thu ngày trong tuần và khung giờ chiếu theo công thức định giá tự động.
+          {{ t('adminPricing.subtitle') }}
         </p>
       </div>
 
@@ -371,7 +373,7 @@ onMounted(() => {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
           </template>
-          Tạo loại ghế mới
+          {{ t('adminPricing.createSeatType') }}
         </Button>
 
         <Button
@@ -386,7 +388,7 @@ onMounted(() => {
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
           </template>
-          Thêm khung giờ mới
+          {{ t('adminPricing.createTimeSlot') }}
         </Button>
       </div>
     </div>
@@ -397,34 +399,34 @@ onMounted(() => {
         <div class="space-y-1">
           <div class="flex items-center gap-2">
             <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-              CÔNG THỨC V1
+              {{ t('adminPricing.formulaBadge') }}
             </span>
-            <span class="text-xs font-semibold text-slate-300">Định giá vé động theo thời gian thực</span>
+            <span class="text-xs font-semibold text-slate-300">{{ t('adminPricing.formulaDesc') }}</span>
           </div>
           <div class="flex flex-wrap items-center gap-2 pt-1 font-mono text-xs sm:text-sm">
             <span class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 border border-slate-700 font-bold">
-              Giá vé
+              {{ t('adminPricing.formulaTicketPrice') }}
             </span>
             <span class="text-slate-400 font-bold">=</span>
             <span class="px-2.5 py-1 rounded-lg bg-sky-500/15 text-sky-300 border border-sky-500/30 font-semibold" title="Giá gốc thiết lập trên suất chiếu">
-              Giá suất chiếu (Base)
+              {{ t('adminPricing.formulaBase') }}
             </span>
             <span class="text-slate-400 font-bold">+</span>
             <span class="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold" title="Phụ thu loại ghế (STANDARD, VIP, COUPLE...)">
-              Phụ thu loại ghế
+              {{ t('adminPricing.formulaSeat') }}
             </span>
             <span class="text-slate-400 font-bold">+</span>
             <span class="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 font-semibold" title="Phụ thu ngày trong tuần (T2 - CN)">
-              Phụ thu ngày
+              {{ t('adminPricing.formulaDay') }}
             </span>
             <span class="text-slate-400 font-bold">+</span>
             <span class="px-2.5 py-1 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/30 font-semibold" title="Phụ thu khung giờ (Sáng sớm, Giờ vàng, Đêm muộn...)">
-              Phụ thu khung giờ
+              {{ t('adminPricing.formulaTime') }}
             </span>
           </div>
         </div>
         <div class="text-xs text-slate-400 bg-slate-900/80 p-3 rounded-xl border border-slate-800 shrink-0 max-w-xs">
-          💡 <span class="text-slate-300 font-medium">Bảo vệ lịch sử:</span> Khi vé đã đặt hoặc thanh toán thành công, giá vé được lưu cố định (snapshot) và không bị thay đổi nếu sửa bảng giá.
+          💡 <span class="text-slate-300 font-medium">{{ t('adminPricing.snapshotNotice') }}</span>
         </div>
       </div>
     </div>
@@ -442,7 +444,7 @@ onMounted(() => {
         @click="handleTabChange('seat-types')"
       >
         <span>💺</span>
-        <span>Loại Ghế & Phụ Thu</span>
+        <span>{{ t('adminPricing.tabSeatTypes') }}</span>
         <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-white font-mono">
           {{ seatTypes.length }}
         </span>
@@ -459,7 +461,7 @@ onMounted(() => {
         @click="handleTabChange('day-rules')"
       >
         <span>📅</span>
-        <span>Giá Theo Ngày Trong Tuần</span>
+        <span>{{ t('adminPricing.tabDayRules') }}</span>
         <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-white font-mono">
           {{ dayRules.length || 7 }}
         </span>
@@ -476,7 +478,7 @@ onMounted(() => {
         @click="handleTabChange('time-slots')"
       >
         <span>⏰</span>
-        <span>Giá Theo Khung Giờ</span>
+        <span>{{ t('adminPricing.tabTimeSlots') }}</span>
         <span class="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 text-white font-mono">
           {{ timeSlotRules.length }}
         </span>
@@ -503,9 +505,18 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-800">
-              <tr v-if="isLoadingSeatTypes" v-for="n in 4" :key="n" class="animate-pulse">
-                <td colspan="8" class="px-4 py-4"><div class="h-5 rounded bg-slate-800"></div></td>
-              </tr>
+              <template v-if="isLoadingSeatTypes">
+                <tr v-for="i in 4" :key="'skel-st-' + i" class="animate-pulse">
+                  <td class="px-4 py-4"><div class="h-4 w-16 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-4 w-28 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-5 w-16 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-4 w-20 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-4 w-32 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-5 w-16 bg-slate-800 rounded-full"></div></td>
+                  <td class="px-4 py-4"><div class="h-4 w-20 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4 text-right"><div class="h-7 w-12 bg-slate-800 rounded ml-auto"></div></td>
+                </tr>
+              </template>
 
               <tr v-else-if="seatTypes.length === 0">
                 <td colspan="8" class="px-4 py-12 text-center text-slate-500">
@@ -581,9 +592,15 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-800">
-              <tr v-if="isLoadingDayRules" v-for="n in 7" :key="n" class="animate-pulse">
-                <td colspan="5" class="px-4 py-4"><div class="h-5 rounded bg-slate-800"></div></td>
-              </tr>
+              <template v-if="isLoadingDayRules">
+                <tr v-for="i in 7" :key="'skel-dr-' + i" class="animate-pulse">
+                  <td class="px-4 py-4"><div class="h-4 w-28 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-5 w-24 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-4 w-20 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-4 w-24 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4 text-right"><div class="h-7 w-20 bg-slate-800 rounded ml-auto"></div></td>
+                </tr>
+              </template>
 
               <tr v-else-if="dayRules.length === 0">
                 <td colspan="5" class="px-4 py-12 text-center text-slate-500">
@@ -652,9 +669,15 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-800">
-              <tr v-if="isLoadingTimeSlots" v-for="n in 3" :key="n" class="animate-pulse">
-                <td colspan="5" class="px-4 py-4"><div class="h-5 rounded bg-slate-800"></div></td>
-              </tr>
+              <template v-if="isLoadingTimeSlots">
+                <tr v-for="i in 3" :key="'skel-ts-' + i" class="animate-pulse">
+                  <td class="px-4 py-4"><div class="h-4 w-28 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-5 w-24 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-4 w-20 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4"><div class="h-4 w-24 bg-slate-800 rounded"></div></td>
+                  <td class="px-4 py-4 text-right"><div class="h-7 w-20 bg-slate-800 rounded ml-auto"></div></td>
+                </tr>
+              </template>
 
               <tr v-else-if="timeSlotRules.length === 0">
                 <td colspan="5" class="px-4 py-12 text-center text-slate-500">

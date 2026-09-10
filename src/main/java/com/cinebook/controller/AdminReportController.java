@@ -42,6 +42,7 @@ public class AdminReportController {
     ) {
         LocalDateTime fromTime = parseFromDate(from);
         LocalDateTime toTime = parseToDate(to);
+        validateDateRange(fromTime, toTime);
         DashboardResponse response = reportService.getDashboardSummary(fromTime, toTime);
         return ResponseEntity.ok(response);
     }
@@ -55,6 +56,7 @@ public class AdminReportController {
     ) {
         LocalDateTime fromTime = parseFromDate(from);
         LocalDateTime toTime = parseToDate(to);
+        validateDateRange(fromTime, toTime);
         List<RevenueTrendResponse> response = reportService.getRevenueTrend(fromTime, toTime, groupBy);
         return ResponseEntity.ok(response);
     }
@@ -69,6 +71,7 @@ public class AdminReportController {
     ) {
         LocalDateTime fromTime = parseFromDate(from);
         LocalDateTime toTime = parseToDate(to);
+        validateDateRange(fromTime, toTime);
         List<MovieReportResponse> response = reportService.getMovieReport(fromTime, toTime, sortBy, limit);
         return ResponseEntity.ok(response);
     }
@@ -83,6 +86,7 @@ public class AdminReportController {
     ) {
         LocalDateTime fromTime = parseFromDate(from);
         LocalDateTime toTime = parseToDate(to);
+        validateDateRange(fromTime, toTime);
         List<CinemaReportResponse> response = reportService.getCinemaReport(fromTime, toTime, sortBy, limit);
         return ResponseEntity.ok(response);
     }
@@ -99,6 +103,7 @@ public class AdminReportController {
     ) {
         LocalDateTime fromTime = parseFromDate(from);
         LocalDateTime toTime = parseToDate(to);
+        validateDateRange(fromTime, toTime);
         PageResponse<ShowtimeOccupancyResponse> response = reportService.getShowtimeOccupancy(
                 fromTime, toTime, cinemaId, movieId, sortBy, pageable);
         return ResponseEntity.ok(response);
@@ -113,6 +118,7 @@ public class AdminReportController {
     ) {
         LocalDateTime fromTime = parseFromDate(from);
         LocalDateTime toTime = parseToDate(to);
+        validateDateRange(fromTime, toTime);
         List<ShowtimeOccupancyResponse> response = reportService.getTopOccupancyShowtimes(fromTime, toTime, limit);
         return ResponseEntity.ok(response);
     }
@@ -125,6 +131,7 @@ public class AdminReportController {
     ) {
         LocalDateTime fromTime = parseFromDate(from);
         LocalDateTime toTime = parseToDate(to);
+        validateDateRange(fromTime, toTime);
         BookingStatisticsResponse response = reportService.getBookingStatistics(fromTime, toTime);
         return ResponseEntity.ok(response);
     }
@@ -137,6 +144,7 @@ public class AdminReportController {
     ) {
         LocalDateTime fromTime = parseFromDate(from);
         LocalDateTime toTime = parseToDate(to);
+        validateDateRange(fromTime, toTime);
         UserStatisticsResponse response = reportService.getUserStatistics(fromTime, toTime);
         return ResponseEntity.ok(response);
     }
@@ -149,6 +157,7 @@ public class AdminReportController {
     ) {
         LocalDateTime fromTime = parseFromDate(from);
         LocalDateTime toTime = parseToDate(to);
+        validateDateRange(fromTime, toTime);
         RefundStatisticsResponse response = reportService.getRefundStatistics(fromTime, toTime);
         return ResponseEntity.ok(response);
     }
@@ -168,6 +177,7 @@ public class AdminReportController {
     ) {
         LocalDateTime fromTime = parseFromDate(from);
         LocalDateTime toTime = parseToDate(to);
+        validateDateRange(fromTime, toTime);
 
         byte[] data = reportService.exportReport(reportType, format, fromTime, toTime, groupBy, sortBy, cinemaId, movieId, limit);
         String filename = reportService.getExportFilename(reportType, format);
@@ -180,6 +190,12 @@ public class AdminReportController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .contentType(mediaType)
                 .body(data);
+    }
+
+    private void validateDateRange(LocalDateTime from, LocalDateTime to) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new BadRequestException("Ngày bắt đầu không được lớn hơn ngày kết thúc.");
+        }
     }
 
     private LocalDateTime parseFromDate(String dateStr) {

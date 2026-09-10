@@ -121,5 +121,49 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.accessToken").value("mock-access-token"))
                 .andExpect(jsonPath("$.user.email").value("test@example.com"));
     }
+
+    @Test
+    void verifyEmail_ValidToken_Returns200() throws Exception {
+        com.cinebook.dto.request.VerifyEmailRequest request = new com.cinebook.dto.request.VerifyEmailRequest("test-valid-token");
+
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Email has been verified successfully"));
+    }
+
+    @Test
+    void verifyEmail_EmptyToken_Returns400() throws Exception {
+        com.cinebook.dto.request.VerifyEmailRequest request = new com.cinebook.dto.request.VerifyEmailRequest("");
+
+        mockMvc.perform(post("/api/v1/auth/verify-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void resendVerification_ValidEmail_Returns200() throws Exception {
+        com.cinebook.dto.request.ResendVerificationRequest request = new com.cinebook.dto.request.ResendVerificationRequest("user@example.com");
+
+        mockMvc.perform(post("/api/v1/auth/resend-verification")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("If your email is registered and eligible, a verification link has been sent"));
+    }
+
+    @Test
+    void resendVerification_InvalidEmail_Returns400() throws Exception {
+        com.cinebook.dto.request.ResendVerificationRequest request = new com.cinebook.dto.request.ResendVerificationRequest("not-an-email");
+
+        mockMvc.perform(post("/api/v1/auth/resend-verification")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+    }
 }
 

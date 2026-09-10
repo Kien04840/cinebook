@@ -32,14 +32,20 @@ export interface SeatGridResult<T extends BaseSeatItem = BaseSeatItem> {
 }
 
 /**
- * Builds a logical 2D seat grid representation from an array of seats and an optional columnsCount.
+ * Xây dựng ma trận lưới 2D (Seat Grid) từ danh sách ghế 1D trả về từ Backend.
  * 
- * Invariants:
- * 1. seatNumber represents the 1-indexed starting logical column.
- * 2. Seat span is driven by domain capacity: normal (capacity=1) has span=1, couple (capacity=2) has span=2.
- * 3. Multi-capacity seats occupy span = capacity if space permits (col + span - 1 <= columnsCount and tracks are free).
- * 4. Missing seat numbers are preserved as non-interactive empty positions (spacers).
- * 5. Neither seat IDs, booking payloads, nor seat numbers are mutated.
+ * Các nguyên tắc & Thuật toán hiển thị:
+ * 1. Tọa độ logic (seatNumber): Đại diện cho vị trí cột bắt đầu (1-indexed) trên lưới hiển thị.
+ * 2. Độ rộng ô (Seat Span) phụ thuộc vào sức chứa (seat.capacity):
+ *    - Ghế thường / VIP (capacity = 1): Chiếm span = 1 cột.
+ *    - Ghế đôi Couple (capacity = 2): Chiếm span = 2 cột (span = 2).
+ * 3. Chèn khoảng trống thông minh (Empty Spacers):
+ *    - Các cột không có ghế (ví dụ: lối đi giữa rạp hoặc ghế bị xóa do ghế đôi chiếm chỗ)
+ *      được tự động lấp đầy bằng các ô GridCellType = 'empty' để giữ nguyên độ căn chỉnh thẳng hàng.
+ * 4. Chống vỡ giao diện (Collision Clamping):
+ *    - Nếu ghế đôi có nguy cơ tràn quá số cột tối đa hoặc đè lên một ghế khác đã tồn tại,
+ *      thuật toán tự động thu hẹp span về 1 để bảo toàn bố cục lưới.
+ * 5. Bất biến dữ liệu: Tuyệt đối không thay đổi mã ghế hay ID gửi lên payload đặt vé.
  */
 export function buildSeatGrid<T extends BaseSeatItem>(
   seats: T[],
@@ -55,7 +61,7 @@ export function buildSeatGrid<T extends BaseSeatItem>(
     }
   }
 
-  // 1. Group seats by rowLabel
+  // 1. Gom nhóm danh sách ghế theo nhãn hàng (rowLabel)
   const rowMap = new Map<string, T[]>()
   let maxSeatNumber = 0
 
@@ -70,29 +76,29 @@ export function buildSeatGrid<T extends BaseSeatItem>(
     }
   }
 
-  // 2. Determine columnsCount: use configured if available, else derive from maxSeatNumber
+  // 2. Xác định tổng số cột (columnsCount): ưu tiên cấu hình phòng chiếu, nếu không suy ra từ maxSeatNumber
   let columnsCount = configuredColumnsCount && configuredColumnsCount > 0
     ? configuredColumnsCount
     : Math.max(maxSeatNumber, 1)
 
-  // Ensure columnsCount is at least as large as any seat's starting column
+  // Đảm bảo số cột tối thiểu phải đủ lớn để chứa số ghế lớn nhất
   if (maxSeatNumber > columnsCount) {
     columnsCount = maxSeatNumber
   }
 
   const columnNumbers = Array.from({ length: columnsCount }, (_, i) => i + 1)
 
-  // 3. Sort row labels alphabetically (A, B, C... Z)
+  // 3. Sắp xếp thứ tự các hàng theo bảng chữ cái (A, B, C... Z)
   const sortedRowLabels = Array.from(rowMap.keys()).sort((a, b) =>
     a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
   )
 
   let hasOverlapWarning = false
 
-  // 4. Build grid cells for each row
+  // 4. Xây dựng các ô lưới (grid cells) cho từng hàng
   const rows: GridRow<T>[] = sortedRowLabels.map((rowLabel) => {
     const seatsInRow = rowMap.get(rowLabel)!
-    // Map seatNumber -> seat
+    // Ánh xạ số thứ tự ghế (cột) sang thực thể ghế: seatNumber -> seat
     const seatByCol = new Map<number, T>()
     for (const seat of seatsInRow) {
       seatByCol.set(seat.seatNumber, seat)
@@ -109,9 +115,9 @@ export function buildSeatGrid<T extends BaseSeatItem>(
         let span = capacity
 
         if (span > 1) {
-          // Validate: seatNumber + span - 1 <= columnsCount
+          // Kiểm tra hợp lệ: ghế mở rộng không được vượt quá số cột tối đa của hàng
           if (col + span - 1 <= columnsCount) {
-            // Check if any subsequent column in the span already has an independent seat
+            // Kiểm tra xung đột: các cột tiếp theo trong phạm vi span có bị ghế độc lập khác chiếm chỗ không
             let hasCollision = false
             for (let offset = 1; offset < span; offset++) {
               if (seatByCol.has(col + offset)) {
@@ -144,7 +150,7 @@ export function buildSeatGrid<T extends BaseSeatItem>(
 
         col += span
       } else {
-        // Empty logical position
+        // Vị trí lối đi hoặc khoảng trống logic (aisle / empty cell)
         cells.push({
           type: 'empty',
           column: col,

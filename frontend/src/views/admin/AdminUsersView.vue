@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import type { UserProfileResponse } from '@/types/auth.types'
 import userService from '@/services/user.service'
 import { formatDateTime } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
+import { useAuthStore } from '@/stores/auth'
 import Card from '@/components/common/Card.vue'
 import Button from '@/components/common/Button.vue'
 import Input from '@/components/common/Input.vue'
@@ -16,6 +17,7 @@ import { useToast } from '@/composables/useToast'
 
 const { t } = useI18n()
 const toast = useToast()
+const authStore = useAuthStore()
 
 const users = ref<UserProfileResponse[]>([])
 const isLoading = ref(true)
@@ -34,6 +36,24 @@ const isStatusModalOpen = ref(false)
 const targetUser = ref<UserProfileResponse | null>(null)
 const nextStatus = ref<'ACTIVE' | 'INACTIVE' | 'BLOCKED'>('ACTIVE')
 const isUpdatingStatus = ref(false)
+
+// Edit user modal
+const isEditModalOpen = ref(false)
+const editingUser = ref<UserProfileResponse | null>(null)
+const isSavingUser = ref(false)
+const editForm = reactive({
+  fullName: '',
+  status: 'ACTIVE' as 'ACTIVE' | 'BLOCKED',
+  roles: [] as string[],
+})
+const editErrors = reactive({
+  fullName: '',
+  roles: '',
+})
+
+const isEditingSelf = computed(() => {
+  return editingUser.value?.id === authStore.user?.id
+})
 
 function getStatusBadgeVariant(status: string) {
   switch (status) {
@@ -84,6 +104,10 @@ async function fetchUsers() {
 }
 
 function promptStatusChange(user: UserProfileResponse, newStatus: 'ACTIVE' | 'INACTIVE' | 'BLOCKED') {
+  if (user.id === authStore.user?.id && newStatus === 'BLOCKED') {
+    toast.error(t('adminUsers.selfDisableWarning'))
+    return
+  }
   targetUser.value = user
   nextStatus.value = newStatus
   isStatusModalOpen.value = true
@@ -102,6 +126,84 @@ async function confirmStatusChange() {
     toast.error(err.response?.data?.message || t('common.errorTitle'))
   } finally {
     isUpdatingStatus.value = false
+  }
+}
+
+function openEditModal(user: UserProfileResponse) {
+  editingUser.value = user
+  editForm.fullName = user.fullName || ''
+  editForm.status = user.status === 'BLOCKED' ? 'BLOCKED' : 'ACTIVE'
+  editForm.roles = user.roles ? [...user.roles] : ['CUSTOMER']
+  editErrors.fullName = ''
+  editErrors.roles = ''
+  isEditModalOpen.value = true
+}
+
+function toggleRole(role: string) {
+  if (isEditingSelf.value && role === 'ADMIN' && editForm.roles.includes('ADMIN')) {
+    toast.warning(t('adminUsers.selfDemotionWarning'))
+    return
+  }
+
+  if (editForm.roles.includes(role)) {
+    if (editForm.roles.length === 1) {
+      editErrors.roles = t('adminUsers.errRolesRequired')
+      return
+    }
+    editForm.roles = editForm.roles.filter((r) => r !== role)
+  } else {
+    editForm.roles.push(role)
+  }
+  editErrors.roles = ''
+}
+
+function validateEditForm(): boolean {
+  let valid = true
+  editErrors.fullName = ''
+  editErrors.roles = ''
+
+  if (!editForm.fullName.trim()) {
+    editErrors.fullName = t('adminUsers.errFullNameRequired')
+    valid = false
+  } else if (editForm.fullName.trim().length > 100) {
+    editErrors.fullName = t('auth.errFullNameTooLong')
+    valid = false
+  }
+
+  if (editForm.roles.length === 0) {
+    editErrors.roles = t('adminUsers.errRolesRequired')
+    valid = false
+  }
+
+  return valid
+}
+
+async function handleSaveUser() {
+  if (!editingUser.value || !validateEditForm()) return
+
+  if (isEditingSelf.value && editForm.status === 'BLOCKED') {
+    toast.error(t('adminUsers.selfDisableWarning'))
+    return
+  }
+  if (isEditingSelf.value && !editForm.roles.includes('ADMIN')) {
+    toast.error(t('adminUsers.selfDemotionWarning'))
+    return
+  }
+
+  isSavingUser.value = true
+  try {
+    await userService.adminUpdateUser(editingUser.value.id, {
+      fullName: editForm.fullName.trim(),
+      status: editForm.status,
+      roles: editForm.roles,
+    })
+    toast.success(t('adminUsers.updateSuccess'))
+    isEditModalOpen.value = false
+    await fetchUsers()
+  } catch (err: any) {
+    toast.error(err.response?.data?.message || t('common.errorTitle'))
+  } finally {
+    isSavingUser.value = false
   }
 }
 
@@ -275,6 +377,20 @@ onMounted(() => {
               <td class="px-4 py-3.5 text-right">
                 <div class="flex items-center justify-end gap-2">
                   <Button
+                    variant="ghost"
+                    size="sm"
+                    class="text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/50"
+                    @click="openEditModal(u)"
+                  >
+                    <template #prefix>
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </template>
+                    {{ t('adminUsers.editBtn') }}
+                  </Button>
+
+                  <Button
                     v-if="u.status === 'ACTIVE'"
                     variant="danger"
                     size="sm"
@@ -347,6 +463,167 @@ onMounted(() => {
             @click="confirmStatusChange"
           >
             {{ t('adminUsers.confirmUpdateBtn') }}
+          </Button>
+        </div>
+      </template>
+    </Modal>
+
+    <!-- Edit User Modal -->
+    <Modal
+      v-model="isEditModalOpen"
+      :title="t('adminUsers.editModalTitle')"
+      @close="isEditModalOpen = false"
+    >
+      <form class="space-y-4" @submit.prevent="handleSaveUser">
+        <!-- Self-editing awareness note -->
+        <div v-if="isEditingSelf" class="p-3 rounded-xl bg-indigo-950/40 border border-indigo-800/60 text-xs text-indigo-300 flex items-start gap-2.5">
+          <span class="text-base leading-none">ℹ️</span>
+          <p class="leading-relaxed">
+            Bạn đang chỉnh sửa tài khoản Quản trị viên của chính mình. Cơ chế bảo mật sẽ bảo vệ không để bạn tự hạ quyền hoặc tự khóa tài khoản.
+          </p>
+        </div>
+
+        <!-- Account Info Section (Read-only for privacy) -->
+        <div class="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800 space-y-3">
+          <div class="flex items-center justify-between text-xs border-b border-slate-800/80 pb-2">
+            <span class="font-semibold text-slate-300 flex items-center gap-1.5">
+              <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+              {{ t('adminUsers.accountInfoSection') }}
+            </span>
+            <span class="px-2 py-0.5 text-[10px] font-semibold bg-slate-800 text-slate-400 rounded-md border border-slate-700/80">
+              {{ t('adminUsers.readOnlyBadge') }}
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                Email
+              </label>
+              <Input
+                :model-value="editingUser?.email || ''"
+                disabled
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                {{ t('adminUsers.phone') }}
+              </label>
+              <Input
+                :model-value="editingUser?.phone || '—'"
+                disabled
+              />
+            </div>
+          </div>
+
+          <p class="text-[11px] text-slate-400 italic">
+            * {{ t('adminUsers.privacyNotice') }}
+          </p>
+        </div>
+
+        <!-- Full Name -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+            {{ t('adminUsers.fullName') }} <span class="text-rose-500">*</span>
+          </label>
+          <Input
+            v-model="editForm.fullName"
+            :error="editErrors.fullName"
+            placeholder="Nguyễn Văn A"
+            required
+          />
+        </div>
+
+        <!-- Status -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+            {{ t('adminUsers.status') }} <span class="text-rose-500">*</span>
+          </label>
+          <select
+            v-model="editForm.status"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          >
+            <option value="ACTIVE">{{ t('adminUsers.statusActive') }}</option>
+            <option value="BLOCKED" :disabled="isEditingSelf">
+              {{ t('adminUsers.statusBlocked') }} {{ isEditingSelf ? `(${t('adminUsers.selfDisableWarning')})` : '' }}
+            </option>
+          </select>
+          <p v-if="isEditingSelf" class="text-[11px] text-amber-400 mt-1">
+            ⚠️ {{ t('adminUsers.selfDisableWarning') }}
+          </p>
+        </div>
+
+        <!-- Roles Checkboxes -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+            {{ t('adminUsers.roles') }} <span class="text-rose-500">*</span>
+          </label>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <!-- ADMIN Role -->
+            <label
+              :class="[
+                'flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none',
+                editForm.roles.includes('ADMIN')
+                  ? 'bg-rose-950/30 border-rose-600/50 text-white'
+                  : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700',
+                isEditingSelf ? 'opacity-90 cursor-not-allowed' : ''
+              ]"
+            >
+              <input
+                type="checkbox"
+                class="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 bg-slate-800 border-slate-700"
+                :checked="editForm.roles.includes('ADMIN')"
+                :disabled="isEditingSelf"
+                @change="toggleRole('ADMIN')"
+              />
+              <div class="text-xs">
+                <span class="font-bold text-rose-400">{{ t('adminUsers.roleAdmin') }}</span>
+                <p v-if="isEditingSelf" class="text-[10px] text-amber-400 mt-0.5">
+                  {{ t('adminUsers.selfDemotionWarning') }}
+                </p>
+              </div>
+            </label>
+
+            <!-- CUSTOMER Role -->
+            <label
+              :class="[
+                'flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none',
+                editForm.roles.includes('CUSTOMER')
+                  ? 'bg-indigo-950/30 border-indigo-600/50 text-white'
+                  : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+              ]"
+            >
+              <input
+                type="checkbox"
+                class="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 bg-slate-800 border-slate-700"
+                :checked="editForm.roles.includes('CUSTOMER')"
+                @change="toggleRole('CUSTOMER')"
+              />
+              <div class="text-xs">
+                <span class="font-bold text-indigo-400">{{ t('adminUsers.roleCustomer') }}</span>
+              </div>
+            </label>
+          </div>
+          <p v-if="editErrors.roles" class="text-xs text-rose-400 mt-1.5">
+            {{ editErrors.roles }}
+          </p>
+        </div>
+      </form>
+
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <Button variant="secondary" size="md" @click="isEditModalOpen = false">
+            {{ t('common.cancel') }}
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            :loading="isSavingUser"
+            @click="handleSaveUser"
+          >
+            {{ t('common.save') }}
           </Button>
         </div>
       </template>

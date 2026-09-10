@@ -8,10 +8,10 @@ import org.springframework.http.HttpStatus;
 public class TmdbServiceException extends TmdbApiException {
 
     public TmdbServiceException(String message) {
-        super("TMDB service unavailable: " + message, HttpStatus.SERVICE_UNAVAILABLE);
+        super("TMDB service unavailable: " + message, HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.TMDB_SERVICE_UNAVAILABLE);
     }
 
     public TmdbServiceException(String message, Throwable cause) {
-        super("TMDB service unavailable: " + message, cause, HttpStatus.SERVICE_UNAVAILABLE);
+        super("TMDB service unavailable: " + message, cause, HttpStatus.SERVICE_UNAVAILABLE, ErrorCode.TMDB_SERVICE_UNAVAILABLE);
     }
 }

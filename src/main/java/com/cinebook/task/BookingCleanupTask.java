@@ -22,6 +22,18 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Tác vụ chạy ngầm định kỳ (Background Scheduled Task) chuyên trách quét và dọn dẹp các đơn đặt vé
+ * và trạng thái giữ chỗ (Seat Hold) đã quá hạn thanh toán 5 phút.
+ * 
+ * Cơ chế hoạt động:
+ * 1. Tần suất: Chạy mỗi 10 giây một lần (fixedDelay = 10,000 ms, initialDelay = 5,000 ms).
+ * 2. Xử lý phân trang theo lô (Batch Processing): Mỗi lần xử lý tối đa 100 đơn (batchSize = 100)
+ *    nhằm giải phóng tài nguyên CPU/RAM, tránh lock bảng CSDL trong thời gian dài.
+ * 3. Ủy thác xử lý toàn vẹn: Từng đơn hàng hết hạn được ủy thác cho BookingService.expireBookingIfHoldExpired
+ *    để thực thi các nghiệp vụ: Lưu vết Snapshot vé CANCELLED, xóa SeatHold giải phóng ghế,
+ *    hoàn trả Quota mã giảm giá và hủy các phiên thanh toán PENDING.
+ */
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "cinebook.booking.cleanup.enabled", havingValue = "true", matchIfMissing = true)
@@ -64,6 +76,9 @@ public class BookingCleanupTask {
         this.batchSize = batchSize;
     }
 
+    /**
+     * Phương thức được Spring Scheduler kích hoạt định kỳ.
+     */
     @Scheduled(
             fixedDelayString = "${cinebook.booking.cleanup.fixed-delay-ms:10000}",
             initialDelayString = "${cinebook.booking.cleanup.initial-delay-ms:5000}"
@@ -125,7 +140,7 @@ public class BookingCleanupTask {
                     }
                 }
 
-                // If batch is smaller than batchSize or no bookings changed status in this batch, terminate loop
+                // Nếu kích thước lô nhỏ hơn batchSize hoặc không còn đơn nào chuyển trạng thái trong đợt này, kết thúc vòng lặp
                 if (batch.size() < batchSize || batchNewlyExpiredCount == 0) {
                     hasMore = false;
                 }

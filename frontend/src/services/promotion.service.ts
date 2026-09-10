@@ -22,6 +22,11 @@ export const promotionService = {
     return response.data
   },
 
+  async getAvailablePromotions(): Promise<PromotionResponse[]> {
+    const response = await apiClient.get<PromotionResponse[]>('/api/v1/promotions/available')
+    return response.data
+  },
+
   async validatePromotionCode(
     code: string,
     grossAmount: number

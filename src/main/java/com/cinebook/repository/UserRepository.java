@@ -53,4 +53,10 @@ public interface UserRepository extends JpaRepository<User, String> {
     );
 
     long countByStatus(UserStatus status);
-}
+
+    @Query("SELECT COUNT(DISTINCT u.id) FROM User u JOIN u.userRoles ur JOIN ur.role r " +
+           "WHERE (r.name = 'ADMIN' OR r.name = 'ROLE_ADMIN') " +
+           "AND u.status = com.cinebook.enums.UserStatus.ACTIVE " +
+           "AND u.deletedAt IS NULL")
+    long countActiveAdmins();
+}

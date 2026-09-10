@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -92,5 +93,84 @@ class AdminUserControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value("u-1"))
                 .andExpect(jsonPath("$.status").value("BLOCKED"));
+    }
+
+    @Test
+    void adminUpdateUser_Returns200() throws Exception {
+        UserProfileResponse profile = UserProfileResponse.builder()
+                .id("u-1")
+                .email("user@cinebook.com")
+                .fullName("Updated Admin User")
+                .phone("0901234567")
+                .status(UserStatus.ACTIVE)
+                .roles(List.of("ADMIN", "CUSTOMER"))
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        when(userService.adminUpdateUser(eq("u-1"), any())).thenReturn(profile);
+
+        String validJson = """
+                {
+                    "fullName": "Updated Admin User",
+                    "status": "ACTIVE",
+                    "roles": ["ADMIN", "CUSTOMER"]
+                }
+                """;
+
+        mockMvc.perform(put("/api/v1/admin/users/u-1")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(validJson))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("u-1"))
+                .andExpect(jsonPath("$.fullName").value("Updated Admin User"))
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.roles[0]").value("ADMIN"));
+    }
+
+    @Test
+    void adminUpdateUser_InvalidPayload_BlankFullName_Returns400() throws Exception {
+        String invalidJson = """
+                {
+                    "fullName": "",
+                    "status": "ACTIVE",
+                    "roles": ["CUSTOMER"]
+                }
+                """;
+
+        mockMvc.perform(put("/api/v1/admin/users/u-1")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(invalidJson))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void adminUpdateUser_InvalidPayload_EmptyRoles_Returns400() throws Exception {
+        String invalidJson = """
+                {
+                    "fullName": "Valid Name",
+                    "status": "ACTIVE",
+                    "roles": []
+                }
+                """;
+
+        mockMvc.perform(put("/api/v1/admin/users/u-1")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(invalidJson))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void adminUpdateUser_InvalidPayload_MissingStatus_Returns400() throws Exception {
+        String invalidJson = """
+                {
+                    "fullName": "Valid Name",
+                    "roles": ["CUSTOMER"]
+                }
+                """;
+
+        mockMvc.perform(put("/api/v1/admin/users/u-1")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(invalidJson))
+                .andExpect(status().isBadRequest());
     }
 }

@@ -32,6 +32,22 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * Dịch vụ quản lý phim, phân loại thể loại và vòng đời phát hành phim (Movie Lifecycle Engine).
+ * 
+ * Kiến trúc & Cơ chế nghiệp vụ:
+ * 1. Vòng đời trạng thái phim (Movie Status):
+ *    - COMING_SOON: Phim sắp chiếu, hiển thị teaser/trailer, chưa mở bán vé.
+ *    - NOW_SHOWING: Phim đang chiếu tại các rạp, cho phép đặt vé.
+ *    - ENDED: Phim đã dừng chiếu.
+ *    - HIDDEN: Phim tạm ẩn hoặc đã bị xóa mềm, không hiển thị cho khách hàng.
+ * 2. Cơ chế Xóa mềm (Soft Delete Invariant):
+ *    - Phim không bao giờ bị xóa cứng (DROP/DELETE CASCADE) trong CSDL MySQL.
+ *    - Khi xóa, trường deletedAt được cập nhật mốc thời gian và trạng thái chuyển sang HIDDEN.
+ *    - Cơ chế này bảo toàn 100% khóa ngoại (Foreign Keys) liên kết tới các lịch chiếu và vé xem phim lịch sử.
+ * 3. Tra cứu động bằng JPA Specification:
+ *    - Hỗ trợ lọc đa điều kiện linh hoạt: từ khóa tìm kiếm (tiêu đề/đạo diễn/diễn viên), thể loại, trạng thái.
+ */
 @Service
 @RequiredArgsConstructor
 public class MovieServiceImpl implements MovieService {
@@ -41,6 +57,10 @@ public class MovieServiceImpl implements MovieService {
     private final com.cinebook.repository.BookingRepository bookingRepository;
     private final MovieMapper movieMapper;
 
+    /**
+     * Tra cứu danh sách phim công khai cho khách hàng vãng lai và trang chủ.
+     * Chỉ trả về các phim chưa bị xóa và có trạng thái COMING_SOON hoặc NOW_SHOWING.
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<MovieSummaryResponse> getPublicMovies(
@@ -195,9 +215,21 @@ public class MovieServiceImpl implements MovieService {
         }
 
         movie.setTmdbId(request.getTmdbId());
-        movie.setTitle(request.getTitle().trim());
+        if (request.getTitle() != null) {
+            String trimmedTitle = request.getTitle().trim();
+            if (!trimmedTitle.equals(movie.getTitle())) {
+                movie.setTitleManualOverride(true);
+            }
+            movie.setTitle(trimmedTitle);
+        }
         movie.setOriginalTitle(request.getOriginalTitle() != null ? request.getOriginalTitle().trim() : null);
-        movie.setOverview(request.getOverview().trim());
+        if (request.getOverview() != null) {
+            String trimmedOverview = request.getOverview().trim();
+            if (!trimmedOverview.equals(movie.getOverview())) {
+                movie.setOverviewManualOverride(true);
+            }
+            movie.setOverview(trimmedOverview);
+        }
         movie.setDurationMinutes(request.getDurationMinutes());
         movie.setDirector(request.getDirector().trim());
         movie.setActors(request.getActors().trim());

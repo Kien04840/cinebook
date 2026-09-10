@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import paymentService from '@/services/payment.service'
-import { formatCurrency } from '@/utils/formatters'
+import { formatCurrency, getErrorMessage } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import { useToast } from '@/composables/useToast'
 import Button from '@/components/common/Button.vue'
@@ -72,7 +72,7 @@ const formattedCountdown = computed(() => {
 async function handleComplete(responseCode: '00' | '07' | '24') {
   if (isHoldExpired.value) {
     errorMessage.value = t('demoPayment.holdExpiredNotice') || 'Đơn đặt vé đã hết thời gian giữ chỗ (5 phút). Vui lòng đặt lại vé.'
-    toast.error(t('common.errorTitle'), errorMessage.value)
+    toast.error(errorMessage.value, t('common.errorTitle'))
     return
   }
 
@@ -92,11 +92,11 @@ async function handleComplete(responseCode: '00' | '07' | '24') {
     })
 
     if (responseCode === '00') {
-      toast.success(t('common.successTitle'), res.message || 'Thanh toán thành công!')
+      toast.success(res.message || 'Thanh toán thành công!', t('common.successTitle'))
     } else if (responseCode === '24') {
-      toast.info(t('common.noticeTitle'), res.message || 'Giao dịch đã hủy.')
+      toast.info(res.message || 'Giao dịch đã hủy.', t('common.noticeTitle'))
     } else {
-      toast.error(t('common.errorTitle'), res.message || 'Giao dịch thất bại.')
+      toast.error(res.message || 'Giao dịch thất bại.', t('common.errorTitle'))
     }
 
     // Redirect to the signed result URL provided by backend
@@ -109,8 +109,8 @@ async function handleComplete(responseCode: '00' | '07' | '24') {
     }
   } catch (err: any) {
     errorMessage.value =
-      err.response?.data?.message || 'Không thể xử lý mô phỏng thanh toán. Vui lòng thử lại.'
-    toast.error(t('common.errorTitle'), errorMessage.value)
+      getErrorMessage(err, 'Không thể xử lý mô phỏng thanh toán. Vui lòng thử lại.')
+    toast.error(errorMessage.value, t('common.errorTitle'))
     isSubmitting.value = false
     selectedCode.value = ''
   }

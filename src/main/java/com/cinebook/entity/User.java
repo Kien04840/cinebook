@@ -85,6 +85,9 @@ public class User {
     @OneToMany(mappedBy = "user")
     private List<PasswordResetToken> passwordResetTokens = new ArrayList<>();
 
+    @OneToMany(mappedBy = "user")
+    private List<EmailVerificationToken> emailVerificationTokens = new ArrayList<>();
+
     @PrePersist
     protected void onCreate() {
         if (id == null) {

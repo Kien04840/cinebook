@@ -254,6 +254,164 @@ class ReportServiceTest {
     }
 
     @Test
+    @DisplayName("Occupancy: Capacity-weighted aggregate in getDashboardSummary weights by seat volume")
+    void getDashboardSummary_CalculatesCapacityWeightedOccupancyRate() {
+        // Arrange
+        Cinema cinema = new Cinema();
+        cinema.setId(UUID.randomUUID().toString());
+        cinema.setName("Cinema Test");
+
+        Auditorium aud1 = new Auditorium();
+        aud1.setId(UUID.randomUUID().toString());
+        aud1.setName("Auditorium Large");
+        aud1.setCinema(cinema);
+
+        Auditorium aud2 = new Auditorium();
+        aud2.setId(UUID.randomUUID().toString());
+        aud2.setName("Auditorium Small");
+        aud2.setCinema(cinema);
+
+        Movie movie = new Movie();
+        movie.setId(UUID.randomUUID().toString());
+        movie.setTitle("Movie 1");
+
+        Showtime st1 = new Showtime();
+        st1.setId(UUID.randomUUID().toString());
+        st1.setAuditorium(aud1);
+        st1.setMovie(movie);
+        st1.setStartTime(LocalDateTime.of(2026, 8, 15, 18, 0));
+        st1.setEndTime(LocalDateTime.of(2026, 8, 15, 20, 0));
+        st1.setFormat(ShowtimeFormat.TWO_D);
+
+        Showtime st2 = new Showtime();
+        st2.setId(UUID.randomUUID().toString());
+        st2.setAuditorium(aud2);
+        st2.setMovie(movie);
+        st2.setStartTime(LocalDateTime.of(2026, 8, 15, 20, 30));
+        st2.setEndTime(LocalDateTime.of(2026, 8, 15, 22, 30));
+        st2.setFormat(ShowtimeFormat.TWO_D);
+
+        when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(List.of(st1, st2));
+        when(seatRepository.sumCapacityByAuditoriumIdAndStatus(eq(aud1.getId()), eq(SeatStatus.ACTIVE))).thenReturn(100L);
+        when(seatRepository.sumCapacityByAuditoriumIdAndStatus(eq(aud2.getId()), eq(SeatStatus.ACTIVE))).thenReturn(10L);
+
+        // aud1 has 80 occupied seats (80%)
+        SeatType stType = new SeatType();
+        stType.setCapacity((short) 1);
+        List<Ticket> tickets1 = Collections.nCopies(80, new Ticket()).stream().map(t -> {
+            Ticket ticket = new Ticket();
+            Seat seat = new Seat();
+            seat.setSeatType(stType);
+            ticket.setSeat(seat);
+            return ticket;
+        }).toList();
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(st1.getId()), any())).thenReturn(tickets1);
+
+        // aud2 has 1 occupied seat (10%)
+        Ticket ticket2 = new Ticket();
+        Seat seat2 = new Seat();
+        seat2.setSeatType(stType);
+        ticket2.setSeat(seat2);
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(st2.getId()), any())).thenReturn(List.of(ticket2));
+
+        // Act
+        DashboardResponse response = reportService.getDashboardSummary(from, to);
+
+        // Assert:
+        // Arithmetic average would be (80 + 10) / 2 = 45.00%
+        // Capacity-weighted: (80 + 1) / (100 + 10) * 100 = 81 / 110 * 100 = 73.64%
+        assertThat(response.getOperations().getTotalShowtimes()).isEqualTo(2L);
+        assertThat(response.getOperations().getAverageOccupancyRate()).isEqualByComparingTo("73.64");
+    }
+
+    @Test
+    @DisplayName("Occupancy: Clamps rate to 100.00% when occupiedCapacity exceeds totalCapacity")
+    void getShowtimeOccupancy_ClampsRateTo100_WhenOccupiedExceedsTotalCapacity() {
+        Cinema cinema = new Cinema();
+        cinema.setId(UUID.randomUUID().toString());
+        cinema.setName("Cinema Test");
+
+        Auditorium aud = new Auditorium();
+        aud.setId(UUID.randomUUID().toString());
+        aud.setName("Auditorium Anomaly");
+        aud.setCinema(cinema);
+
+        Movie movie = new Movie();
+        movie.setId(UUID.randomUUID().toString());
+        movie.setTitle("Anomaly Movie");
+
+        Showtime st = new Showtime();
+        st.setId(UUID.randomUUID().toString());
+        st.setAuditorium(aud);
+        st.setMovie(movie);
+        st.setStartTime(LocalDateTime.of(2026, 8, 15, 19, 0));
+        st.setEndTime(LocalDateTime.of(2026, 8, 15, 21, 0));
+        st.setFormat(ShowtimeFormat.TWO_D);
+
+        when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(List.of(st));
+        when(seatRepository.sumCapacityByAuditoriumIdAndStatus(eq(aud.getId()), eq(SeatStatus.ACTIVE))).thenReturn(10L);
+
+        // 12 tickets for capacity of 10
+        SeatType stType = new SeatType();
+        stType.setCapacity((short) 1);
+        List<Ticket> tickets = Collections.nCopies(12, new Ticket()).stream().map(t -> {
+            Ticket ticket = new Ticket();
+            Seat seat = new Seat();
+            seat.setSeatType(stType);
+            ticket.setSeat(seat);
+            return ticket;
+        }).toList();
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(st.getId()), any())).thenReturn(tickets);
+
+        PageResponse<ShowtimeOccupancyResponse> page = reportService.getShowtimeOccupancy(
+                from, to, null, null, ReportSortBy.START_TIME, PageRequest.of(0, 10));
+
+        assertThat(page.getContent()).hasSize(1);
+        ShowtimeOccupancyResponse occ = page.getContent().get(0);
+        assertThat(occ.getTotalCapacity()).isEqualTo(10);
+        assertThat(occ.getOccupiedSeats()).isEqualTo(12);
+        assertThat(occ.getAvailableSeats()).isEqualTo(0);
+        assertThat(occ.getOccupancyRate()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    @DisplayName("Occupancy: Sets rate to 0.00 when totalCapacity is 0")
+    void getShowtimeOccupancy_ReturnsZeroRate_WhenTotalCapacityIsZero() {
+        Cinema cinema = new Cinema();
+        cinema.setId(UUID.randomUUID().toString());
+        cinema.setName("Cinema Zero");
+
+        Auditorium aud = new Auditorium();
+        aud.setId(UUID.randomUUID().toString());
+        aud.setName("Auditorium Zero");
+        aud.setCinema(cinema);
+
+        Movie movie = new Movie();
+        movie.setId(UUID.randomUUID().toString());
+        movie.setTitle("Zero Movie");
+
+        Showtime st = new Showtime();
+        st.setId(UUID.randomUUID().toString());
+        st.setAuditorium(aud);
+        st.setMovie(movie);
+        st.setStartTime(LocalDateTime.of(2026, 8, 15, 19, 0));
+        st.setEndTime(LocalDateTime.of(2026, 8, 15, 21, 0));
+        st.setFormat(ShowtimeFormat.TWO_D);
+
+        when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(List.of(st));
+        when(seatRepository.sumCapacityByAuditoriumIdAndStatus(eq(aud.getId()), eq(SeatStatus.ACTIVE))).thenReturn(0L);
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(st.getId()), any())).thenReturn(Collections.emptyList());
+
+        PageResponse<ShowtimeOccupancyResponse> page = reportService.getShowtimeOccupancy(
+                from, to, null, null, ReportSortBy.START_TIME, PageRequest.of(0, 10));
+
+        assertThat(page.getContent()).hasSize(1);
+        ShowtimeOccupancyResponse occ = page.getContent().get(0);
+        assertThat(occ.getTotalCapacity()).isEqualTo(0);
+        assertThat(occ.getOccupancyRate()).isEqualByComparingTo("0.00");
+    }
+
+    @Test
     @DisplayName("Export CSV & XLSX: Generates non-empty byte arrays with valid signatures")
     void exportReport_GeneratesCsvAndXlsx() {
         when(paymentRepository.findSuccessfulPaymentsBetween(any(), any())).thenReturn(Collections.emptyList());
@@ -274,5 +432,51 @@ class ReportServiceTest {
         // Zip file signature check: 0x50, 0x4B (PK)
         assertThat(xlsx[0]).isEqualTo((byte) 0x50);
         assertThat(xlsx[1]).isEqualTo((byte) 0x4B);
+    }
+
+    @Test
+    @DisplayName("Export Movies, Cinemas, Occupancy: Generates valid CSV and XLSX files")
+    void exportReport_OtherTypes_GeneratesValidOutputs() {
+        when(paymentRepository.findSuccessfulPaymentsBetween(any(), any())).thenReturn(Collections.emptyList());
+        when(refundRepository.findSuccessfulRefundsBetween(any(), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findSoldTicketsBetween(any(), any())).thenReturn(Collections.emptyList());
+        when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(Collections.emptyList());
+
+        // MOVIES (CSV and XLSX)
+        byte[] moviesCsv = reportService.exportReport(ReportType.MOVIES, ReportFormat.CSV, from, to, null, ReportSortBy.REVENUE, null, null, 10);
+        assertThat(moviesCsv).isNotEmpty();
+        assertThat(moviesCsv[0]).isEqualTo((byte) 0xEF);
+
+        byte[] moviesXlsx = reportService.exportReport(ReportType.MOVIES, ReportFormat.XLSX, from, to, null, ReportSortBy.REVENUE, null, null, 10);
+        assertThat(moviesXlsx).isNotEmpty();
+        assertThat(moviesXlsx[0]).isEqualTo((byte) 0x50);
+
+        // CINEMAS (CSV and XLSX)
+        byte[] cinemasCsv = reportService.exportReport(ReportType.CINEMAS, ReportFormat.CSV, from, to, null, ReportSortBy.REVENUE, null, null, 10);
+        assertThat(cinemasCsv).isNotEmpty();
+        assertThat(cinemasCsv[0]).isEqualTo((byte) 0xEF);
+
+        byte[] cinemasXlsx = reportService.exportReport(ReportType.CINEMAS, ReportFormat.XLSX, from, to, null, ReportSortBy.REVENUE, null, null, 10);
+        assertThat(cinemasXlsx).isNotEmpty();
+        assertThat(cinemasXlsx[0]).isEqualTo((byte) 0x50);
+
+        // OCCUPANCY (CSV and XLSX)
+        byte[] occCsv = reportService.exportReport(ReportType.OCCUPANCY, ReportFormat.CSV, from, to, null, null, null, null, null);
+        assertThat(occCsv).isNotEmpty();
+        assertThat(occCsv[0]).isEqualTo((byte) 0xEF);
+
+        byte[] occXlsx = reportService.exportReport(ReportType.OCCUPANCY, ReportFormat.XLSX, from, to, null, null, null, null, null);
+        assertThat(occXlsx).isNotEmpty();
+        assertThat(occXlsx[0]).isEqualTo((byte) 0x50);
+    }
+
+    @Test
+    @DisplayName("Filename: Generates appropriate filename based on ReportType and ReportFormat")
+    void getExportFilename_GeneratesCorrectNames() {
+        String csvName = reportService.getExportFilename(ReportType.REVENUE, ReportFormat.CSV);
+        assertThat(csvName).startsWith("revenue-report-").endsWith(".csv");
+
+        String xlsxName = reportService.getExportFilename(ReportType.MOVIES, ReportFormat.XLSX);
+        assertThat(xlsxName).startsWith("movies-report-").endsWith(".xlsx");
     }
 }

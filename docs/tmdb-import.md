@@ -91,8 +91,20 @@ Movies with `tmdb_id IS NULL` (manually created, not linked to TMDB) must never 
 
 Per developer instruction:
 
-- **Overwritten / Synchronized on re-import**:
-  - `title`, `original_title`, `overview`, `duration_minutes`
+- **Smart Fallback Policy (vi-VN → en-US / original_title)**:
+  - Default TMDB request language: `vi-VN` (via `tmdb.language` config).
+  - Title resolution: uses localized `title`; if blank, falls back to `original_title`. Throws `BAD_REQUEST` if both missing.
+  - Overview resolution: uses localized `overview`; if blank, queries TMDB with `en-US`. If English overview exists, uses it; otherwise uses empty string `""` (never fails import, never inserts placeholder).
+
+- **Curated Data Protection (Field-level independent overrides)**:
+  - `title_manual_override`: When Admin edits movie title, flag is set to `true`. Re-import preserves Admin-curated title.
+  - `overview_manual_override`: When Admin edits movie overview, flag is set to `true`. Re-import preserves Admin-curated overview.
+  - If a flag is `false`, the respective field continues to synchronize from TMDB.
+
+- **Synchronized on re-import**:
+  - `title` (unless `title_manual_override == true`)
+  - `overview` (unless `overview_manual_override == true`)
+  - `original_title`, `duration_minutes`
   - `director`, `actors`, `country`, `language`
   - `release_date`, `poster_url`, `backdrop_url`, `trailer_url`
   - `movies_genres` relationships (synced in a Hibernate-safe manner)
@@ -105,6 +117,7 @@ Per developer instruction:
   - `deleted_at` (soft-deleted movie remains soft-deleted, not automatically restored)
   - `created_at`
   - `version` / `updated_at` (managed automatically by JPA/Hibernate lifecycle)
+  - `title_manual_override`, `overview_manual_override` flags
 
 ---
 

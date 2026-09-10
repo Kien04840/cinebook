@@ -36,6 +36,7 @@ export interface ShowtimeSummaryResponse {
   startTime: string // ISO LocalDateTime
   endTime: string // ISO LocalDateTime
   basePrice: number
+  minPrice?: number
   status: ShowtimeStatus
   createdAt: string
   updatedAt?: string

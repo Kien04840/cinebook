@@ -4,3 +4,13 @@ export interface GenreResponse {
   description?: string
 }
 
+export interface CreateGenreRequest {
+  name: string
+  description?: string
+}
+
+export interface UpdateGenreRequest {
+  name: string
+  description?: string
+}
+

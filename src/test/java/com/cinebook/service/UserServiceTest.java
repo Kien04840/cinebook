@@ -37,6 +37,9 @@ class UserServiceTest {
     private UserRepository userRepository;
 
     @Mock
+    private com.cinebook.repository.RoleRepository roleRepository;
+
+    @Mock
     private PasswordEncoder passwordEncoder;
 
     @Spy
@@ -150,6 +153,185 @@ class UserServiceTest {
         when(passwordEncoder.matches("wrong_password", "encoded_current_pwd")).thenReturn(false);
 
         assertThrows(BadRequestException.class, () -> userService.changePassword(request));
+    }
+
+    @Test
+    void adminUpdateUser_Success() {
+        User target = new User();
+        target.setId("user-456");
+        target.setEmail("target@example.com");
+        target.setFullName("Target User");
+        target.setPhone("0900000002");
+        target.setPasswordHash("hashed_secret");
+        target.setStatus(UserStatus.ACTIVE);
+
+        com.cinebook.dto.request.AdminUpdateUserRequest request = com.cinebook.dto.request.AdminUpdateUserRequest.builder()
+                .fullName("Updated Target")
+                .status(UserStatus.BLOCKED)
+                .roles(java.util.Set.of("CUSTOMER"))
+                .build();
+
+        com.cinebook.entity.Role customerRole = new com.cinebook.entity.Role();
+        customerRole.setId("role-cust");
+        customerRole.setName("CUSTOMER");
+
+        when(userRepository.findById("user-456")).thenReturn(Optional.of(target));
+        when(roleRepository.findByName("CUSTOMER")).thenReturn(Optional.of(customerRole));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserProfileResponse response = userService.adminUpdateUser("user-456", request);
+
+        assertNotNull(response);
+        assertEquals("Updated Target", response.getFullName());
+        assertEquals("0900000002", response.getPhone());
+        assertEquals("target@example.com", response.getEmail());
+        assertEquals("hashed_secret", target.getPasswordHash());
+        assertEquals(UserStatus.BLOCKED, response.getStatus());
+        assertTrue(response.getRoles().contains("CUSTOMER"));
+    }
+
+    @Test
+    void adminUpdateUser_PreservesPrivateFields_EmailPhonePassword() {
+        User target = new User();
+        target.setId("user-456");
+        target.setEmail("private@example.com");
+        target.setPhone("0912345678");
+        target.setPasswordHash("super_secret_hash");
+        target.setFullName("Original Target");
+        target.setStatus(UserStatus.ACTIVE);
+
+        com.cinebook.dto.request.AdminUpdateUserRequest request = com.cinebook.dto.request.AdminUpdateUserRequest.builder()
+                .fullName("Renamed By Admin")
+                .status(UserStatus.ACTIVE)
+                .roles(java.util.Set.of("CUSTOMER"))
+                .build();
+
+        com.cinebook.entity.Role customerRole = new com.cinebook.entity.Role();
+        customerRole.setId("role-cust");
+        customerRole.setName("CUSTOMER");
+
+        when(userRepository.findById("user-456")).thenReturn(Optional.of(target));
+        when(roleRepository.findByName("CUSTOMER")).thenReturn(Optional.of(customerRole));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        UserProfileResponse response = userService.adminUpdateUser("user-456", request);
+
+        // Verify that Admin only modified fullName, roles, status
+        assertEquals("Renamed By Admin", response.getFullName());
+        assertEquals(UserStatus.ACTIVE, response.getStatus());
+
+        // Verify that private fields remain untouched
+        assertEquals("private@example.com", target.getEmail());
+        assertEquals("0912345678", target.getPhone());
+        assertEquals("super_secret_hash", target.getPasswordHash());
+        assertEquals("private@example.com", response.getEmail());
+        assertEquals("0912345678", response.getPhone());
+    }
+
+    @Test
+    void adminUpdateUser_SelfDisable_ThrowsBadRequest() {
+        // Authenticated user in setUp() is "user-123"
+        when(userRepository.findById("user-123")).thenReturn(Optional.of(sampleUser));
+
+        com.cinebook.dto.request.AdminUpdateUserRequest request = com.cinebook.dto.request.AdminUpdateUserRequest.builder()
+                .fullName("My Name")
+                .status(UserStatus.BLOCKED)
+                .roles(java.util.Set.of("ADMIN"))
+                .build();
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> userService.adminUpdateUser("user-123", request));
+        assertTrue(ex.getMessage().contains("cannot disable their own account"));
+    }
+
+    @Test
+    void adminUpdateUser_SelfDemotion_ThrowsBadRequest() {
+        // Authenticated user in setUp() is "user-123"
+        when(userRepository.findById("user-123")).thenReturn(Optional.of(sampleUser));
+
+        com.cinebook.dto.request.AdminUpdateUserRequest request = com.cinebook.dto.request.AdminUpdateUserRequest.builder()
+                .fullName("My Name")
+                .status(UserStatus.ACTIVE)
+                .roles(java.util.Set.of("CUSTOMER")) // does not contain ADMIN
+                .build();
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> userService.adminUpdateUser("user-123", request));
+        assertTrue(ex.getMessage().contains("cannot remove the ADMIN role"));
+    }
+
+    @Test
+    void adminUpdateUser_LastAdminProtection_ThrowsBadRequest() {
+        User adminB = new User();
+        adminB.setId("admin-b");
+        adminB.setStatus(UserStatus.ACTIVE);
+
+        com.cinebook.entity.Role adminRole = new com.cinebook.entity.Role();
+        adminRole.setId("role-admin");
+        adminRole.setName("ADMIN");
+
+        com.cinebook.entity.UserRole ur = new com.cinebook.entity.UserRole();
+        ur.setId(new com.cinebook.entity.UserRoleId("admin-b", "role-admin"));
+        ur.setUser(adminB);
+        ur.setRole(adminRole);
+        adminB.getUserRoles().add(ur);
+
+        when(userRepository.findById("admin-b")).thenReturn(Optional.of(adminB));
+        when(roleRepository.findByNameWithLock("ADMIN")).thenReturn(Optional.of(adminRole));
+        when(userRepository.countActiveAdmins()).thenReturn(1L); // Only 1 active admin!
+
+        // Attempting to demote adminB to CUSTOMER
+        com.cinebook.dto.request.AdminUpdateUserRequest request = com.cinebook.dto.request.AdminUpdateUserRequest.builder()
+                .fullName("Admin B")
+                .status(UserStatus.ACTIVE)
+                .roles(java.util.Set.of("CUSTOMER"))
+                .build();
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> userService.adminUpdateUser("admin-b", request));
+        assertTrue(ex.getMessage().contains("last active administrator"));
+        verify(roleRepository).findByNameWithLock("ADMIN");
+    }
+
+    @Test
+    void adminUpdateUser_InvalidRole_ThrowsBadRequest() {
+        when(userRepository.findById("user-456")).thenReturn(Optional.of(new User()));
+
+        com.cinebook.dto.request.AdminUpdateUserRequest request = com.cinebook.dto.request.AdminUpdateUserRequest.builder()
+                .fullName("Target")
+                .status(UserStatus.ACTIVE)
+                .roles(java.util.Set.of("SUPERUSER_HACK"))
+                .build();
+
+        assertThrows(BadRequestException.class, () -> userService.adminUpdateUser("user-456", request));
+    }
+
+    @Test
+    void updateUserStatus_SelfDisable_ThrowsBadRequest() {
+        when(userRepository.findById("user-123")).thenReturn(Optional.of(sampleUser));
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> userService.updateUserStatus("user-123", UserStatus.BLOCKED));
+        assertTrue(ex.getMessage().contains("cannot disable their own account"));
+    }
+
+    @Test
+    void updateUserStatus_LastAdminProtection_ThrowsBadRequest() {
+        User adminB = new User();
+        adminB.setId("admin-b");
+        adminB.setStatus(UserStatus.ACTIVE);
+
+        com.cinebook.entity.Role adminRole = new com.cinebook.entity.Role();
+        adminRole.setId("role-admin");
+        adminRole.setName("ADMIN");
+
+        com.cinebook.entity.UserRole ur = new com.cinebook.entity.UserRole();
+        ur.setUser(adminB);
+        ur.setRole(adminRole);
+        adminB.getUserRoles().add(ur);
+
+        when(userRepository.findById("admin-b")).thenReturn(Optional.of(adminB));
+        when(roleRepository.findByNameWithLock("ADMIN")).thenReturn(Optional.of(adminRole));
+        when(userRepository.countActiveAdmins()).thenReturn(1L);
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> userService.updateUserStatus("admin-b", UserStatus.BLOCKED));
+        assertTrue(ex.getMessage().contains("last active administrator"));
     }
 }
 

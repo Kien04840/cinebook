@@ -8,10 +8,10 @@ import org.springframework.http.HttpStatus;
 public class TmdbResourceNotFoundException extends TmdbApiException {
 
     public TmdbResourceNotFoundException(Long tmdbId) {
-        super("TMDB resource not found with id: " + tmdbId, HttpStatus.NOT_FOUND);
+        super("TMDB resource not found with id: " + tmdbId, HttpStatus.NOT_FOUND, ErrorCode.TMDB_RESOURCE_NOT_FOUND);
     }
 
     public TmdbResourceNotFoundException(String resource) {
-        super("TMDB resource not found: " + resource, HttpStatus.NOT_FOUND);
+        super("TMDB resource not found: " + resource, HttpStatus.NOT_FOUND, ErrorCode.TMDB_RESOURCE_NOT_FOUND);
     }
 }

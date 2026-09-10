@@ -1,0 +1,44 @@
+package com.cinebook.exception;
+
+/**
+ * Clean, stable machine-readable error codes across the CineBook system.
+ */
+public enum ErrorCode {
+    // Auth & User
+    AUTH_FAILED,
+    INVALID_CREDENTIALS,
+    ACCOUNT_BLOCKED,
+    UNAUTHORIZED,
+    FORBIDDEN,
+    TOKEN_EXPIRED,
+    USER_NOT_FOUND,
+    USER_ALREADY_EXISTS,
+    CANNOT_MODIFY_PROTECTED_USER,
+
+    // Booking & Seat
+    SEAT_ALREADY_HELD,
+    SEAT_NOT_AVAILABLE,
+    BOOKING_NOT_FOUND,
+    BOOKING_EXPIRED,
+    BOOKING_ALREADY_PAID,
+    BOOKING_ALREADY_CANCELLED,
+    MAX_SEATS_EXCEEDED,
+    SHOWTIME_ENDED,
+    HOLD_EXPIRED,
+
+    // Payment & Refund
+    PAYMENT_FAILED,
+    PAYMENT_INVALID_SIGNATURE,
+    REFUND_NOT_ELIGIBLE,
+    SHOWTIME_TOO_CLOSE,
+    TICKET_ALREADY_REDEEMED,
+
+    // Generic & Infra
+    RESOURCE_NOT_FOUND,
+    BAD_REQUEST,
+    VALIDATION_FAILED,
+    CONFLICT,
+    INTERNAL_SERVER_ERROR,
+    TMDB_SERVICE_UNAVAILABLE,
+    TMDB_RESOURCE_NOT_FOUND
+}

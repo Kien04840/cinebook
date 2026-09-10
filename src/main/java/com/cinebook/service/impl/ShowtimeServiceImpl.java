@@ -41,6 +41,23 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 
+/**
+ * Dịch vụ quản lý lịch chiếu phim và vòng đời suất chiếu (Showtime Lifecycle & Conflict Detection).
+ * 
+ * Các nguyên tắc & Ràng buộc cốt lõi:
+ * 1. Nguồn tính thời lượng phim duy nhất:
+ *    - Thời lượng (durationMinutes) lấy từ bảng Movie.
+ *    - Thời điểm kết thúc (endTime) được tính toán tự động: endTime = startTime + durationMinutes.
+ * 2. Thuật toán phát hiện xung đột suất chiếu (Interval Overlap Detection):
+ *    - Hai khoảng thời gian [startA, endA) và [startB, endB) trùng lấn khi và chỉ khi:
+ *      startA < endB VÀ endA > startB.
+ *    - Hệ thống cho phép xếp suất chiếu liên tiếp (Back-to-Back): Suất A kết thúc đúng thời điểm suất B bắt đầu (endA <= startB).
+ * 3. Bảo vệ toàn vẹn đơn đặt vé (Booking Immutability Protection):
+ *    - Nếu suất chiếu đã phát sinh đơn đặt vé (bookingRepository.existsByShowtimeId(id) == true),
+ *      hệ thống nghiêm cấm chỉnh sửa phim, phòng chiếu, ngày giờ bắt đầu và kết thúc nhằm tránh gây sai lệch vé đã phát hành.
+ * 4. Tự động chuyển trạng thái FINISHED:
+ *    - Các suất chiếu có endTime < now được tự động cập nhật sang FINISHED thông qua tác vụ định kỳ.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor

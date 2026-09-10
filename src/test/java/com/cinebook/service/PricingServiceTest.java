@@ -343,5 +343,55 @@ class PricingServiceTest {
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("bị trùng lặp");
     }
+
+    @Test
+    @DisplayName("calculateMinimumTicketPrice: calculates minimum starting price including day and time slot modifiers")
+    void testCalculateMinimumTicketPrice_WithModifiersAndSeatTypes() {
+        Showtime showtime = new Showtime();
+        showtime.setBasePrice(new BigDecimal("70000"));
+        showtime.setStartTime(LocalDateTime.of(2026, 9, 12, 19, 0)); // Saturday 19:00
+
+        DayPricingRule satRule = new DayPricingRule();
+        satRule.setDayOfWeek(DayOfWeek.SATURDAY);
+        satRule.setModifier(new BigDecimal("15000"));
+        when(dayPricingRuleRepository.findByDayOfWeek(DayOfWeek.SATURDAY)).thenReturn(Optional.of(satRule));
+
+        TimeSlotPricingRule primeRule = new TimeSlotPricingRule();
+        primeRule.setStartTime(LocalTime.of(18, 0));
+        primeRule.setEndTime(LocalTime.of(22, 0));
+        primeRule.setModifier(new BigDecimal("10000"));
+        when(timeSlotPricingRuleRepository.findApplicableRules(LocalTime.of(19, 0))).thenReturn(List.of(primeRule));
+
+        SeatType standard = new SeatType();
+        standard.setCode("STANDARD");
+        standard.setCapacity((short) 1);
+        standard.setPriceModifier(BigDecimal.ZERO);
+
+        SeatType vip = new SeatType();
+        vip.setCode("VIP");
+        vip.setCapacity((short) 1);
+        vip.setPriceModifier(new BigDecimal("20000"));
+
+        SeatType couple = new SeatType();
+        couple.setCode("COUPLE");
+        couple.setCapacity((short) 2);
+        couple.setPriceModifier(new BigDecimal("30000"));
+
+        when(seatTypeRepository.findAll()).thenReturn(List.of(standard, vip, couple));
+
+        BigDecimal minPrice = pricingService.calculateMinimumTicketPrice(showtime);
+
+        // Standard: 70000 * 1 + 0 + 15000 + 10000 = 95000
+        // VIP: 70000 * 1 + 20000 + 15000 + 10000 = 115000
+        // Couple: 70000 * 2 + 30000 + 15000 + 10000 = 195000
+        assertThat(minPrice).isEqualByComparingTo("95000");
+    }
+
+    @Test
+    @DisplayName("calculateMinimumTicketPrice: null showtime returns ZERO")
+    void testCalculateMinimumTicketPrice_NullShowtime() {
+        BigDecimal minPrice = pricingService.calculateMinimumTicketPrice(null);
+        assertThat(minPrice).isEqualByComparingTo(BigDecimal.ZERO);
+    }
 }
 

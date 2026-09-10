@@ -229,7 +229,7 @@ class AuditoriumServiceTest {
         busyAud.setColumnsCount((short) 6);
         busyAud.setCinema(sampleCinema);
 
-        when(auditoriumRepository.findByDeletedAtIsNull()).thenReturn(List.of(emptyAud, busyAud));
+        when(auditoriumRepository.findAllWithCinemaByDeletedAtIsNull()).thenReturn(List.of(emptyAud, busyAud));
         when(bookingRepository.existsByAuditoriumId("aud-empty")).thenReturn(false);
         when(ticketRepository.existsByAuditoriumId("aud-empty")).thenReturn(false);
         when(seatHoldRepository.existsActiveHoldByAuditoriumId(eq("aud-empty"), any(LocalDateTime.class))).thenReturn(false);

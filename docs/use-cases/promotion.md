@@ -63,7 +63,12 @@ The implementation agent MUST adhere to:
    - Increment `promotions.used_count` by 1 within the same booking creation transaction.
 4. **Quota Release upon Booking Expiration / Cancellation**:
    - If a `PENDING_PAYMENT` booking expires (via `BookingCleanupTask`) or is cancelled by the customer (`POST /api/v1/bookings/{id}/cancel`), atomically decrement `promotions.used_count` by 1 (clamped to $\ge 0$) so the quota is returned to the pool.
-5. **Financial Integrity & Payment Coordination**:
+6. **Available Promotions Listing for Checkout Selection (`GET /api/v1/promotions/available`)**:
+   - Customer checkout flow supports both selecting from active available promotions (interactive modal) and manually typing a promotion code.
+   - Endpoint returns active promotions currently within their validity window (`startAt <= now <= endAt`) and with remaining quota (`used_count < usage_limit` or unlimited), ordered by expiration date ascending.
+   - Auto-apply is strictly forbidden: user must explicitly make a choice to apply.
+   - Backend remains the sole authoritative source of validation and discount computation.
+7. **Financial Integrity & Payment Coordination**:
    - Payment module (`POST /api/v1/bookings/{bookingId}/payments`) automatically snapshots `booking.total_amount` (which already reflects the promotion discount).
    - Once a booking is created, the discount in `booking_promotions` and `booking.total_amount` is 100% immutable.
    - VNPay IPN and Return handlers never recalculate promotions or alter discounted amounts.

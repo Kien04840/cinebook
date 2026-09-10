@@ -5,38 +5,64 @@ import type { PaymentResultResponse } from '@/types/payment.types'
 import type { BookingDetailResponse } from '@/types/booking.types'
 import paymentService from '@/services/payment.service'
 import bookingService from '@/services/booking.service'
-import { formatCurrency } from '@/utils/formatters'
+import { formatCurrency, getErrorMessage } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import { useToast } from '@/composables/useToast'
 import ElectronicTicket from '@/components/ticket/ElectronicTicket.vue'
 import Button from '@/components/common/Button.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
 
+/**
+ * View hiển thị kết quả thanh toán từ Cổng thanh toán VNPay Sandbox (Payment Result View).
+ * 
+ * Luồng hoạt động:
+ * 1. Tiếp nhận tham số redirect từ VNPay (vnp_TxnRef, vnp_Amount, vnp_ResponseCode, vnp_SecureHash,...).
+ * 2. Gọi API Backend `/api/v1/payments/vnpay/return` để xác thực chữ ký số HMAC-SHA512.
+ * 3. Lấy thông tin chi tiết đơn hàng (Booking Detail) từ Backend.
+ * 4. Xử lý các kịch bản kết quả:
+ *    - Thành công (isSuccess): Đơn hàng PAID và vé điện tử đã phát hành -> Hiển thị vé điện tử kèm mã QR Code.
+ *    - Đang xử lý (isProcessing - Polling Fallback): Phản hồi từ VNPay là "00" nhưng IPN webhook chưa kịp chốt đơn,
+ *      frontend tự động thăm dò (poll) 3 lần (2s, 3s, 5s) để đón trạng thái mới nhất.
+ *    - Bị hủy (isCancelled): Khách hàng bấm hủy trên cổng VNPay (mã 24) -> Cho phép bấm "Thử lại thanh toán".
+ *    - Thất bại / Hết hạn: Hiển thị thông báo chi tiết lỗi tương ứng.
+ */
 const route = useRoute()
 const toast = useToast()
 const { t } = useI18n()
 
 const isLoading = ref<boolean>(true)
 const isRetryingPayment = ref<boolean>(false)
+const isCancellingBooking = ref<boolean>(false)
 const errorMessage = ref<string>('')
 
 const paymentResult = ref<PaymentResultResponse | null>(null)
 const bookingDetail = ref<BookingDetailResponse | null>(null)
 
-// Polling state for Return-before-IPN race condition
+// Countdown timer cho thời gian giữ chỗ
+const remainingSeconds = ref<number>(0)
+let holdTimer: any = null
+
+// Cơ chế Polling xử lý trường hợp bất đồng bộ giữa Return URL và Webhook IPN
 const pollCount = ref<number>(0)
 const maxPolls = 3
-const pollDelays = [2000, 3000, 5000] // Polling interval in ms
+const pollDelays = [2000, 3000, 5000] // Khoảng thời gian giãn cách thăm dò (ms)
 let pollTimeout: any = null
 
+// 1. Giao dịch thành công: Đơn hàng đã PAID và đã phát hành vé
 const isSuccess = computed<boolean>(() => {
   return bookingDetail.value?.bookingStatus === 'PAID' && (bookingDetail.value?.tickets?.length || 0) > 0
 })
 
+// 2. Khách hàng chủ động hủy giao dịch trên cổng VNPay hoặc hủy đơn
 const isCancelled = computed<boolean>(() => {
-  return paymentResult.value?.responseCode === '24' || paymentResult.value?.paymentStatus === 'CANCELLED'
+  return (
+    paymentResult.value?.responseCode === '24' ||
+    paymentResult.value?.paymentStatus === 'CANCELLED' ||
+    bookingDetail.value?.bookingStatus === 'CANCELLED'
+  )
 })
 
+// 3. Giao dịch đang chờ xác nhận từ máy chủ
 const isProcessing = computed<boolean>(() => {
   if (isSuccess.value || isCancelled.value) return false
   return (
@@ -45,12 +71,47 @@ const isProcessing = computed<boolean>(() => {
   )
 })
 
-
+const isBookingCancelled = computed<boolean>(() => {
+  return bookingDetail.value?.bookingStatus === 'CANCELLED'
+})
 
 const isHoldStillValid = computed<boolean>(() => {
   if (!bookingDetail.value?.holdExpiresAt) return false
-  return new Date(bookingDetail.value.holdExpiresAt).getTime() > Date.now()
+  if (bookingDetail.value.bookingStatus !== 'PENDING_PAYMENT') return false
+  return remainingSeconds.value > 0
 })
+
+const formattedRemainingTime = computed<string>(() => {
+  const m = Math.floor(remainingSeconds.value / 60)
+  const s = remainingSeconds.value % 60
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+})
+
+function updateRemainingTime() {
+  if (!bookingDetail.value?.holdExpiresAt || bookingDetail.value.bookingStatus !== 'PENDING_PAYMENT') {
+    remainingSeconds.value = 0
+    return
+  }
+  const diffMs = new Date(bookingDetail.value.holdExpiresAt).getTime() - Date.now()
+  remainingSeconds.value = Math.max(0, Math.floor(diffMs / 1000))
+  if (remainingSeconds.value <= 0 && holdTimer) {
+    clearInterval(holdTimer)
+    holdTimer = null
+  }
+}
+
+function startHoldTimer() {
+  if (holdTimer) {
+    clearInterval(holdTimer)
+    holdTimer = null
+  }
+  updateRemainingTime()
+  if (remainingSeconds.value > 0) {
+    holdTimer = setInterval(() => {
+      updateRemainingTime()
+    }, 1000)
+  }
+}
 
 async function processPaymentReturn() {
   isLoading.value = true
@@ -84,6 +145,7 @@ async function fetchBookingDetail(bookingId: string) {
   try {
     const bData = await bookingService.getBookingDetail(bookingId)
     bookingDetail.value = bData
+    startHoldTimer()
 
     // If payment response code is 00 but IPN hasn't confirmed yet (PENDING_PAYMENT), trigger limited poll
     if (bData.bookingStatus === 'PENDING_PAYMENT' && paymentResult.value?.responseCode === '00') {
@@ -104,6 +166,7 @@ function scheduleNextPoll(bookingId: string) {
     try {
       const updated = await bookingService.getBookingDetail(bookingId)
       bookingDetail.value = updated
+      startHoldTimer()
       if (updated.bookingStatus === 'PENDING_PAYMENT') {
         scheduleNextPoll(bookingId)
       }
@@ -131,10 +194,33 @@ async function handleRetryPayment() {
     })
     window.location.href = res.paymentUrl
   } catch (err: any) {
-    const msg = err.response?.data?.message || t('paymentResult.retryFailedError')
-    toast.error(t('common.errorTitle'), msg)
+    const msg = getErrorMessage(err, t('paymentResult.retryFailedError'))
+    toast.error(msg, t('common.errorTitle'))
   } finally {
     isRetryingPayment.value = false
+  }
+}
+
+async function handleCancelBooking() {
+  if (!bookingDetail.value?.id) return
+  isCancellingBooking.value = true
+
+  try {
+    const updated = await bookingService.cancelBooking(bookingDetail.value.id, {
+      reason: 'CUSTOMER_CANCELLED',
+    })
+    bookingDetail.value = updated
+    if (holdTimer) {
+      clearInterval(holdTimer)
+      holdTimer = null
+    }
+    remainingSeconds.value = 0
+    toast.success(t('paymentResult.bookingCancelledNotice'), t('paymentResult.cancelSuccessTitle'))
+  } catch (err: any) {
+    const msg = getErrorMessage(err, t('common.unknownError'))
+    toast.error(msg, t('common.errorTitle'))
+  } finally {
+    isCancellingBooking.value = false
   }
 }
 
@@ -150,6 +236,10 @@ onUnmounted(() => {
   if (pollTimeout) {
     clearTimeout(pollTimeout)
     pollTimeout = null
+  }
+  if (holdTimer) {
+    clearInterval(holdTimer)
+    holdTimer = null
   }
 })
 </script>
@@ -277,29 +367,44 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- STATE C: CANCELLED (Customer aborted on VNPay) -->
+      <!-- STATE C: CANCELLED (Customer aborted on VNPay or cancelled booking) -->
       <div v-else-if="isCancelled" class="max-w-2xl mx-auto space-y-6 text-center animate-fade-in">
         <div class="p-8 rounded-3xl bg-amber-950/70 border border-amber-600/80 space-y-4 shadow-2xl">
           <div class="w-16 h-16 rounded-full bg-amber-500/20 border-2 border-amber-400 text-amber-400 flex items-center justify-center mx-auto text-2xl">
             ⚠️
           </div>
           <h2 class="text-2xl font-bold text-white tracking-tight">
-            {{ t('paymentResult.cancelledTitle') }}
+            {{ isBookingCancelled ? t('paymentResult.cancelledTitle') : (isHoldStillValid ? t('paymentResult.cancelledTitle') : t('paymentResult.expiredTitle')) }}
           </h2>
           <p class="text-xs sm:text-sm text-amber-200/90 leading-relaxed">
-            {{ t('paymentResult.cancelledDesc') }}
+            {{ isBookingCancelled ? t('paymentResult.bookingCancelledDesc') : (isHoldStillValid ? t('paymentResult.cancelledDesc') : t('paymentResult.expiredDesc')) }}
           </p>
 
+          <!-- Countdown timer badge if hold is still valid -->
+          <div v-if="isHoldStillValid && !isBookingCancelled" class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-900/60 border border-amber-500/50 text-amber-300 font-mono text-sm">
+            <span>⏱️ {{ t('paymentResult.holdRemainingLabel') }}</span>
+            <span class="font-black text-white text-base">{{ formattedRemainingTime }}</span>
+          </div>
+
           <div class="pt-4 flex flex-wrap items-center justify-center gap-3">
-            <Button
-              v-if="isHoldStillValid"
-              variant="primary"
-              size="md"
-              :loading="isRetryingPayment"
-              @click="handleRetryPayment"
-            >
-              {{ t('paymentResult.retryPaymentBtn') }}
-            </Button>
+            <template v-if="isHoldStillValid && !isBookingCancelled">
+              <Button
+                variant="primary"
+                size="md"
+                :loading="isRetryingPayment"
+                @click="handleRetryPayment"
+              >
+                {{ t('paymentResult.retryPaymentBtn') }}
+              </Button>
+              <Button
+                variant="danger"
+                size="md"
+                :loading="isCancellingBooking"
+                @click="handleCancelBooking"
+              >
+                {{ t('paymentResult.cancelBookingBtn') }}
+              </Button>
+            </template>
             <router-link to="/showtimes">
               <Button variant="secondary" size="md">
                 {{ t('paymentResult.reselectShowtimeBtn') }}
@@ -316,22 +421,37 @@ onUnmounted(() => {
             ✕
           </div>
           <h2 class="text-2xl font-bold text-white tracking-tight">
-            {{ t('paymentResult.failedTitle') }}
+            {{ isBookingCancelled ? t('paymentResult.cancelledTitle') : (isHoldStillValid ? t('paymentResult.failedTitle') : t('paymentResult.expiredTitle')) }}
           </h2>
           <p class="text-xs sm:text-sm text-rose-200/90 leading-relaxed">
-            {{ paymentResult?.message || t('paymentResult.failedDesc') }}
+            {{ isBookingCancelled ? t('paymentResult.bookingCancelledDesc') : (isHoldStillValid ? (paymentResult?.message || t('paymentResult.failedDesc')) : t('paymentResult.expiredDesc')) }}
           </p>
 
+          <!-- Countdown timer badge if hold is still valid -->
+          <div v-if="isHoldStillValid && !isBookingCancelled" class="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-rose-900/60 border border-rose-500/50 text-rose-300 font-mono text-sm">
+            <span>⏱️ {{ t('paymentResult.holdRemainingLabel') }}</span>
+            <span class="font-black text-white text-base">{{ formattedRemainingTime }}</span>
+          </div>
+
           <div class="pt-4 flex flex-wrap items-center justify-center gap-3">
-            <Button
-              v-if="isHoldStillValid"
-              variant="primary"
-              size="md"
-              :loading="isRetryingPayment"
-              @click="handleRetryPayment"
-            >
-              {{ t('paymentResult.retryPaymentBtn') }}
-            </Button>
+            <template v-if="isHoldStillValid && !isBookingCancelled">
+              <Button
+                variant="primary"
+                size="md"
+                :loading="isRetryingPayment"
+                @click="handleRetryPayment"
+              >
+                {{ t('paymentResult.retryPaymentBtn') }}
+              </Button>
+              <Button
+                variant="danger"
+                size="md"
+                :loading="isCancellingBooking"
+                @click="handleCancelBooking"
+              >
+                {{ t('paymentResult.cancelBookingBtn') }}
+              </Button>
+            </template>
             <router-link to="/showtimes">
               <Button variant="secondary" size="md">
                 {{ t('paymentResult.reselectShowtimeBtn') }}

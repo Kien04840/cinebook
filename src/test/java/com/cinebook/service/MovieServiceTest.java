@@ -250,5 +250,71 @@ class MovieServiceTest {
         assertEquals(MovieStatus.HIDDEN, sampleMovie.getStatus());
         verify(movieRepository).save(sampleMovie);
     }
+
+    @Test
+    void updateMovie_TitleChanged_SetsTitleManualOverrideTrue() {
+        UpdateMovieRequest request = UpdateMovieRequest.builder()
+                .title("Inception (Director's Cut)")
+                .overview(sampleMovie.getOverview())
+                .durationMinutes(sampleMovie.getDurationMinutes())
+                .director(sampleMovie.getDirector())
+                .actors(sampleMovie.getActors())
+                .releaseDate(sampleMovie.getReleaseDate())
+                .ageRating(sampleMovie.getAgeRating())
+                .status(sampleMovie.getStatus())
+                .build();
+
+        when(movieRepository.findById("movie-1")).thenReturn(Optional.of(sampleMovie));
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        movieService.updateMovie("movie-1", request);
+
+        assertTrue(sampleMovie.getTitleManualOverride());
+        assertFalse(sampleMovie.getOverviewManualOverride());
+    }
+
+    @Test
+    void updateMovie_OverviewChanged_SetsOverviewManualOverrideTrue() {
+        UpdateMovieRequest request = UpdateMovieRequest.builder()
+                .title(sampleMovie.getTitle())
+                .overview("Nội dung tóm tắt phim tiếng Việt chuẩn")
+                .durationMinutes(sampleMovie.getDurationMinutes())
+                .director(sampleMovie.getDirector())
+                .actors(sampleMovie.getActors())
+                .releaseDate(sampleMovie.getReleaseDate())
+                .ageRating(sampleMovie.getAgeRating())
+                .status(sampleMovie.getStatus())
+                .build();
+
+        when(movieRepository.findById("movie-1")).thenReturn(Optional.of(sampleMovie));
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        movieService.updateMovie("movie-1", request);
+
+        assertFalse(sampleMovie.getTitleManualOverride());
+        assertTrue(sampleMovie.getOverviewManualOverride());
+    }
+
+    @Test
+    void updateMovie_TitleAndOverviewUnchanged_DoesNotChangeOverrideFlags() {
+        UpdateMovieRequest request = UpdateMovieRequest.builder()
+                .title(sampleMovie.getTitle())
+                .overview(sampleMovie.getOverview())
+                .durationMinutes((short) 160) // only duration changed
+                .director(sampleMovie.getDirector())
+                .actors(sampleMovie.getActors())
+                .releaseDate(sampleMovie.getReleaseDate())
+                .ageRating(sampleMovie.getAgeRating())
+                .status(sampleMovie.getStatus())
+                .build();
+
+        when(movieRepository.findById("movie-1")).thenReturn(Optional.of(sampleMovie));
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        movieService.updateMovie("movie-1", request);
+
+        assertFalse(sampleMovie.getTitleManualOverride());
+        assertFalse(sampleMovie.getOverviewManualOverride());
+    }
 }
 

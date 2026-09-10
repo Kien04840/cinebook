@@ -43,4 +43,14 @@ public class AdminUserController {
         UserProfileResponse response = userService.updateUserStatus(id, status);
         return ResponseEntity.ok(response);
     }
+
+    @Operation(summary = "Update user full name, status and roles by Administrator")
+    @PutMapping("/{id}")
+    public ResponseEntity<UserProfileResponse> adminUpdateUser(
+            @PathVariable String id,
+            @jakarta.validation.Valid @RequestBody com.cinebook.dto.request.AdminUpdateUserRequest request
+    ) {
+        UserProfileResponse response = userService.adminUpdateUser(id, request);
+        return ResponseEntity.ok(response);
+    }
 }

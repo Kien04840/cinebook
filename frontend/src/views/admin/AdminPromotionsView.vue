@@ -244,7 +244,7 @@ async function handleToggleStatus(promo: PromotionResponse) {
     toast.success(`Đã ${actionText} mã khuyến mãi ${promo.code}`)
     await fetchPromotions()
   } catch (err: any) {
-    toast.error('Lỗi', err.response?.data?.message || `Không thể ${actionText} mã khuyến mãi.`)
+    toast.error(err.response?.data?.message || `Không thể ${actionText} mã khuyến mãi.`, 'Lỗi')
   } finally {
     isActionLoading.value[promo.id] = false
   }
@@ -346,9 +346,17 @@ onMounted(() => {
           </thead>
           <tbody class="divide-y divide-slate-800">
             <!-- Loading Skeleton -->
-            <tr v-if="isLoading" v-for="n in 5" :key="n" class="animate-pulse">
-              <td colspan="7" class="px-4 py-4"><div class="h-5 rounded bg-slate-800"></div></td>
-            </tr>
+            <template v-if="isLoading">
+              <tr v-for="i in 5" :key="'skel-pr-' + i" class="animate-pulse">
+                <td class="px-4 py-4"><div class="h-4 w-20 bg-slate-800 rounded"></div></td>
+                <td class="px-4 py-4"><div class="h-4 w-36 bg-slate-800 rounded"></div></td>
+                <td class="px-4 py-4"><div class="h-4 w-20 bg-slate-800 rounded"></div></td>
+                <td class="px-4 py-4"><div class="h-4 w-28 bg-slate-800 rounded"></div></td>
+                <td class="px-4 py-4"><div class="h-4 w-16 bg-slate-800 rounded"></div></td>
+                <td class="px-4 py-4"><div class="h-6 w-16 bg-slate-800 rounded-full"></div></td>
+                <td class="px-4 py-4 text-right"><div class="h-7 w-20 bg-slate-800 rounded ml-auto"></div></td>
+              </tr>
+            </template>
 
             <!-- Empty State -->
             <tr v-else-if="promotions.length === 0">

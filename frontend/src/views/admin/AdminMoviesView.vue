@@ -117,9 +117,9 @@ function getStatusLabel(status: MovieStatus) {
   }
 }
 
-async function loadGenres() {
+async function loadGenres(forceRefresh = false) {
   try {
-    const res = await genreService.getAllGenres()
+    const res = await genreService.getAllGenres(forceRefresh)
     genres.value = res || []
   } catch (err) {
     console.error('Failed to load genres', err)
@@ -252,7 +252,7 @@ async function handleSyncGenres() {
   try {
     const res = await tmdbService.syncGenres()
     toast.success(`Đồng bộ TMDB thành công! Tổng cộng: ${res.total} thể loại (Mới: ${res.created}, Cập nhật: ${res.updated})`)
-    await loadGenres()
+    await loadGenres(true)
   } catch (err: any) {
     toast.error(err.response?.data?.message || 'Đồng bộ thể loại TMDB thất bại. Vui lòng kiểm tra TMDB API Key.')
   } finally {
@@ -669,21 +669,32 @@ onMounted(() => {
         </div>
 
         <div>
-          <label class="text-xs text-slate-400 font-medium block mb-2">Thể loại phim</label>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-xs text-slate-400 font-medium">Thể loại phim</label>
+            <span v-if="movieForm.genreIds.length > 0" class="text-[11px] text-indigo-400 font-medium">
+              Đã chọn: {{ movieForm.genreIds.length }} thể loại
+            </span>
+          </div>
           <div class="flex flex-wrap gap-2 max-h-36 overflow-y-auto p-3 bg-slate-900 rounded-lg border border-slate-700">
-            <label
-              v-for="g in genres"
-              :key="g.id"
-              class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-slate-800 px-2.5 py-1.5 rounded-md hover:bg-slate-700"
-            >
-              <input
-                v-model="movieForm.genreIds"
-                type="checkbox"
-                :value="g.id"
-                class="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 bg-slate-900"
-              />
-              <span>{{ g.name }}</span>
-            </label>
+            <template v-if="genres.length > 0">
+              <label
+                v-for="g in genres"
+                :key="g.id"
+                class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer bg-slate-800 px-2.5 py-1.5 rounded-md hover:bg-slate-700 transition-colors"
+                :class="{ 'bg-indigo-950/60 border border-indigo-500/40 text-indigo-300': movieForm.genreIds.includes(g.id) }"
+              >
+                <input
+                  v-model="movieForm.genreIds"
+                  type="checkbox"
+                  :value="g.id"
+                  class="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 bg-slate-900"
+                />
+                <span>{{ g.name }}</span>
+              </label>
+            </template>
+            <p v-else class="text-xs text-slate-500 italic py-2 px-1">
+              Chưa có thể loại nào trong hệ thống. Vui lòng thêm thể loại hoặc đồng bộ từ TMDB.
+            </p>
           </div>
         </div>
       </form>

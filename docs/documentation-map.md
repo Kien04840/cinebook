@@ -1,8 +1,9 @@
 # CineBook Master Documentation & Repository Navigation Map
 
-> **Current Repository State**: Monolithic Layered Architecture (Spring Boot 3.3.3 / Java 21 + MySQL 8 + Vue 3 / Vite / TypeScript + Tailwind CSS).  
-> **Last Repository & Documentation Audit**: `2026-09-07` (Realistic Multi-Movie Showtime Scheduling Assistant & Calendar Drag and Drop)  
-> **Quality Gate Status**: Backend 530/530 Tests PASS, Frontend Typecheck (vue-tsc) PASS, Frontend Build PASS, 0 Broken References.  
+> **Current Repository State**: Monolithic Layered Architecture (Spring Boot 4.0.8 / Java 21 + MySQL 8 + Vue 3 / Vite / TypeScript + Tailwind CSS).  
+> **Last Repository & Documentation Audit**: `2026-09-11` (Phase 4: Business Analytics & Reporting — Final System Audit & Documentation Synchronization)  
+> **Quality Gate Status**: Backend 644/646 Tests PASS (2 pre-existing local integration DB data mismatches in AuditoriumNormalization preserved), Frontend Typecheck & Build 100% PASS (0 errors), 0 Broken References.  
+> **Database Migration Model**: Runtime migration framework: NONE. Version-controlled SQL migration scripts under `src/main/resources/db/migration/` (V1_1, V1_2, V1_3) applied directly to MySQL source of truth; Hibernate `ddl-auto: validate` guarantees strict entity-schema alignment. Flyway and Liquibase runtime dependencies are prohibited.
 
 This document is the **single authoritative entry point** and **master navigation index** for developers and AI coding agents working on the CineBook codebase. It maps the physical code layout, domain modules, full-stack tracing, and exact task routing to eliminate guesswork and context overhead.
 
@@ -53,7 +54,7 @@ CineBook/
 │   ├── main/
 │   │   ├── java/com/cinebook/              # Spring Boot backend source code
 │   │   │   ├── config/                     # Spring configuration beans (Security, CORS, Async, Swagger)
-│   │   │   ├── controller/                 # 25 REST controllers (Public, Admin & Demo Gateway)
+│   │   │   ├── controller/                 # 29 REST controllers (Public, Admin & Demo Gateway)
 │   │   │   ├── dto/                        # Request/Response data transfer objects
 │   │   │   ├── entity/                     # JPA entity definitions (Single source of truth)
 │   │   │   ├── enums/                      # Domain enumerations and status types
@@ -69,10 +70,11 @@ CineBook/
 │   │   │   ├── util/                       # Security and cryptographic hash helpers
 │   │   │   └── CinebookApplication.java    # Spring Boot application bootstrap
 │   │   └── resources/
-│   │       ├── application.yml             # Primary application configuration
+│   │       ├── db/migration/               # Versioned SQL migration scripts (V1_1, V1_2, V1_3)
+│   │       ├── application.yml             # Primary application configuration (ddl-auto: validate)
 │   │       └── application-test.yml        # Test profile configuration
 │   └── test/
-│       └── java/com/cinebook/              # Backend JUnit 5 & Mockito test suites (490 tests)
+│       └── java/com/cinebook/              # Backend JUnit 5 & Mockito test suites (642 tests)
 ├── AGENTS.md                               # Global AI coding rules, locked stack decisions, and priorities
 ├── mvnw / mvnw.cmd                         # Maven wrapper
 ├── pom.xml                                 # Maven backend build dependencies & plugins
@@ -90,14 +92,14 @@ $$\text{Controller} \longrightarrow \text{Service} \longrightarrow \text{Reposit
 ```text
 com.cinebook
 ├── config/                  # Cross-cutting configurations (WebSecurityConfig, OpenApiConfig, AsyncConfig)
-├── controller/              # 25 REST controllers (Thin presentation layer, DTO validation, status mapping, including DemoPaymentController)
-├── dto/                     # 106 Request/Response DTOs (Strict API contracts, zero JPA leaks, including check-in DTOs)
+├── controller/              # 29 REST controllers (Thin presentation layer, DTO validation, status mapping, including DemoPaymentController)
+├── dto/                     # 115+ Request/Response DTOs (Strict API contracts, zero JPA leaks, including food & notification DTOs)
 │   └── tmdb/                # External TMDB response DTOs
-├── entity/                  # 25 JPA Entities (Database tables, primary keys, audit timestamps, versions)
-├── enums/                   # 22 System enums (Status codes, screen types, discount types, report formats)
+├── entity/                  # 29 JPA Entities (Database tables, primary keys, audit timestamps, versions)
+├── enums/                   # 25 System enums (Status codes, screen types, discount types, notification types)
 ├── exception/               # Centralized exception taxonomy (AppException, Conflict, NotFound, Unauthorized)
-├── mapper/                  # 11 Dedicated mappers (Entity-to-DTO conversion without business logic)
-├── repository/              # 22 Spring Data JPA interfaces (Query methods, custom JPQL, pessimistic locks)
+├── mapper/                  # 13 Dedicated mappers (Entity-to-DTO conversion without business logic)
+├── repository/              # 25 Spring Data JPA interfaces (Query methods, custom JPQL, pessimistic locks)
 │   └── specification/       # Dynamic JPA Criteria specifications (MovieSpecification, ShowtimeSpecification, CinemaSpecification)
 ├── security/                # Stateless JWT authentication, role normalization (ROLE_ADMIN/ROLE_CUSTOMER)
 ├── service/                 # 18 Domain service interfaces
@@ -133,9 +135,9 @@ frontend/src
 ├── stores/                  # Pinia stores: auth (tokens, roles, user profile), toast (alert queue)
 ├── types/                   # Strongly typed TypeScript interfaces mirroring backend DTOs
 ├── utils/                   # formatCurrency, formatDate, formatDateTime, formatTime, formatDuration, formatStatus
-└── views/                   # 26 Route views
-    ├── admin/               # 11 Admin management views (Dashboard, Movies, Showtimes, Cinemas, Bookings, Tickets...)
-    ├── auth/                # LoginView, RegisterView
+└── views/                   # 27 Route views
+    ├── admin/               # 12 Admin management views (Dashboard, Movies, Genres, Showtimes, Cinemas, Bookings, Tickets...)
+    ├── auth/                # LoginView, RegisterView, VerifyEmailView
     ├── customer/            # 11 Customer views (Home, Movies, MovieDetail, Showtimes, Booking, MyBookings, DemoPayment...)
     └── (Root)               # ForbiddenView, NotFoundView
 ```
@@ -146,11 +148,11 @@ frontend/src
 
 | Domain / Module | Backend Controller & Service | Frontend View & Service | API Endpoints | Database Entities | Authoritative Specification | Status |
 |---|---|---|---|---|---|---|
-| **1. Authentication & Security** | `AuthController`<br>`AuthServiceImpl`<br>`UserDetailsServiceImpl` | `LoginView`<br>`RegisterView`<br>`auth.service.ts`<br>`auth.ts` (store) | `/api/v1/auth/login`<br>`/api/v1/auth/register`<br>`/api/v1/auth/refresh`<br>`/api/v1/auth/logout`<br>`/api/v1/auth/password-reset/*` | `users`<br>`roles`<br>`user_roles`<br>`refresh_tokens`<br>`password_reset_tokens` | `docs/use-cases/authentication.md`<br>`.agents/rules/security.md` | **Implemented** |
-| **2. User Profile & Account** | `UserController`<br>`AdminUserController`<br>`UserServiceImpl` | `ProfileView`<br>`AdminUsersView`<br>`user.service.ts` | `/api/v1/users/me`<br>`/api/v1/users/me/password`<br>`/api/v1/admin/users`<br>`/api/v1/admin/users/{id}/status` | `users`<br>`roles` | `docs/use-cases/authentication.md`<br>`docs/business-rules.md` §3 | **Implemented** |
+| **1. Authentication & Security** | `AuthController`<br>`AuthServiceImpl`<br>`UserDetailsServiceImpl` | `LoginView`<br>`RegisterView`<br>`auth.service.ts`<br>`auth.ts` (store) | `/api/v1/auth/login`<br>`/api/v1/auth/register`<br>`/api/v1/auth/refresh`<br>`/api/v1/auth/logout`<br>`/api/v1/auth/password-reset/*` | `users`<br>`roles`<br>`user_roles`<br>`refresh_tokens`<br>`password_reset_tokens`<br>`email_verification_tokens` | `docs/use-cases/authentication.md`<br>`.agents/rules/security.md` | **Implemented** |
+| **2. User Profile & Account** | `UserController`<br>`AdminUserController`<br>`UserServiceImpl` | `ProfileView`<br>`AdminUsersView`<br>`user.service.ts` | `/api/v1/users/me`<br>`/api/v1/users/me/password`<br>`/api/v1/admin/users`<br>`/api/v1/admin/users/{id}`<br>`/api/v1/admin/users/{id}/status` | `users`<br>`roles` | `docs/use-cases/authentication.md`<br>`docs/business-rules.md` §3 | **Implemented** |
 | **3. Movie & TMDB Discovery** | `MovieController`<br>`AdminMovieController`<br>`MovieServiceImpl` | `HomeView`<br>`MoviesView`<br>`MovieDetailView`<br>`AdminMoviesView`<br>`movie.service.ts` | `/api/v1/movies`<br>`/api/v1/movies/{id}`<br>`/api/v1/movies/recommendations`<br>`/api/v1/admin/movies/**` | `movies`<br>`genres`<br>`movies_genres` | `docs/use-cases/movie.md`<br>`docs/business-rules.md` §4 | **Implemented** |
-| **4. Genre Management** | `GenreController`<br>`AdminGenreController`<br>`GenreServiceImpl` | `MoviesView`<br>`AdminMoviesView`<br>`genre.service.ts` | `/api/v1/genres`<br>`/api/v1/admin/genres/**` | `genres`<br>`movies_genres` | `docs/use-cases/movie.md`<br>`docs/database.md` §3.2 | **Implemented** |
-| **5. TMDB External Sync** | `AdminTmdbController`<br>`TmdbImportServiceImpl`<br>`TmdbApiClient` | `AdminMoviesView` | `/api/v1/admin/tmdb/genres/sync`<br>`/api/v1/admin/tmdb/movies/{tmdbId}/import` | `movies`<br>`genres`<br>`movies_genres` | `docs/tmdb-import.md`<br>`docs/use-cases/movie.md` | **Implemented** |
+| **4. Genre Management** | `GenreController`<br>`AdminGenreController`<br>`GenreServiceImpl` | `MoviesView`<br>`AdminMoviesView`<br>`AdminGenresView`<br>`genre.service.ts` | `/api/v1/genres`<br>`/api/v1/admin/genres/**` | `genres`<br>`movies_genres` | `docs/use-cases/movie.md`<br>`docs/database.md` §3.2 | **Implemented** |
+| **5. TMDB External Sync** | `AdminTmdbController`<br>`TmdbImportServiceImpl`<br>`TmdbApiClient` | `AdminMoviesView`<br>`AdminGenresView` | `/api/v1/admin/tmdb/genres/sync`<br>`/api/v1/admin/tmdb/movies/{tmdbId}/import` | `movies`<br>`genres`<br>`movies_genres` | `docs/tmdb-import.md`<br>`docs/use-cases/movie.md` | **Implemented** |
 | **6. Cinema & Infrastructure** | `CinemaController`<br>`AdminCinemaController`<br>`CinemaServiceImpl` | `CinemasView`<br>`AdminCinemasView`<br>`cinema.service.ts` | `/api/v1/cinemas`<br>`/api/v1/cinemas/{id}`<br>`/api/v1/admin/cinemas/**` | `cinemas` | `docs/use-cases/cinema.md`<br>`docs/business-rules.md` §5 | **Implemented** |
 | **7. Auditorium & Screen** | `AuditoriumController`<br>`AdminAuditoriumController`<br>`AuditoriumServiceImpl` | `AdminCinemasView` (Modal)<br>`cinema.service.ts` | `/api/v1/auditoriums/{id}`<br>`/api/v1/admin/auditoriums/**`<br>`/api/v1/admin/cinemas/{id}/auditoriums` | `auditoriums`<br>`seats` | `docs/use-cases/cinema.md`<br>`docs/database.md` §3.3 | **Implemented** |
 | **8. Seat & Seat Layout** | `AdminAuditoriumController`<br>`SeatServiceImpl` | `BookingView`<br>`SeatMap.vue`<br>`AdminCinemasView` | `/api/v1/auditoriums/{id}/seats`<br>`/api/v1/admin/auditoriums/{id}/seats/**` | `seats`<br>`seat_types` | `docs/use-cases/cinema.md`<br>`docs/business-rules.md` §5.3 | **Implemented** |
@@ -163,7 +165,9 @@ frontend/src
 | **15. Payment (VNPay & Demo Gateway)** | `PaymentController`<br>`DemoPaymentController`<br>`PaymentServiceImpl`<br>`VnPayServiceImpl`<br>`MockVnPayService` | `BookingView`<br>`DemoPaymentView`<br>`PaymentResultView`<br>`payment.service.ts` | `/api/v1/bookings/{id}/payments`<br>`/api/v1/payments/vnpay/ipn`<br>`/api/v1/payments/vnpay/return`<br>`/api/v1/payments/{id}`<br>`/api/v1/demo-payment/complete` | `payments`<br>`bookings` | `docs/payment.md`<br>`docs/use-cases/payment.md`<br>`docs/business-rules.md` §9 | **Implemented** |
 | **16. Refund & Financial Cancellation** | `PaymentController`<br>`AdminPaymentController`<br>`PaymentServiceImpl` | `MyBookingsView` (RefundModal)<br>`AdminRefundsView`<br>`payment.service.ts` | `/api/v1/payments/{id}/refund`<br>`/api/v1/admin/bookings/{id}/refund`<br>`/api/v1/admin/refunds` | `refunds`<br>`payments`<br>`bookings` | `docs/payment.md`<br>`docs/use-cases/payment.md`<br>`docs/business-rules.md` §9.6 | **Implemented** |
 | **17. Promotion & Discount Vouchers** | `PromotionController`<br>`AdminPromotionController`<br>`PromotionServiceImpl` | `PromotionsView`<br>`AdminPromotionsView`<br>`BookingView`<br>`promotion.service.ts` | `/api/v1/promotions`<br>`/api/v1/promotions/validate`<br>`/api/v1/admin/promotions/**` | `promotions`<br>`booking_promotions` | `docs/use-cases/promotion.md`<br>`docs/business-rules.md` §10 | **Implemented** |
-| **18. Reporting & Analytics Dashboard** | `AdminReportController`<br>`ReportServiceImpl` | `AdminDashboardView`<br>`AdminReportsView`<br>`report.service.ts` | `/api/v1/admin/reports/dashboard`<br>`/api/v1/admin/reports/revenue`<br>`/api/v1/admin/reports/movies`<br>`/api/v1/admin/reports/cinemas`<br>`/api/v1/admin/reports/export` | Cross-table aggregations (`bookings`, `payments`, `refunds`, `tickets`) | `docs/use-cases/reporting.md`<br>`docs/use-cases/administration.md` | **Implemented** |
+| **18. Reporting & Analytics Dashboard** | `AdminReportController`<br>`ReportServiceImpl` | `AdminDashboardView`<br>`AdminReportsView`<br>`report.service.ts` | `/api/v1/admin/reports/dashboard`<br>`/api/v1/admin/reports/revenue`<br>`/api/v1/admin/reports/movies`<br>`/api/v1/admin/reports/cinemas`<br>`/api/v1/admin/reports/showtimes/occupancy`<br>`/api/v1/admin/reports/showtimes/top-occupancy`<br>`/api/v1/admin/reports/export` | Cross-table aggregations (`bookings`, `payments`, `refunds`, `tickets`) | `docs/use-cases/reporting.md`<br>`docs/use-cases/administration.md`<br>`docs/api.md` §19 | **Implemented** (XLSX & CSV export with UTF-8 BOM, filter synchronization, binary streaming, 21 tests PASS) |
+| **19. Food & Concessions (F&B)** | `FoodItemController`<br>`AdminFoodItemController`<br>`FoodItemServiceImpl` | `BookingView` (FoodSelectionModal)<br>`AdminFoodItemsView`<br>`food.service.ts` | `/api/v1/food-items`<br>`/api/v1/admin/food-items/**` | `food_items`<br>`booking_foods` | `docs/database.md` §3.9<br>`docs/business-rules.md` §14<br>`docs/api.md` §23 | **Implemented** |
+| **20. In-App Notifications** | `NotificationController`<br>`NotificationServiceImpl` | `NotificationBell.vue` (Global Header)<br>`notification.service.ts` | `/api/v1/notifications`<br>`/api/v1/notifications/unread-count`<br>`/api/v1/notifications/{id}/read`<br>`/api/v1/notifications/read-all` | `notifications` | `docs/database.md` §3.10<br>`docs/business-rules.md` §15<br>`docs/api.md` §24 | **Implemented** |
 
 ---
 
@@ -187,10 +191,12 @@ Before modifying or implementing features, consult this matrix to load the exact
 | **Refund & Order Cancellation** | `docs/payment.md` §8<br>`docs/use-cases/payment.md`<br>`docs/business-rules.md` §9.6 | `docs/database.md` §3.7<br>`docs/api.md` §9<br>`docs/architecture.md` §7.4 | `docs/testing/payment-refund-http-demo.md` | `docs/tmdb-import.md`<br>`docs/use-cases/authentication.md` |
 | **Promotion & Voucher** | `docs/use-cases/promotion.md`<br>`docs/business-rules.md` §10 | `docs/database.md` §3.8<br>`docs/api.md` §10<br>`docs/architecture.md` §6 | `docs/use-cases/booking.md` | `docs/tmdb-import.md`<br>`docs/payment.md` |
 | **Reporting & Admin Dashboard** | `docs/use-cases/reporting.md`<br>`docs/use-cases/administration.md`<br>`.agents/rules/backend.md` | `docs/api.md` §19<br>`docs/database.md`<br>`docs/business-rules.md` | `docs/architecture.md` §9 | `docs/tmdb-import.md`<br>`docs/payment.md` |
+| **Food & Concessions (F&B)** | `docs/business-rules.md` §14<br>`docs/database.md` §3.9<br>`docs/api.md` §23 | `docs/use-cases/booking.md`<br>`.agents/rules/backend.md` | `docs/architecture.md` | `docs/tmdb-import.md`<br>`docs/use-cases/authentication.md` |
+| **In-App Notifications** | `docs/business-rules.md` §15<br>`docs/database.md` §3.10<br>`docs/api.md` §24 | `docs/use-cases/booking.md`<br>`.agents/rules/backend.md`<br>`.agents/rules/frontend.md` | `docs/architecture.md` | `docs/tmdb-import.md`<br>`docs/use-cases/cinema.md` |
 | **Database Schema Change** | `docs/database.md`<br>`.agents/rules/database.md`<br>`.agents/skills/database-change/SKILL.md` | `docs/business-rules.md`<br>`docs/architecture.md` | `AGENTS.md` §6 | `docs/payment.md`<br>`docs/tmdb-import.md` |
 | **Backend Implementation Skill** | `.agents/skills/implement-backend-feature/SKILL.md`<br>`.agents/rules/backend.md` | `docs/architecture.md`<br>`docs/database.md`<br>`docs/business-rules.md`<br>`docs/api.md` | `docs/use-cases/{domain}.md` | `docs/ui/*` |
 | **Frontend UI / Screen Task** | `.agents/rules/frontend.md`<br>`.agents/skills/frontend-ui/SKILL.md`<br>`docs/ui/design-system.md` | `docs/api.md`<br>`docs/use-cases/{domain}.md` | `docs/architecture.md` §5 | `docs/database.md`<br>`docs/tmdb-import.md` |
-| **Frontend Booking Wizard** | `.agents/rules/frontend.md`<br>`docs/use-cases/booking.md`<br>`docs/ui/design-system.md` | `docs/api.md` §8<br>`docs/business-rules.md` §8 | `docs/use-cases/promotion.md` | `docs/tmdb-import.md` |
+| **Frontend Booking Wizard** | `.agents/rules/frontend.md`<br>`docs/use-cases/booking.md`<br>`docs/ui/design-system.md` | `docs/api.md` §8<br>`docs/business-rules.md` §8, §14 | `docs/use-cases/promotion.md` | `docs/tmdb-import.md` |
 | **Frontend Payment Result** | `.agents/rules/frontend.md`<br>`docs/use-cases/payment.md`<br>`docs/payment.md` | `docs/api.md` §9<br>`docs/business-rules.md` §9 | `docs/ui/design-system.md` | `docs/tmdb-import.md` |
 | **Master Feature Workflow** | `.agents/workflows/feature-development.md`<br>`AGENTS.md` | `docs/documentation-map.md`<br>`.agents/rules/*` | Relevant domain docs | — |
 | **Bug Fixing (Scoped)** | Relevant domain docs<br>Relevant test file | `docs/business-rules.md`<br>`docs/api.md` | `docs/architecture.md` | Unrelated domain docs |
@@ -215,6 +221,8 @@ Use this index to quickly locate source code, test suites, and documentation for
 | **Refunds** | `PaymentController.java`<br>`AdminPaymentController.java` | `PaymentService.java`<br>`PaymentServiceImpl.java` | `RefundRepository.java`<br>`PaymentRepository.java`<br>`Refund.java` | `views/admin/AdminRefundsView.vue`<br>`components/payment/RefundModal.vue`<br>`services/payment.service.ts` | `PaymentRefundIntegrationTest.java`<br>`PaymentFinancialRaceIntegrationTest.java` | `docs/payment.md` §8<br>`docs/use-cases/payment.md` |
 | **Promotions** | `PromotionController.java`<br>`AdminPromotionController.java` | `PromotionService.java`<br>`PromotionServiceImpl.java` | `PromotionRepository.java`<br>`BookingPromotionRepository.java`<br>`Promotion.java` | `views/customer/PromotionsView.vue`<br>`views/admin/AdminPromotionsView.vue`<br>`services/promotion.service.ts` | `PromotionControllerTest.java`<br>`AdminPromotionControllerTest.java`<br>`PromotionServiceTest.java`<br>`PromotionConcurrencyTest.java` | `docs/use-cases/promotion.md`<br>`docs/business-rules.md` §10 |
 | **Reports & Dashboard** | `AdminReportController.java` | `ReportService.java`<br>`ReportServiceImpl.java` | Native SQL Aggregation in `ReportServiceImpl.java` | `views/admin/AdminDashboardView.vue`<br>`views/admin/AdminReportsView.vue`<br>`services/report.service.ts` | `AdminReportControllerTest.java`<br>`ReportServiceTest.java`<br>`ReportSecurityTest.java` | `docs/use-cases/reporting.md`<br>`docs/use-cases/administration.md` |
+| **Food & Concessions** | `FoodItemController.java`<br>`AdminFoodItemController.java` | `FoodItemService.java`<br>`FoodItemServiceImpl.java` | `FoodItemRepository.java`<br>`BookingFoodRepository.java`<br>`FoodItem.java`<br>`BookingFood.java` | `views/admin/AdminFoodItemsView.vue`<br>`components/booking/FoodSelectionModal.vue`<br>`services/food.service.ts` | `FoodItemControllerTest.java`<br>`AdminFoodItemControllerTest.java`<br>`FoodItemServiceTest.java` | `docs/business-rules.md` §14<br>`docs/database.md` §3.9<br>`docs/api.md` §23 |
+| **In-App Notifications** | `NotificationController.java` | `NotificationService.java`<br>`NotificationServiceImpl.java` | `NotificationRepository.java`<br>`Notification.java` | `components/common/NotificationBell.vue`<br>`services/notification.service.ts` | `NotificationControllerTest.java`<br>`NotificationServiceTest.java`<br>`BookingNotificationIntegrationTest.java` | `docs/business-rules.md` §15<br>`docs/database.md` §3.10<br>`docs/api.md` §24 |
 
 ---
 
@@ -411,14 +419,14 @@ docs/use-cases/*.md (Detailed domain user journeys)
 
 | Documentation Area | Status | Verification Summary | Last Verified |
 |---|---|---|---|
-| **Repository Structure** | `UP TO DATE` | Matches physical Java 21, Vue 3, Maven, 25 REST controllers, 26 views. | `2026-09-06` |
-| **Backend Architecture** | `UP TO DATE` | Classic Layered Architecture (Controller → Service → Repository → DB) fully documented. | `2026-09-06` |
-| **Frontend Architecture** | `UP TO DATE` | Vue 3 Composition API, Pinia, Tailwind CSS, 26 route views, 27 components documented. | `2026-09-06` |
-| **Domain Inventory** | `UP TO DATE` | All 18 domains audited and verified against actual implementations; 452/452 tests PASS. | `2026-09-06` |
-| **API Documentation (`docs/api.md`)** | `UP TO DATE` | Core endpoints documented; 110 controller endpoints active across public, admin, and demo controllers. | `2026-09-06` |
-| **Database Documentation (`docs/database.md`)** | `UP TO DATE` | 25 JPA entities match MySQL tables, constraints, and PK strategies; `bookings.check_in_code` verified. | `2026-09-06` |
-| **Business Rules (`docs/business-rules.md`)** | `UP TO DATE` | 10 business domains with invariant rules matching service implementations; §8.4 Booking QR check-in documented. | `2026-09-06` |
-| **Internal Path References** | `VERIFIED` | 384/384 internal markdown path references valid (0 broken links). | `2026-09-06` |
+| **Repository Structure** | `UP TO DATE` | Matches physical Java 21, Vue 3, Maven, 29 REST controllers, 27 views. | `2026-09-11` |
+| **Backend Architecture** | `UP TO DATE` | Classic Layered Architecture (Controller → Service → Repository → DB) fully documented. | `2026-09-11` |
+| **Frontend Architecture** | `UP TO DATE` | Vue 3 Composition API, Pinia, Tailwind CSS, 27 route views, NotificationBell, FoodSelectionModal & Reports Export documented. | `2026-09-11` |
+| **Domain Inventory** | `UP TO DATE` | All 20 domains audited and verified against actual implementations; 644/646 tests PASS. | `2026-09-11` |
+| **API Documentation (`docs/api.md`)** | `UP TO DATE` | All 24 API domains documented; Section 19 updated with XLSX/CSV export parameters & CORS headers. | `2026-09-11` |
+| **Database Documentation (`docs/database.md`)** | `UP TO DATE` | 29 JPA entities match MySQL tables; Section 9.1 documents 0 schema changes for Phase 4. | `2026-09-11` |
+| **Business Rules (`docs/business-rules.md`)** | `UP TO DATE` | 15 business domains; Section 11 updated with XLSX/CSV format invariants & UTF-8 BOM encoding. | `2026-09-11` |
+| **Internal Path References** | `VERIFIED` | 400+ internal markdown path references valid (0 broken links). | `2026-09-11` |
 
 ### Known Implementation Nuances (For AI & Developers)
 1. **Role Normalization**:
@@ -444,3 +452,27 @@ docs/use-cases/*.md (Detailed domain user journeys)
 7. **Demo Payment Gateway & Mock Sandbox Mode**:
    - When running without live VNPay Sandbox credentials, setting `vnpay.mock-gateway=true` enables `MockVnPayService` and the `/api/v1/demo-payment/complete` endpoint.
    - Routes through `DemoPaymentView.vue` and executes authoritative server-side IPN processing (`processIpn -> confirmPaidBooking`) with authentic HMAC-SHA512 checksums, generating tickets and booking `checkInCode` seamlessly.
+8. **Notification Failure Isolation (`Propagation.REQUIRES_NEW`)**:
+   - Notification creation executes in an isolated transaction (`@Transactional(propagation = Propagation.REQUIRES_NEW)`) with catch-and-log exception isolation in `NotificationServiceImpl.createNotificationForBooking`.
+   - A failure in notification creation (database issue, constraint violation) NEVER causes a rollback of core financial transactions (payment confirmation, booking cancellation, booking refund).
+9. **Notification Two-Level Idempotency**:
+   - Application-level pre-check via `existsByBookingIdAndType(bookingId, type)` prevents duplicate notification records during standard execution.
+   - Database-level unique constraint `uk_notifications_booking_type (booking_id, type)` on the `notifications` table prevents race conditions under high concurrency or webhook replays.
+10. **Database Migration Model**:
+    - CineBook does NOT use Flyway or Liquibase runtime auto-migration (`pom.xml` contains no migration dependencies).
+    - Hibernate runs with `ddl-auto: validate` against MySQL 8 (the authoritative source of truth).
+    - Database changes are versioned SQL scripts stored in `src/main/resources/db/migration/` (e.g., `V1_1__add_email_verification_tokens.sql`, `V1_2__add_food_and_concessions.sql`, `V1_3__add_user_notifications.sql`) and applied directly to the database.
+11. **Cross-Origin Report Export & Content-Disposition Header**:
+    - Report exports (`GET /api/v1/admin/reports/export`) stream binary XLSX/CSV data with a dynamic `Content-Disposition: attachment; filename="..."`.
+    - `SecurityConfig` explicitly registers `configuration.setExposedHeaders(List.of("Content-Disposition"))` on `CorsConfigurationSource` so SPA frontend clients running on different origins/ports can inspect the server-generated filename; frontend service provides robust fallback filename generation.
+12. **Capacity-Weighted Occupancy & Defensive Clamping**:
+    - Platform-level average occupancy rate is calculated as a capacity-weighted aggregate ($\frac{\sum \text{occupiedSeats}}{\sum \text{totalCapacity}} \times 100\%$) across all showtimes.
+    - Showtime and summary occupancy rates are defensively clamped to $[0.00, 100.00]\%$ with anomaly warning logging.
+13. **Admin User Privacy Boundary**:
+    - `AdminUpdateUserRequest` strictly limits administrative edits to `fullName`, `status`, and `roles`.
+    - `email`, `phone`, `password`, and `passwordHash` are protected user-owned credentials that administrators cannot edit or overwrite.
+14. **Promotion Dual Selection & Authoritative Validation**:
+    - `GET /api/v1/promotions/available` returns eligible vouchers for interactive customer selection.
+    - System never auto-applies promotions; customer must explicitly choose to apply. Server strictly validates conditions and recalculates discounts.
+15. **Implementation Report Reference**:
+    - Latest enhancement report: [`docs/implementation-reports/business-ux-reporting-promotion.md`](file:///d:/HOCTAP/DoAn/CineBook/docs/implementation-reports/business-ux-reporting-promotion.md).

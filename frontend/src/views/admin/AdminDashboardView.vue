@@ -68,45 +68,51 @@ onMounted(() => {
     <ErrorAlert v-if="errorMessage" :message="errorMessage" />
 
     <!-- KPI Cards -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4" :aria-busy="isLoading">
       <Card padding="sm" class="border-emerald-500/30">
         <p class="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider">{{ t('adminReports.kpiNetRevenue') }}</p>
-        <p class="text-lg font-black text-white mt-1 font-mono">
+        <div v-if="isLoading" class="h-6 w-24 bg-slate-800 rounded animate-pulse mt-1"></div>
+        <p v-else class="text-lg font-black text-white mt-1 font-mono">
           {{ formatCurrency(dashboardData?.financial?.netRevenue || 0) }}
         </p>
       </Card>
 
       <Card padding="sm" class="border-indigo-500/30">
         <p class="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider">{{ t('adminReports.kpiNetTickets') }}</p>
-        <p class="text-lg font-black text-white mt-1 font-mono">
+        <div v-if="isLoading" class="h-6 w-20 bg-slate-800 rounded animate-pulse mt-1"></div>
+        <p v-else class="text-lg font-black text-white mt-1 font-mono">
           {{ formatNumber(dashboardData?.tickets?.netTicketsSold || 0) }}
         </p>
       </Card>
 
       <Card padding="sm" class="border-sky-500/30">
         <p class="text-[11px] font-semibold text-sky-400 uppercase tracking-wider">{{ t('adminReports.kpiGrossRevenue') }}</p>
-        <p class="text-lg font-black text-white mt-1 font-mono">
+        <div v-if="isLoading" class="h-6 w-24 bg-slate-800 rounded animate-pulse mt-1"></div>
+        <p v-else class="text-lg font-black text-white mt-1 font-mono">
           {{ formatCurrency(dashboardData?.financial?.grossRevenue || 0) }}
         </p>
       </Card>
 
       <Card padding="sm" class="border-amber-500/30">
         <p class="text-[11px] font-semibold text-amber-400 uppercase tracking-wider">{{ t('adminReports.tabBookingStatus') }}</p>
-        <p class="text-lg font-black text-white mt-1 font-mono">
+        <div v-if="isLoading" class="h-6 w-16 bg-slate-800 rounded animate-pulse mt-1"></div>
+        <p v-else class="text-lg font-black text-white mt-1 font-mono">
           {{ formatNumber(dashboardData?.bookings?.totalBookings || 0) }}
         </p>
       </Card>
 
       <Card padding="sm" class="border-rose-500/30">
         <p class="text-[11px] font-semibold text-rose-400 uppercase tracking-wider">{{ t('adminDashboard.kpiActiveShowtimes') }}</p>
-        <p class="text-lg font-black text-white mt-1 font-mono">
+        <div v-if="isLoading" class="h-6 w-16 bg-slate-800 rounded animate-pulse mt-1"></div>
+        <p v-else class="text-lg font-black text-white mt-1 font-mono">
           {{ formatNumber(dashboardData?.operations?.totalShowtimes || 0) }}
         </p>
       </Card>
 
       <Card padding="sm" class="border-purple-500/30">
         <p class="text-[11px] font-semibold text-purple-400 uppercase tracking-wider">{{ t('adminDashboard.kpiTotalMembers') }}</p>
-        <p class="text-lg font-black text-white mt-1 font-mono">
+        <div v-if="isLoading" class="h-6 w-16 bg-slate-800 rounded animate-pulse mt-1"></div>
+        <p v-else class="text-lg font-black text-white mt-1 font-mono">
           {{ formatNumber(userStats?.totalUsers || 0) }}
         </p>
       </Card>

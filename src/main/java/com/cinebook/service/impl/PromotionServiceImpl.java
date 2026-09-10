@@ -27,6 +27,7 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,6 +40,16 @@ public class PromotionServiceImpl implements PromotionService {
     private final PromotionMapper promotionMapper;
 
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PromotionResponse> getAvailablePromotions() {
+        LocalDateTime now = LocalDateTime.now();
+        List<Promotion> promotions = promotionRepository.findAvailablePromotions(now);
+        return promotions.stream()
+                .map(promotionMapper::toPromotionResponse)
+                .toList();
+    }
 
     @Override
     @Transactional(readOnly = true)

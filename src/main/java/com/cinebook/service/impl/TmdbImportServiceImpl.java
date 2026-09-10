@@ -12,6 +12,7 @@ import com.cinebook.entity.MovieGenre;
 import com.cinebook.entity.MovieGenreId;
 import com.cinebook.enums.MovieStatus;
 import com.cinebook.exception.BadRequestException;
+import com.cinebook.exception.ErrorCode;
 import com.cinebook.repository.GenreRepository;
 import com.cinebook.repository.MovieRepository;
 import com.cinebook.service.TmdbImportService;
@@ -122,15 +123,15 @@ public class TmdbImportServiceImpl implements TmdbImportService {
 
         TmdbMovieDetailDto detail = tmdbClient.getMovieDetail(tmdbId, tmdbProperties.getLanguage());
 
-        // Validate minimum required fields
-        if (!StringUtils.hasText(detail.getTitle())) {
-            throw new BadRequestException("TMDB movie (id=" + tmdbId + ") is missing required field: title");
-        }
-        if (!StringUtils.hasText(detail.getOverview())) {
-            throw new BadRequestException("TMDB movie (id=" + tmdbId + ") is missing required field: overview");
-        }
+        // Title resolution
+        String finalTitle = resolveTitle(tmdbId, detail);
+
+        // Overview resolution (Smart fallback to en-US)
+        String finalOverview = resolveOverview(tmdbId, detail);
+
+        // Validate release date
         if (!StringUtils.hasText(detail.getReleaseDate())) {
-            throw new BadRequestException("TMDB movie (id=" + tmdbId + ") is missing required field: release_date");
+            throw new BadRequestException("TMDB movie (id=" + tmdbId + ") is missing required field: release_date", ErrorCode.BAD_REQUEST);
         }
 
         LocalDate releaseDate = parseReleaseDate(detail.getReleaseDate(), tmdbId);
@@ -146,11 +147,11 @@ public class TmdbImportServiceImpl implements TmdbImportService {
 
         if (existingOpt.isPresent()) {
             movie = existingOpt.get();
-            updateMovieFromTmdb(movie, detail, releaseDate, resolvedGenres);
+            updateMovieFromTmdb(movie, detail, finalTitle, finalOverview, releaseDate, resolvedGenres);
             action = "UPDATED";
             log.info("Updated existing movie id={} tmdbId={} title='{}'", movie.getId(), tmdbId, movie.getTitle());
         } else {
-            movie = createMovieFromTmdb(detail, releaseDate, resolvedGenres);
+            movie = createMovieFromTmdb(detail, finalTitle, finalOverview, releaseDate, resolvedGenres);
             action = "CREATED";
             log.info("Created new movie id={} tmdbId={} title='{}'", movie.getId(), tmdbId, movie.getTitle());
         }
@@ -182,14 +183,53 @@ public class TmdbImportServiceImpl implements TmdbImportService {
     // =========================================================
 
     /**
+     * Resolves movie title: prefers localized title, falls back to originalTitle.
+     * Throws BadRequestException if neither is provided.
+     */
+    private String resolveTitle(Long tmdbId, TmdbMovieDetailDto detail) {
+        if (StringUtils.hasText(detail.getTitle())) {
+            return detail.getTitle().trim();
+        } else if (StringUtils.hasText(detail.getOriginalTitle())) {
+            return detail.getOriginalTitle().trim();
+        } else {
+            throw new BadRequestException("TMDB movie (id=" + tmdbId + ") is missing required field: title", ErrorCode.BAD_REQUEST);
+        }
+    }
+
+    /**
+     * Resolves movie overview:
+     * 1. Uses primary (vi-VN) overview if available.
+     * 2. Falls back to fetching en-US overview if primary is blank.
+     * 3. Uses empty string ("") if both are missing (never fails import).
+     */
+    private String resolveOverview(Long tmdbId, TmdbMovieDetailDto detail) {
+        if (StringUtils.hasText(detail.getOverview())) {
+            return detail.getOverview().trim();
+        }
+        try {
+            TmdbMovieDetailDto enDetail = tmdbClient.getMovieDetail(tmdbId, "en-US");
+            if (enDetail != null && StringUtils.hasText(enDetail.getOverview())) {
+                return enDetail.getOverview().trim();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch en-US overview fallback for tmdbId={}: {}", tmdbId, e.getMessage());
+        }
+        return "";
+    }
+
+    /**
      * Creates a brand new Movie entity from TMDB data.
      * UUID and status are determined by CineBook logic, not TMDB.
      */
-    private Movie createMovieFromTmdb(TmdbMovieDetailDto detail, LocalDate releaseDate, List<Genre> resolvedGenres) {
+    private Movie createMovieFromTmdb(TmdbMovieDetailDto detail, String finalTitle, String finalOverview, LocalDate releaseDate, List<Genre> resolvedGenres) {
         Movie movie = new Movie();
         movie.setTmdbId(detail.getId());
+        movie.setTitle(finalTitle);
+        movie.setOverview(finalOverview);
+        movie.setTitleManualOverride(false);
+        movie.setOverviewManualOverride(false);
 
-        applyTmdbFields(movie, detail, releaseDate);
+        applyCommonTmdbFields(movie, detail, releaseDate);
 
         // For new movies, determine initial status from release date
         movie.setStatus(determineInitialStatus(releaseDate));
@@ -210,23 +250,34 @@ public class TmdbImportServiceImpl implements TmdbImportService {
      * - id, tmdbId, status, deletedAt, createdAt, version
      * - JPA manages updatedAt and version automatically.
      *
-     * Soft-deleted movies are updated (data sync) but remain soft-deleted.
-     * Status set by admin is preserved.
+     * Curated content protection:
+     * - Preserves title if titleManualOverride == true.
+     * - Preserves overview if overviewManualOverride == true.
      */
-    private void updateMovieFromTmdb(Movie movie, TmdbMovieDetailDto detail, LocalDate releaseDate, List<Genre> resolvedGenres) {
-        applyTmdbFields(movie, detail, releaseDate);
+    private void updateMovieFromTmdb(Movie movie, TmdbMovieDetailDto detail, String finalTitle, String finalOverview, LocalDate releaseDate, List<Genre> resolvedGenres) {
+        if (Boolean.TRUE.equals(movie.getTitleManualOverride())) {
+            log.info("Preserving manual override title for movie id={}: '{}'", movie.getId(), movie.getTitle());
+        } else {
+            movie.setTitle(finalTitle);
+        }
+
+        if (Boolean.TRUE.equals(movie.getOverviewManualOverride())) {
+            log.info("Preserving manual override overview for movie id={}", movie.getId());
+        } else {
+            movie.setOverview(finalOverview);
+        }
+
+        applyCommonTmdbFields(movie, detail, releaseDate);
         movie.setAgeRating(extractAgeRating(detail));
         syncMovieGenres(movie, resolvedGenres);
-        // status, deletedAt, createdAt, id, tmdbId, version — intentionally NOT touched
+        // status, deletedAt, createdAt, id, tmdbId, version, titleManualOverride, overviewManualOverride — intentionally NOT touched
     }
 
     /**
-     * Applies all TMDB-sourced fields to a Movie entity (shared between create and update).
+     * Applies common TMDB-sourced fields to a Movie entity (shared between create and update).
      */
-    private void applyTmdbFields(Movie movie, TmdbMovieDetailDto detail, LocalDate releaseDate) {
-        movie.setTitle(detail.getTitle().trim());
+    private void applyCommonTmdbFields(Movie movie, TmdbMovieDetailDto detail, LocalDate releaseDate) {
         movie.setOriginalTitle(detail.getOriginalTitle() != null ? detail.getOriginalTitle().trim() : null);
-        movie.setOverview(detail.getOverview() != null ? detail.getOverview().trim() : "");
         movie.setDurationMinutes(mapRuntime(detail.getRuntime()));
         movie.setDirector(extractDirector(detail));
         movie.setActors(extractActors(detail));
@@ -343,7 +394,8 @@ public class TmdbImportServiceImpl implements TmdbImportService {
             return LocalDate.parse(releaseDateStr);
         } catch (DateTimeParseException e) {
             throw new BadRequestException(
-                    "TMDB movie (id=" + tmdbId + ") has invalid release_date format: '" + releaseDateStr + "'");
+                    "TMDB movie (id=" + tmdbId + ") has invalid release_date format: '" + releaseDateStr + "'",
+                    ErrorCode.BAD_REQUEST);
         }
     }
 

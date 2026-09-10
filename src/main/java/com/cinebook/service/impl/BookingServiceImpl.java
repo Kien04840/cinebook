@@ -7,12 +7,15 @@ import com.cinebook.dto.response.*;
 import com.cinebook.entity.*;
 import com.cinebook.enums.*;
 import com.cinebook.exception.*;
+import com.cinebook.dto.request.BookingFoodItemRequest;
 import com.cinebook.mapper.BookingMapper;
+import com.cinebook.mapper.FoodItemMapper;
 import com.cinebook.mapper.PromotionMapper;
 import com.cinebook.repository.*;
 import com.cinebook.security.UserDetailsImpl;
 import com.cinebook.service.BookingService;
 import com.cinebook.service.EmailService;
+import com.cinebook.service.NotificationService;
 import com.cinebook.service.PromotionService;
 import com.cinebook.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +34,21 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Dịch vụ lõi quản lý quy trình đặt vé và giữ chỗ xem phim (Booking & Seat Hold Engine).
+ * 
+ * Kiến trúc & Ràng buộc nghiệp vụ quan trọng (Business Invariants):
+ * 1. Cơ chế Giữ chỗ tạm thời (Seat Hold):
+ *    - Khi khách chọn ghế và tạo đơn, hệ thống cấp một khoảng thời gian giữ chỗ 5 phút (HOLD_DURATION_MINUTES = 5).
+ *    - Bản ghi giữ chỗ được lưu trong bảng seat_holds với ràng buộc khóa duy nhất uk_seat_holds_showtime_seat (showtime_id, seat_id).
+ *    - Sau 5 phút, giữ chỗ tự động hết hạn và được dọn dẹp bởi BookingCleanupTask hoặc cơ chế Lazy Expiration.
+ * 2. Tính toàn vẹn của Đơn hàng (Atomic & Lock-safe):
+ *    - Chống bán trùng ghế (Double-booking): Sử dụng Khóa bi quan (Pessimistic Write Lock: findByIdWithLock) trên Booking.
+ *    - Đồng bộ đa luồng: Đảm bảo không xảy ra Race Condition khi nhiều khách hàng cùng chọn một ghế tại cùng một thời điểm.
+ * 3. Quy tắc thanh toán & Khuyến mãi:
+ *    - Tổng tiền Booking = (Tiền vé - Khuyến mãi) + Tiền bắp nước F&B (authoritative server-side calculation).
+ *    - Khi đơn hàng hết hạn hoặc bị hủy, lượt dùng mã giảm giá (Promotion.usedCount) được tự động hoàn trả an toàn.
+ */
 @Slf4j
 @Service
 public class BookingServiceImpl implements BookingService {
@@ -55,6 +73,10 @@ public class BookingServiceImpl implements BookingService {
     private final PromotionMapper promotionMapper;
     private final EmailService emailService;
     private final com.cinebook.service.PricingService pricingService;
+    private final FoodItemRepository foodItemRepository;
+    private final BookingFoodRepository bookingFoodRepository;
+    private final FoodItemMapper foodItemMapper;
+    private final NotificationService notificationService;
 
     @org.springframework.beans.factory.annotation.Autowired
     public BookingServiceImpl(
@@ -71,7 +93,11 @@ public class BookingServiceImpl implements BookingService {
             BookingMapper bookingMapper,
             PromotionMapper promotionMapper,
             EmailService emailService,
-            com.cinebook.service.PricingService pricingService
+            com.cinebook.service.PricingService pricingService,
+            FoodItemRepository foodItemRepository,
+            BookingFoodRepository bookingFoodRepository,
+            FoodItemMapper foodItemMapper,
+            NotificationService notificationService
     ) {
         this.bookingRepository = bookingRepository;
         this.seatHoldRepository = seatHoldRepository;
@@ -87,6 +113,58 @@ public class BookingServiceImpl implements BookingService {
         this.promotionMapper = promotionMapper;
         this.emailService = emailService;
         this.pricingService = (pricingService != null) ? pricingService : createFallbackPricingService();
+        this.foodItemRepository = foodItemRepository;
+        this.bookingFoodRepository = bookingFoodRepository;
+        this.foodItemMapper = (foodItemMapper != null) ? foodItemMapper : new FoodItemMapper();
+        this.notificationService = notificationService;
+    }
+
+    public BookingServiceImpl(
+            BookingRepository bookingRepository,
+            SeatHoldRepository seatHoldRepository,
+            TicketRepository ticketRepository,
+            SeatRepository seatRepository,
+            ShowtimeRepository showtimeRepository,
+            UserRepository userRepository,
+            PaymentRepository paymentRepository,
+            PromotionRepository promotionRepository,
+            BookingPromotionRepository bookingPromotionRepository,
+            PromotionService promotionService,
+            BookingMapper bookingMapper,
+            PromotionMapper promotionMapper,
+            EmailService emailService,
+            com.cinebook.service.PricingService pricingService,
+            FoodItemRepository foodItemRepository,
+            BookingFoodRepository bookingFoodRepository,
+            FoodItemMapper foodItemMapper
+    ) {
+        this(bookingRepository, seatHoldRepository, ticketRepository, seatRepository,
+                showtimeRepository, userRepository, paymentRepository, promotionRepository,
+                bookingPromotionRepository, promotionService, bookingMapper, promotionMapper,
+                emailService, pricingService, foodItemRepository, bookingFoodRepository,
+                foodItemMapper, null);
+    }
+
+    public BookingServiceImpl(
+            BookingRepository bookingRepository,
+            SeatHoldRepository seatHoldRepository,
+            TicketRepository ticketRepository,
+            SeatRepository seatRepository,
+            ShowtimeRepository showtimeRepository,
+            UserRepository userRepository,
+            PaymentRepository paymentRepository,
+            PromotionRepository promotionRepository,
+            BookingPromotionRepository bookingPromotionRepository,
+            PromotionService promotionService,
+            BookingMapper bookingMapper,
+            PromotionMapper promotionMapper,
+            EmailService emailService,
+            com.cinebook.service.PricingService pricingService
+    ) {
+        this(bookingRepository, seatHoldRepository, ticketRepository, seatRepository,
+                showtimeRepository, userRepository, paymentRepository, promotionRepository,
+                bookingPromotionRepository, promotionService, bookingMapper, promotionMapper,
+                emailService, pricingService, null, null, null);
     }
 
     public BookingServiceImpl(
@@ -107,7 +185,7 @@ public class BookingServiceImpl implements BookingService {
         this(bookingRepository, seatHoldRepository, ticketRepository, seatRepository,
                 showtimeRepository, userRepository, paymentRepository, promotionRepository,
                 bookingPromotionRepository, promotionService, bookingMapper, promotionMapper,
-                emailService, null);
+                emailService, null, null, null, null);
     }
 
     private static com.cinebook.service.PricingService createFallbackPricingService() {
@@ -151,6 +229,11 @@ public class BookingServiceImpl implements BookingService {
             }
 
             @Override
+            public BigDecimal calculateMinimumTicketPrice(Showtime showtime) {
+                return calculateShowtimeBaseBreakdown(showtime).getFinalPrice();
+            }
+
+            @Override
             public List<com.cinebook.dto.response.DayPricingRuleResponse> getAllDayPricingRules() { return List.of(); }
             @Override
             public com.cinebook.dto.response.DayPricingRuleResponse getDayPricingRuleById(String id) { return null; }
@@ -174,6 +257,28 @@ public class BookingServiceImpl implements BookingService {
     }
 
 
+    /**
+     * Tạo đơn đặt vé mới và kích hoạt cơ chế giữ chỗ tạm thời (Seat Hold) trong 5 phút.
+     * 
+     * Quy trình xác thực và xử lý:
+     * 1. Xác thực người dùng hiện tại từ SecurityContextHolder.
+     * 2. Kiểm tra số lượng ghế: Không được để trống, không vượt quá 8 ghế, không trùng lặp.
+     * 3. Kiểm tra tính hợp lệ của suất chiếu:
+     *    - Trạng thái phải là SCHEDULED (không bị hủy hoặc đã kết thúc).
+     *    - Thời gian bắt đầu chưa qua so với hiện tại.
+     *    - Phòng chiếu (Auditorium) và rạp (Cinema) phải đang ở trạng thái ACTIVE.
+     * 4. Kiểm tra ghế: Thuộc đúng phòng chiếu và đang ở trạng thái ACTIVE (không hỏng - BROKEN).
+     * 5. Kiểm tra Idempotency: Nếu chính khách hàng này đã có đơn đặt vé PENDING_PAYMENT cho đúng
+     *    tập ghế này trong cùng suất chiếu, trả về luôn đơn hiện tại mà không tạo mới trùng lặp.
+     * 6. Kiểm tra xung đột ghế:
+     *    - Xóa các giữ chỗ đã hết hạn trước đó.
+     *    - Kiểm tra xem có ai khác đang giữ chỗ các ghế này không (SeatHold).
+     *    - Kiểm tra xem ghế đã được bán chưa (Ticket có trạng thái VALID hoặc USED).
+     * 7. Tính toán giá vé thông qua PricingService (bao gồm giá cơ bản, phụ thu ngày, giờ chiếu, loại ghế).
+     * 8. Áp dụng mã khuyến mãi (nếu có): Kiểm tra thời hạn, giá trị tối thiểu, giới hạn lượt dùng,
+     *    khóa bi quan để tăng usedCount một cách an toàn.
+     * 9. Lưu Booking (trạng thái PENDING_PAYMENT) và tạo các bản ghi SeatHold (hết hạn sau 5 phút).
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BookingDetailResponse createBooking(CreateBookingRequest request) {
@@ -246,13 +351,13 @@ public class BookingServiceImpl implements BookingService {
             }
         }
 
-        // Check if current user already has an active PENDING_PAYMENT booking for this showtime with exact same seats (Idempotency)
+        // Kiểm tra xem khách hàng này đã có đơn PENDING_PAYMENT cho đúng tập ghế này trong suất chiếu chưa (Idempotency)
         List<Booking> activeUserBookings = bookingRepository.findActiveBookingsByUserAndShowtime(user.getId(), showtime.getId(), now);
         for (Booking activeB : activeUserBookings) {
             List<SeatHold> userHolds = seatHoldRepository.findByBookingId(activeB.getId());
             Set<String> userHeldSeatIds = userHolds.stream().map(h -> h.getSeat().getId()).collect(Collectors.toSet());
             if (userHeldSeatIds.equals(uniqueSeatIds)) {
-                log.info("User {} is requesting booking for their existing active booking {}. Returning existing booking.", user.getId(), activeB.getId());
+                log.info("Người dùng {} đang yêu cầu đặt lại đơn giữ chỗ hiện có {}. Trả về đơn giữ chỗ sẵn có.", user.getId(), activeB.getId());
                 List<BookingSeatResponse> existingSeatResponses = buildBookingSeatResponses(activeB);
                 List<PaymentSummaryResponse> existingPaymentResponses = paymentRepository.findByBookingId(activeB.getId())
                         .stream()
@@ -265,7 +370,10 @@ public class BookingServiceImpl implements BookingService {
             }
         }
 
-        // Critical Audit #1: Actively resolve/delete expired SeatHolds for requested seats so they do not trigger uk_seat_holds_showtime_seat
+        // Kiểm tra quy tắc không để lại ghế trống đơn lẻ (No Single Orphan Seat Rule)
+        validateSeatAdjacency(showtime, seats);
+
+        // Bước 1: Xóa chủ động các bản ghi SeatHold đã hết hạn cho các ghế được yêu cầu để tránh kích hoạt ràng buộc duy nhất uk_seat_holds_showtime_seat
         seatHoldRepository.deleteExpiredHoldsForSeats(showtime.getId(), uniqueSeatIds, now);
 
         List<SeatHold> activeHolds = seatHoldRepository.findActiveHoldsByShowtimeAndSeatIds(showtime.getId(), uniqueSeatIds, now);
@@ -273,7 +381,7 @@ public class BookingServiceImpl implements BookingService {
             throw new ConflictException("Một hoặc nhiều ghế đã được giữ chỗ bởi người khác. Vui lòng chọn ghế khác.");
         }
 
-        // Critical Audit #2: Check sold tickets (both VALID and USED)
+        // Bước 2: Kiểm tra các vé đã bán thực tế (cả trạng thái VALID và USED) để chống bán trùng ghế
         List<Ticket> soldTickets = ticketRepository.findTicketsByShowtimeAndSeatIdsAndStatuses(showtime.getId(), uniqueSeatIds, SOLD_TICKET_STATUSES);
         if (!soldTickets.isEmpty()) {
             throw new ConflictException("Một hoặc nhiều ghế đã được bán. Vui lòng chọn ghế khác.");
@@ -324,7 +432,59 @@ public class BookingServiceImpl implements BookingService {
             appliedPromotion = promo;
         }
 
+        // Xử lý và tính toán tiền bắp nước F&B (Server-side authoritative calculation)
+        BigDecimal foodTotal = BigDecimal.ZERO;
+        List<BookingFood> bookingFoodsToSave = new ArrayList<>();
+        List<BookingFoodResponse> foodResponses = new ArrayList<>();
+
+        if (request.getFoodItems() != null && !request.getFoodItems().isEmpty()) {
+            Set<String> seenFoodIds = new HashSet<>();
+            for (BookingFoodItemRequest foodReq : request.getFoodItems()) {
+                if (foodReq.getFoodItemId() == null || !seenFoodIds.add(foodReq.getFoodItemId())) {
+                    throw new BadRequestException("Danh sách bắp nước không được chứa món trùng lặp.");
+                }
+
+                if (foodReq.getQuantity() == null || foodReq.getQuantity() < 1) {
+                    throw new BadRequestException("Số lượng món ăn/thức uống phải lớn hơn hoặc bằng 1.");
+                }
+
+                if (foodReq.getQuantity() > 20) {
+                    throw new BadRequestException("Số lượng cho mỗi món ăn/thức uống không được vượt quá 20.");
+                }
+
+                if (foodItemRepository != null) {
+                    FoodItem foodItem = foodItemRepository.findByIdAndDeletedAtIsNull(foodReq.getFoodItemId())
+                            .orElseThrow(() -> new BadRequestException("Món ăn/thức uống không tồn tại: " + foodReq.getFoodItemId()));
+
+                    if (foodItem.getStatus() != FoodItemStatus.ACTIVE) {
+                        throw new BadRequestException("Món '" + foodItem.getName() + "' hiện đang tạm ngưng phục vụ.");
+                    }
+
+                    BigDecimal unitPrice = foodItem.getPrice();
+                    BigDecimal subtotal = unitPrice.multiply(BigDecimal.valueOf(foodReq.getQuantity()));
+                    foodTotal = foodTotal.add(subtotal);
+
+                    BookingFood bf = new BookingFood();
+                    bf.setFoodItem(foodItem);
+                    bf.setFoodName(foodItem.getName());
+                    bf.setUnitPrice(unitPrice);
+                    bf.setQuantity(foodReq.getQuantity());
+                    bf.setSubtotal(subtotal);
+                    bookingFoodsToSave.add(bf);
+
+                    foodResponses.add(BookingFoodResponse.builder()
+                            .foodItemId(foodItem.getId())
+                            .foodName(foodItem.getName())
+                            .unitPrice(unitPrice)
+                            .quantity(foodReq.getQuantity())
+                            .subtotal(subtotal)
+                            .build());
+                }
+            }
+        }
+
         BigDecimal netTotal = grossAmount.subtract(discountAmount).max(BigDecimal.ZERO);
+        BigDecimal finalTotal = netTotal.add(foodTotal);
         LocalDateTime holdExpiresAt = now.plusMinutes(HOLD_DURATION_MINUTES);
         String bookingCode = generateUniqueBookingCode(now);
 
@@ -332,7 +492,7 @@ public class BookingServiceImpl implements BookingService {
         booking.setBookingCode(bookingCode);
         booking.setUser(user);
         booking.setShowtime(showtime);
-        booking.setTotalAmount(netTotal);
+        booking.setTotalAmount(finalTotal);
         booking.setBookingStatus(BookingStatus.PENDING_PAYMENT);
         booking.setHoldExpiresAt(holdExpiresAt);
 
@@ -349,6 +509,17 @@ public class BookingServiceImpl implements BookingService {
                 bookingPromotion.setDiscountAmount(discountAmount);
                 bookingPromotion.setCreatedAt(now);
                 bookingPromotionRepository.saveAndFlush(bookingPromotion);
+            }
+
+            if (!bookingFoodsToSave.isEmpty() && bookingFoodRepository != null) {
+                for (BookingFood bf : bookingFoodsToSave) {
+                    bf.setBooking(savedBooking);
+                }
+                List<BookingFood> savedBfs = bookingFoodRepository.saveAllAndFlush(bookingFoodsToSave);
+                savedBooking.setBookingFoods(savedBfs);
+                if (foodItemMapper != null) {
+                    foodResponses = foodItemMapper.toBookingFoodResponseList(savedBfs);
+                }
             }
 
             List<SeatHold> seatHoldsToSave = new ArrayList<>();
@@ -370,9 +541,21 @@ public class BookingServiceImpl implements BookingService {
                 ? promotionMapper.toBookingPromotionResponse(appliedPromotion, discountAmount)
                 : null;
 
-        return bookingMapper.toBookingDetailResponse(savedBooking, seatResponses, Collections.emptyList(), Collections.emptyList(), promoResponse);
+        return bookingMapper.toBookingDetailResponse(savedBooking, seatResponses, Collections.emptyList(), Collections.emptyList(), promoResponse, foodResponses);
     }
 
+    /**
+     * Hủy đơn đặt vé khi hết hạn giữ chỗ (Lazy Expiration):
+     * 
+     * Quy trình xử lý:
+     * 1. Áp dụng Khóa bi quan (Pessimistic Write Lock: findByIdWithLock) trên Booking để chống Race Condition.
+     * 2. Kiểm tra nếu holdExpiresAt <= now:
+     *    - Chuyển trạng thái Booking sang EXPIRED.
+     *    - Lưu vết (Snapshot) các ghế đã giữ dưới dạng bản ghi Ticket với trạng thái CANCELLED trước khi xóa holds.
+     *    - Xóa toàn bộ SeatHold của đơn để giải phóng ghế cho khách khác chọn.
+     *    - Hoàn trả lại số lượt sử dụng mã khuyến mãi (Promotion quota) nếu đơn có áp dụng mã.
+     *    - Hủy các yêu cầu thanh toán (Payment) đang ở trạng thái PENDING.
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Booking expireBookingIfHoldExpired(Booking booking) {
@@ -383,13 +566,13 @@ public class BookingServiceImpl implements BookingService {
             return booking;
         }
 
-        // Acquire pessimistic write lock and refresh latest DB state if ID is present
+        // 1. Áp dụng Khóa bi quan (Pessimistic Write Lock) trên Booking để chống tranh chấp đồng thời (Race Condition)
         Booking targetBooking = booking;
         if (booking.getId() != null) {
             targetBooking = bookingRepository.findByIdWithLock(booking.getId()).orElse(booking);
         }
 
-        // Re-check after locking to guarantee idempotency and avoid race conditions
+        // 2. Tái kiểm tra trạng thái sau khi đã có lock để bảo đảm tính Idempotency
         if (targetBooking.getBookingStatus() != BookingStatus.PENDING_PAYMENT) {
             return targetBooking;
         }
@@ -400,21 +583,26 @@ public class BookingServiceImpl implements BookingService {
             Booking saved = bookingRepository.save(targetBooking);
             Booking updatedBooking = (saved != null) ? saved : targetBooking;
 
-            // Preserve seat history for expired booking before holds are deleted
+            // 3. Lưu vết Snapshot các ghế đã giữ dưới dạng vé CANCELLED trước khi giải phóng ghế
             snapshotHeldSeatsAsCancelledTickets(updatedBooking);
 
             seatHoldRepository.deleteByBookingId(targetBooking.getId());
             releasePromotionQuotaIfApplied(targetBooking.getId());
 
-            // Cancel any active pending payment attempts while strictly preserving terminal payment states
+            // 4. Hủy các yêu cầu thanh toán PENDING đang dở dang (giữ nguyên trạng thái các giao dịch đã xong)
             cancelPendingPaymentsForBooking(targetBooking.getId());
 
-            log.info("Successfully expired booking: code={}, id={}", updatedBooking.getBookingCode(), updatedBooking.getId());
+            log.info("Hủy thành công đơn giữ chỗ hết hạn: code={}, id={}", updatedBooking.getBookingCode(), updatedBooking.getId());
             return updatedBooking;
         }
         return targetBooking;
     }
 
+    /**
+     * Hủy toàn bộ các phiên thanh toán PENDING đang dở dang liên quan đến đơn hàng này.
+     * 
+     * @param bookingId Mã định danh đơn hàng
+     */
     private void cancelPendingPaymentsForBooking(String bookingId) {
         List<Payment> pendingPayments = paymentRepository.findByBookingId(bookingId).stream()
                 .filter(p -> p.getPaymentStatus() == PaymentStatus.PENDING)
@@ -424,10 +612,16 @@ public class BookingServiceImpl implements BookingService {
         }
         if (!pendingPayments.isEmpty()) {
             paymentRepository.saveAll(pendingPayments);
-            log.info("Cancelled {} pending payment(s) for booking {}", pendingPayments.size(), bookingId);
+            log.info("Đã hủy {} phiên thanh toán PENDING cho đơn hàng {}", pendingPayments.size(), bookingId);
         }
     }
 
+    /**
+     * Hoàn trả số lượt sử dụng mã khuyến mãi (Promotion Quota) khi đơn hàng bị hủy hoặc hết hạn.
+     * Sử dụng khóa bi quan (Pessimistic Lock) trên Promotion để tránh Race Condition khi cập nhật usedCount.
+     * 
+     * @param bookingId Mã định danh đơn hàng
+     */
     private void releasePromotionQuotaIfApplied(String bookingId) {
         List<BookingPromotion> bookingPromotions = bookingPromotionRepository.findByBookingId(bookingId);
         for (BookingPromotion bp : bookingPromotions) {
@@ -435,11 +629,17 @@ public class BookingServiceImpl implements BookingService {
             if (promo != null && promo.getUsedCount() > 0) {
                 promo.setUsedCount(promo.getUsedCount() - 1);
                 promotionRepository.save(promo);
-                log.info("Released promotion quota for promo {}: new usedCount={}", promo.getCode(), promo.getUsedCount());
+                log.info("Đã hoàn trả 1 lượt dùng mã khuyến mãi {}: lượt dùng mới = {}", promo.getCode(), promo.getUsedCount());
             }
         }
     }
 
+    /**
+     * Lưu vết lịch sử các ghế khách đã chọn (Snapshotting) dưới dạng vé CANCELLED trước khi xóa seat_holds.
+     * Nghiệp vụ này đảm bảo khi kiểm toán hoặc khách hỏi lại lịch sử, hệ thống vẫn biết khách từng chọn ghế nào.
+     * 
+     * @param booking Đơn đặt vé bị hủy hoặc hết hạn
+     */
     private void snapshotHeldSeatsAsCancelledTickets(Booking booking) {
         if (booking == null || booking.getId() == null) {
             return;
@@ -475,18 +675,33 @@ public class BookingServiceImpl implements BookingService {
 
         try {
             ticketRepository.saveAllAndFlush(cancelledTickets);
-            log.info("Saved {} cancelled ticket snapshot(s) for booking {}", cancelledTickets.size(), booking.getBookingCode());
+            log.info("Đã lưu {} bản ghi vé snapshot CANCELLED cho đơn hàng {}", cancelledTickets.size(), booking.getBookingCode());
         } catch (Exception ex) {
-            log.warn("Failed to save cancelled ticket snapshots for booking {}: {}", booking.getBookingCode(), ex.getMessage());
+            log.warn("Không thể lưu bản ghi vé snapshot CANCELLED cho đơn hàng {}: {}", booking.getBookingCode(), ex.getMessage());
         }
     }
 
+    /**
+     * Dọn dẹp trực tiếp các bản ghi giữ chỗ (SeatHold) mồ côi đã hết hạn trong cơ sở dữ liệu.
+     * 
+     * @param now Thời điểm hiện tại
+     * @return Số lượng bản ghi giữ chỗ đã xóa
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int cleanupExpiredSeatHolds(LocalDateTime now) {
         return seatHoldRepository.deleteExpiredHolds(now);
     }
 
+    /**
+     * Lấy thông tin chi tiết của một đơn đặt vé (Booking Detail):
+     * - Kiểm tra quyền sở hữu: Khách hàng chỉ được xem đơn của mình; ADMIN có quyền xem mọi đơn.
+     * - Lazy Expiration: Nếu đơn đang là PENDING_PAYMENT mà đã quá 5 phút, tự động hết hạn và giải phóng ghế ngay lập tức.
+     * - Trả về đầy đủ thông tin: Ghế, vé điện tử (nếu có), lịch sử thanh toán, chi tiết khuyến mãi.
+     * 
+     * @param bookingId Mã định danh đơn hàng
+     * @return BookingDetailResponse chi tiết đơn hàng
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BookingDetailResponse getBookingDetail(String bookingId) {
@@ -512,9 +727,20 @@ public class BookingServiceImpl implements BookingService {
                 .map(promotionMapper::toBookingPromotionResponse)
                 .orElse(null);
 
-        return bookingMapper.toBookingDetailResponse(booking, seatResponses, ticketResponses, paymentResponses, promoResponse);
+        List<BookingFoodResponse> foodResponses = (bookingFoodRepository != null && foodItemMapper != null)
+                ? foodItemMapper.toBookingFoodResponseList(bookingFoodRepository.findByBookingId(booking.getId()))
+                : Collections.emptyList();
+
+        return bookingMapper.toBookingDetailResponse(booking, seatResponses, ticketResponses, paymentResponses, promoResponse, foodResponses);
     }
 
+    /**
+     * Lấy danh sách lịch sử đặt vé có phân trang của người dùng hiện tại đang đăng nhập.
+     * 
+     * @param status Trạng thái đơn đặt vé cần lọc (PENDING_PAYMENT, PAID, CANCELLED, EXPIRED, REFUNDED) - tùy chọn
+     * @param pageable Tham số phân trang và sắp xếp
+     * @return Trang danh sách tóm tắt các đơn đặt vé (PageResponse<BookingSummaryResponse>)
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<BookingSummaryResponse> getMyBookings(BookingStatus status, Pageable pageable) {
@@ -527,6 +753,15 @@ public class BookingServiceImpl implements BookingService {
         return PageResponse.of(page, bookingMapper::toBookingSummaryResponse);
     }
 
+    /**
+     * Tra cứu và lọc danh sách toàn bộ đơn đặt vé trong hệ thống dành cho Quản trị viên (Admin).
+     * 
+     * @param q Từ khóa tìm kiếm (mã đơn bookingCode, email khách hàng, họ tên, số điện thoại)
+     * @param status Trạng thái đơn hàng cần lọc
+     * @param showtimeId Lọc theo suất chiếu cụ thể
+     * @param pageable Tham số phân trang và sắp xếp
+     * @return Trang danh sách đơn đặt vé phù hợp
+     */
     @Override
     @Transactional(readOnly = true)
     public PageResponse<BookingSummaryResponse> getAdminBookings(String q, BookingStatus status, String showtimeId, Pageable pageable) {
@@ -536,6 +771,20 @@ public class BookingServiceImpl implements BookingService {
         return PageResponse.of(page, bookingMapper::toBookingSummaryResponse);
     }
 
+    /**
+     * Khách hàng hoặc Admin chủ động hủy đơn đặt vé đang ở trạng thái PENDING_PAYMENT (chưa thanh toán).
+     * 
+     * Quy trình xử lý:
+     * 1. Khóa bi quan (Pessimistic Write Lock: findByIdWithLock) trên Booking để tránh Race Condition.
+     * 2. Kiểm tra quyền sở hữu (hoặc quyền Admin).
+     * 3. Kiểm tra tính hợp lệ: Chỉ được hủy đơn PENDING_PAYMENT; không được tự hủy đơn đã PAID (phải qua hoàn tiền).
+     * 4. Kiểm tra thời hạn giữ chỗ: Nếu đã quá 5 phút, chuyển sang xử lý Lazy Expiration.
+     * 5. Cập nhật trạng thái Booking sang CANCELLED, ghi nhận người hủy và lý do hủy.
+     * 6. Lưu vết Snapshot các ghế đã giữ dưới dạng vé CANCELLED trước khi xóa holds.
+     * 7. Xóa các bản ghi SeatHold để giải phóng ghế ngay lập tức cho khách khác.
+     * 8. Hoàn trả lại số lượt dùng mã khuyến mãi (Promotion Quota) nếu có áp dụng.
+     * 9. Hủy các yêu cầu thanh toán (Payment) PENDING liên quan.
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BookingDetailResponse cancelBooking(String bookingId, CancelBookingRequest request) {
@@ -577,16 +826,31 @@ public class BookingServiceImpl implements BookingService {
         Booking saved = bookingRepository.save(booking);
         Booking updatedBooking = (saved != null) ? saved : booking;
 
-        // Preserve seat history for cancelled booking before holds are deleted
+        // Lưu vết lịch sử các ghế khách đã giữ dưới dạng vé CANCELLED trước khi giải phóng ghế
         snapshotHeldSeatsAsCancelledTickets(updatedBooking);
 
         seatHoldRepository.deleteByBookingId(booking.getId());
 
-        // Idempotent quota release for PENDING_PAYMENT booking cancellation
+        // Hoàn trả lại số lượt dùng khuyến mãi nếu đơn hàng có áp dụng mã
         releasePromotionQuotaIfApplied(booking.getId());
 
-        // Cancel any pending payment attempts for this booking
+        // Hủy các phiên thanh toán PENDING đang dở dang
         cancelPendingPaymentsForBooking(booking.getId());
+
+        // Tạo thông báo hủy đơn đặt vé thành công (In-App Notification)
+        try {
+            if (notificationService != null && updatedBooking.getUser() != null) {
+                notificationService.createNotification(
+                        updatedBooking.getUser(),
+                        updatedBooking,
+                        NotificationType.BOOKING_CANCELLED,
+                        "Hủy đơn đặt vé thành công",
+                        "Đơn đặt vé #" + updatedBooking.getBookingCode() + " đã được hủy thành công."
+                );
+            }
+        } catch (Exception e) {
+            log.error("Không thể tạo thông báo hủy đơn đặt vé {}: {}", updatedBooking.getBookingCode(), e.getMessage());
+        }
 
         List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(booking);
         List<TicketResponse> ticketResponses = ticketRepository.findByBookingId(booking.getId())
@@ -604,6 +868,22 @@ public class BookingServiceImpl implements BookingService {
         return bookingMapper.toBookingDetailResponse(booking, seatResponses, ticketResponses, paymentResponses, promoResponse);
     }
 
+    /**
+     * Xác nhận thanh toán thành công và phát hành vé điện tử chính thức (Ticket Issuance).
+     * 
+     * Quy trình xử lý:
+     * 1. Đối chiếu tính toàn vẹn: Payment thuộc đúng Booking, trạng thái Payment là SUCCESS,
+     *    số tiền thanh toán khớp 100% với booking.totalAmount.
+     * 2. Idempotency Check: Nếu đơn hàng đã ở trạng thái PAID (ví dụ cả IPN và Return URL cùng kích hoạt),
+     *    trả về ngay thông tin hiện tại, tuyệt đối không tạo vé trùng lặp (không double-ticket).
+     * 3. Chuyển trạng thái Booking sang PAID.
+     * 4. Phát hành vé điện tử (Ticket):
+     *    - Mỗi ghế giữ chỗ (SeatHold) sẽ được chuyển thành một bản ghi Ticket với trạng thái VALID.
+     *    - Ghi nhận bất biến (Snapshot) giá vé tại thời điểm bán (ticket_price).
+     *    - Tạo mã QR Code định danh duy nhất (UUID) phục vụ quy trình soát vé tại rạp.
+     * 5. Xóa bỏ các bản ghi SeatHold (chuyển giao hoàn toàn quyền sở hữu ghế cho Ticket).
+     * 6. Gửi email xác nhận kèm vé điện tử cho khách hàng.
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BookingDetailResponse confirmPaidBooking(String bookingId, String paymentId) {
@@ -625,7 +905,7 @@ public class BookingServiceImpl implements BookingService {
             throw new BadRequestException("Số tiền thanh toán (" + payment.getAmount() + ") không khớp với tổng tiền đơn đặt vé (" + booking.getTotalAmount() + ").");
         }
 
-        // Idempotency: If already PAID, return current state without creating duplicate tickets
+        // 2. Kiểm tra tính Idempotent: Nếu đơn hàng đã ở trạng thái PAID, trả về thông tin hiện tại, tuyệt đối không tạo vé trùng lặp
         if (booking.getBookingStatus() == BookingStatus.PAID) {
             return getBookingDetail(booking.getId());
         }
@@ -667,7 +947,7 @@ public class BookingServiceImpl implements BookingService {
             ticket.setSeat(seat);
             ticket.setTicketPrice(ticketPrice);
             ticket.setTicketStatus(TicketStatus.VALID);
-            ticket.setQrCode(ticketId); // UUID as QR payload
+            ticket.setQrCode(ticketId); // Sử dụng UUID làm mã QR soát vé tại quầy
             createdTickets.add(ticket);
         }
 
@@ -680,7 +960,7 @@ public class BookingServiceImpl implements BookingService {
 
         seatHoldRepository.deleteByBookingId(booking.getId());
 
-        // Dispatch booking confirmation email asynchronously / safely
+        // 6. Gửi email xác nhận kèm vé điện tử cho khách hàng một cách an toàn (bắt ngoại lệ để không làm rollback giao dịch)
         try {
             String customerEmail = updatedBooking.getUser() != null ? updatedBooking.getUser().getEmail() : null;
             String customerName = updatedBooking.getUser() != null ? updatedBooking.getUser().getFullName() : null;
@@ -688,7 +968,22 @@ public class BookingServiceImpl implements BookingService {
                 emailService.sendBookingConfirmationEmail(customerEmail, customerName, updatedBooking, createdTickets);
             }
         } catch (Exception e) {
-            log.error("Failed to trigger booking confirmation email for booking {}: {}", updatedBooking.getBookingCode(), e.getMessage());
+            log.error("Lỗi khi gửi email xác nhận đặt vé {}: {}", updatedBooking.getBookingCode(), e.getMessage());
+        }
+
+        // 7. Tạo thông báo thanh toán thành công (In-App Notification)
+        try {
+            if (notificationService != null && updatedBooking.getUser() != null) {
+                notificationService.createNotification(
+                        updatedBooking.getUser(),
+                        updatedBooking,
+                        NotificationType.PAYMENT_SUCCESS,
+                        "Thanh toán thành công",
+                        "Đơn đặt vé #" + updatedBooking.getBookingCode() + " đã được thanh toán thành công. Chúc bạn xem phim vui vẻ!"
+                );
+            }
+        } catch (Exception e) {
+            log.error("Không thể tạo thông báo thanh toán thành công cho đơn vé {}: {}", updatedBooking.getBookingCode(), e.getMessage());
         }
 
         List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(updatedBooking);
@@ -706,6 +1001,23 @@ public class BookingServiceImpl implements BookingService {
         return bookingMapper.toBookingDetailResponse(updatedBooking, seatResponses, ticketResponses, paymentResponses, promoResponse);
     }
 
+    /**
+     * Xử lý cập nhật trạng thái hoàn tiền cho đơn đặt vé sau khi cổng thanh toán (VNPay) đã chấp thuận yêu cầu:
+     * 
+     * Quy trình xử lý:
+     * 1. Khóa bi quan (Pessimistic Write Lock: findByIdWithLock) trên Booking để tránh Race Condition.
+     * 2. Idempotency Check: Nếu đơn hàng đã là REFUNDED, trả về ngay thông tin hiện tại.
+     * 3. Kiểm tra tính hợp lệ: Chỉ hoàn tiền cho đơn đã PAID (hoặc EXPIRED do Admin xử lý đối soát tài chính).
+     * 4. Kiểm tra vé: Tuyệt đối không hoàn tiền nếu đã có bất kỳ vé nào có trạng thái USED (khách đã vào xem phim).
+     * 5. Chuyển trạng thái Booking sang REFUNDED, lưu mốc thời gian và lý do hoàn tiền.
+     * 6. Hủy toàn bộ vé điện tử: Chuyển tất cả Ticket sang trạng thái CANCELLED.
+     * 7. Xóa sạch mọi bản ghi giữ chỗ SeatHold liên quan.
+     * 
+     * @param bookingId Mã định danh đơn hàng
+     * @param reason Lý do hoàn tiền
+     * @param userId Người thực hiện thao tác hoàn tiền
+     * @return BookingDetailResponse chi tiết đơn sau khi hoàn tiền
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BookingDetailResponse processBookingRefund(String bookingId, String reason, String userId) {
@@ -748,6 +1060,21 @@ public class BookingServiceImpl implements BookingService {
         log.info("Successfully processed refund for booking {}: status=REFUNDED, tickets cancelled={}",
                 booking.getId(), tickets.size());
 
+        // Tạo thông báo hoàn tiền thành công (In-App Notification)
+        try {
+            if (notificationService != null && updatedBooking.getUser() != null) {
+                notificationService.createNotification(
+                        updatedBooking.getUser(),
+                        updatedBooking,
+                        NotificationType.REFUND_COMPLETED,
+                        "Hoàn tiền thành công",
+                        "Đơn đặt vé #" + updatedBooking.getBookingCode() + " đã được hoàn tiền thành công."
+                );
+            }
+        } catch (Exception e) {
+            log.error("Không thể tạo thông báo hoàn tiền thành công cho đơn vé {}: {}", updatedBooking.getBookingCode(), e.getMessage());
+        }
+
         List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(updatedBooking);
         List<TicketResponse> ticketResponses = tickets.stream()
                 .map(bookingMapper::toTicketResponse)
@@ -765,6 +1092,23 @@ public class BookingServiceImpl implements BookingService {
 
 
 
+    /**
+     * Tra cứu trạng thái khả dụng và giá vé tính toán của toàn bộ ghế ngồi trong một suất chiếu:
+     * 
+     * Quy tắc xác định trạng thái ghế (SeatAvailabilityStatus):
+     * 1. BLOCKED: Phòng chiếu không ACTIVE, hoặc lịch chiếu bị CANCELLED, hoặc ghế bị sự cố vật lý (SeatStatus != ACTIVE).
+     * 2. SOLD: Ghế đã được bán thành công (tồn tại vé với trạng thái VALID hoặc USED).
+     * 3. HELD: Ghế đang được giữ chỗ trong 5 phút bởi một giao dịch PENDING_PAYMENT chưa hết hạn.
+     *    - Đánh dấu cờ `isHeldByCurrentUser = true` nếu chính người dùng đang đăng nhập là người giữ ghế này.
+     * 4. AVAILABLE: Ghế hoàn toàn trống, sẵn sàng để khách hàng chọn đặt.
+     * 
+     * Tính toán giá vé thời gian thực (Dynamic Pricing):
+     * - Kết hợp giá cơ sở của suất chiếu (basePrice) với phụ thu ngày chiếu (Day Modifier),
+     *   phụ thu khung giờ (TimeSlot Modifier) và phụ thu loại ghế (SeatType Modifier: VIP, Thường, Đôi).
+     * 
+     * @param showtimeId Mã định danh suất chiếu
+     * @return Danh sách ShowtimeSeatStatusResponse phản ánh sơ đồ ghế và giá tương ứng
+     */
     @Override
     @Transactional(readOnly = true)
     public List<ShowtimeSeatStatusResponse> getShowtimeSeatAvailability(String showtimeId) {
@@ -841,6 +1185,13 @@ public class BookingServiceImpl implements BookingService {
         return responses;
     }
 
+    /**
+     * Tra cứu đơn đặt vé đang chờ thanh toán (PENDING_PAYMENT) và còn hiệu lực giữ chỗ của khách hàng cho một suất chiếu.
+     * Hỗ trợ khôi phục phiên đặt vé (Resume Booking) khi khách tải lại trang sơ đồ ghế.
+     * 
+     * @param showtimeId Mã định danh suất chiếu
+     * @return BookingDetailResponse nếu có đơn đang giữ chỗ hợp lệ, ngược lại trả về null
+     */
     @Override
     @Transactional(readOnly = true)
     public BookingDetailResponse getActiveBookingForShowtime(String showtimeId) {
@@ -864,6 +1215,14 @@ public class BookingServiceImpl implements BookingService {
         return bookingMapper.toBookingDetailResponse(activeBooking, seatResponses, Collections.emptyList(), paymentResponses, promoResponse);
     }
 
+    /**
+     * Xác thực quyền truy cập đơn đặt vé:
+     * - Quản trị viên (ROLE_ADMIN) có quyền truy cập toàn bộ đơn vé.
+     * - Khách hàng chỉ có quyền xem hoặc hủy đơn hàng do chính mình tạo ra.
+     * 
+     * @param booking Đơn đặt vé cần kiểm tra
+     * @throws ForbiddenException nếu người dùng không có quyền truy cập
+     */
     private void validateBookingOwnershipOrAdmin(Booking booking) {
         UserDetailsImpl currentUser = SecurityUtils.getCurrentUserDetails()
                 .orElseThrow(() -> new UnauthorizedException("User is not authenticated"));
@@ -875,6 +1234,14 @@ public class BookingServiceImpl implements BookingService {
         }
     }
 
+    /**
+     * Chuyển đổi danh sách ghế thành đối tượng phản hồi BookingSeatResponse:
+     * - Nếu đơn đã phát hành vé (Ticket): Lấy thông tin ghế và giá vé từ bảng Ticket.
+     * - Nếu đơn đang trong giai đoạn giữ chỗ (SeatHold): Tính toán giá vé tương ứng theo SeatType và Showtime Base Breakdown.
+     * 
+     * @param booking Đơn đặt vé cần trích xuất danh sách ghế
+     * @return Danh sách BookingSeatResponse
+     */
     private List<BookingSeatResponse> buildBookingSeatResponses(Booking booking) {
         List<Ticket> tickets = ticketRepository.findByBookingId(booking.getId());
         if (!tickets.isEmpty()) {
@@ -899,6 +1266,15 @@ public class BookingServiceImpl implements BookingService {
         return Collections.emptyList();
     }
 
+    /**
+     * Sinh mã đơn đặt vé duy nhất định dạng CB-yyyyMMdd-XXXXXX:
+     * - Tiền tố CB- cùng ngày đặt vé yyyyMMdd giúp phân loại đơn hàng theo ngày.
+     * - Hậu tố ngẫu nhiên 6 ký tự (chữ in hoa và số) với thuật toán SecureRandom.
+     * - Kiểm tra tính duy nhất trong cơ sở dữ liệu (existsByBookingCode) để chống trùng mã.
+     * 
+     * @param now Thời điểm tạo đơn
+     * @return Chuỗi mã đơn đặt vé duy nhất
+     */
     private String generateUniqueBookingCode(LocalDateTime now) {
         String datePrefix = "CB-" + now.format(DateTimeFormatter.ofPattern("yyyyMMdd")) + "-";
         String code;
@@ -920,6 +1296,19 @@ public class BookingServiceImpl implements BookingService {
         return code;
     }
 
+    /**
+     * Tra cứu và xác minh tính hợp lệ của mã soát vé (Check-in Verification) trước khi cho khách vào phòng chiếu.
+     * 
+     * Quy tắc xác minh:
+     * 1. Mã soát vé phải tồn tại trong hệ thống.
+     * 2. Đơn vé không bị Hủy (CANCELLED), Hoàn tiền (REFUNDED) hoặc Hết hạn (EXPIRED).
+     * 3. Đơn vé phải ở trạng thái đã thanh toán (PAID).
+     * 4. Lịch chiếu không bị hủy (showtime.status != CANCELLED).
+     * 5. Phải còn ít nhất một vé có trạng thái VALID chưa bị soát (USED).
+     * 
+     * @param checkInCode Mã soát vé định dạng CHECKIN-xxx
+     * @return BookingVerifyResponse thông tin chi tiết đơn hàng, danh sách vé và cờ checkInEligible
+     */
     @Override
     @Transactional(readOnly = true)
     public BookingVerifyResponse verifyBookingCheckIn(String checkInCode) {
@@ -1013,6 +1402,20 @@ public class BookingServiceImpl implements BookingService {
                 .build();
     }
 
+    /**
+     * Thực hiện thao tác soát vé nguyên tử (Atomic Check-in):
+     * 
+     * Cơ chế khóa & Chống Race Condition:
+     * 1. Khóa bi quan hàng Booking trước (Pessimistic Lock: findByCheckInCodeWithLock) để bảo đảm
+     *    thứ tự khóa nhất quán toàn cục (Global Lock Ordering: Booking -> Ticket), chống Deadlock.
+     * 2. Khóa các bản ghi vé (findByBookingIdWithLock).
+     * 3. Kiểm tra tính hợp lệ của đơn hàng và suất chiếu.
+     * 4. Cập nhật đồng loạt các vé có trạng thái VALID sang USED.
+     * 5. Ghi log kiểm toán và trả về phản hồi kết quả soát vé.
+     * 
+     * @param request Yêu cầu chứa mã soát vé checkInCode
+     * @return BookingCheckInResponse kết quả soát vé chi tiết
+     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BookingCheckInResponse checkInBooking(BookingCheckInRequest request) {
@@ -1022,14 +1425,14 @@ public class BookingServiceImpl implements BookingService {
 
         String code = request.getCheckInCode().trim();
 
-        // 1. Lock parent booking first to maintain consistent global lock ordering (Booking -> Ticket)
+        // 1. Khóa hàng Booking trước để bảo đảm thứ tự khóa toàn cục (Booking -> Ticket)
         Booking booking = bookingRepository.findByCheckInCodeWithLock(code)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn đặt vé với mã soát vé: " + code));
 
-        // 2. Lock tickets for this booking
+        // 2. Khóa các bản ghi vé của đơn hàng này
         List<Ticket> tickets = ticketRepository.findByBookingIdWithLock(booking.getId());
 
-        // 3. Validate booking & showtime status
+        // 3. Kiểm tra tính hợp lệ của trạng thái đơn hàng và suất chiếu
         if (booking.getBookingStatus() == BookingStatus.CANCELLED) {
             throw new BadRequestException("Đơn đặt vé đã bị hủy, không thể thực hiện soát vé.");
         }
@@ -1065,7 +1468,7 @@ public class BookingServiceImpl implements BookingService {
         }
         ticketRepository.saveAllAndFlush(validTickets);
 
-        log.info("Booking {} (code: {}) checked in: {} ticket(s) marked USED, {} previously USED",
+        log.info("Soát vé đơn hàng {} (mã: {}): {} vé chuyển sang USED, {} vé đã dùng trước đó",
                 booking.getId(), booking.getBookingCode(), validTickets.size(), alreadyUsedCount);
 
         List<Ticket> reloadedTickets = ticketRepository.findByBookingIdWithSeat(booking.getId());
@@ -1113,5 +1516,122 @@ public class BookingServiceImpl implements BookingService {
                 .checkedInCount(validTickets.size())
                 .alreadyUsedCount((int) alreadyUsedCount)
                 .build();
+    }
+
+    /**
+     * Kiểm tra quy tắc không để lại ghế trống đơn lẻ (No Single Orphan Seat Rule).
+     * Server-side authoritative validation trước khi tạo SeatHold.
+     */
+    private void validateSeatAdjacency(Showtime showtime, List<Seat> requestedSeats) {
+        if (requestedSeats == null || requestedSeats.isEmpty() || showtime == null) {
+            return;
+        }
+
+        Auditorium auditorium = showtime.getAuditorium();
+        if (auditorium == null) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        List<SeatHold> activeHolds = seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(showtime.getId(), now);
+        Set<String> heldSeatIds = activeHolds.stream()
+                .map(h -> h.getSeat().getId())
+                .collect(Collectors.toSet());
+
+        List<Ticket> soldTickets = ticketRepository.findTicketsByShowtimeIdAndStatuses(showtime.getId(), SOLD_TICKET_STATUSES);
+        Set<String> soldSeatIds = soldTickets.stream()
+                .map(t -> t.getSeat().getId())
+                .collect(Collectors.toSet());
+
+        Set<String> requestedSeatIds = requestedSeats.stream()
+                .map(Seat::getId)
+                .collect(Collectors.toSet());
+
+        // Gom các ghế được yêu cầu theo hàng (rowLabel)
+        Set<String> affectedRowLabels = requestedSeats.stream()
+                .map(Seat::getRowLabel)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.toSet());
+
+        for (String rowLabel : affectedRowLabels) {
+            List<Seat> rowSeats = seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc(auditorium.getId(), rowLabel);
+            if (rowSeats == null || rowSeats.isEmpty()) {
+                continue;
+            }
+
+            // Phân chia hàng thành các khối ghế vật lý liên tục (bị ngăn cách bởi ghế BROKEN hoặc khoảng trống/lối đi)
+            List<List<Seat>> blocks = new ArrayList<>();
+            List<Seat> currentBlock = new ArrayList<>();
+
+            for (Seat seat : rowSeats) {
+                if (seat.getStatus() != SeatStatus.ACTIVE) {
+                    if (!currentBlock.isEmpty()) {
+                        blocks.add(currentBlock);
+                        currentBlock = new ArrayList<>();
+                    }
+                    continue;
+                }
+
+                if (currentBlock.isEmpty()) {
+                    currentBlock.add(seat);
+                } else {
+                    Seat prevSeat = currentBlock.get(currentBlock.size() - 1);
+                    int prevCap = (prevSeat.getSeatType() != null && prevSeat.getSeatType().getCapacity() != null && prevSeat.getSeatType().getCapacity() > 0)
+                            ? prevSeat.getSeatType().getCapacity()
+                            : 1;
+
+                    if (prevSeat.getSeatNumber() + prevCap == seat.getSeatNumber()) {
+                        currentBlock.add(seat);
+                    } else {
+                        // Khoảng trống / lối đi giữa các ghế
+                        blocks.add(currentBlock);
+                        currentBlock = new ArrayList<>();
+                        currentBlock.add(seat);
+                    }
+                }
+            }
+            if (!currentBlock.isEmpty()) {
+                blocks.add(currentBlock);
+            }
+
+            // Đếm số ghế đơn lẻ trước và sau khi chọn
+            int orphanBefore = 0;
+            int orphanAfter = 0;
+
+            for (List<Seat> block : blocks) {
+                orphanBefore += countOrphanRunsInBlock(block, s -> !heldSeatIds.contains(s.getId()) && !soldSeatIds.contains(s.getId()));
+                orphanAfter += countOrphanRunsInBlock(block, s -> !heldSeatIds.contains(s.getId()) && !soldSeatIds.contains(s.getId()) && !requestedSeatIds.contains(s.getId()));
+            }
+
+            if (orphanAfter > orphanBefore) {
+                throw new BadRequestException("Không thể đặt vé: Lựa chọn ghế để lại ghế trống đơn lẻ (ghế cô lập) tại hàng " + rowLabel + ". Vui lòng chọn ghế liền kề.");
+            }
+        }
+    }
+
+    private int countOrphanRunsInBlock(List<Seat> block, java.util.function.Predicate<Seat> isAvailablePredicate) {
+        int orphanCount = 0;
+        int currentRunCapacity = 0;
+
+        for (Seat seat : block) {
+            int cap = (seat.getSeatType() != null && seat.getSeatType().getCapacity() != null && seat.getSeatType().getCapacity() > 0)
+                    ? seat.getSeatType().getCapacity()
+                    : 1;
+
+            if (isAvailablePredicate.test(seat)) {
+                currentRunCapacity += cap;
+            } else {
+                if (currentRunCapacity == 1) {
+                    orphanCount++;
+                }
+                currentRunCapacity = 0;
+            }
+        }
+
+        if (currentRunCapacity == 1) {
+            orphanCount++;
+        }
+
+        return orphanCount;
     }
 }

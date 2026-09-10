@@ -558,6 +558,34 @@ The exact response contract belongs to `docs/api.md`.
 
 ---
 
+### 12.4 Email Verification (Non-blocking V1)
+
+CineBook supports email address verification to validate customer contact details for ticket delivery and account authenticity.
+
+**Endpoints**:
+```http
+POST /api/v1/auth/verify-email
+POST /api/v1/auth/resend-verification
+```
+
+**Authentication**: `Public`
+
+#### Verification Flow:
+1. **Registration**: An email verification token is created (24-hour TTL) and persisted in `email_verification_tokens`. The customer is logged in immediately with dual JWT tokens (non-blocking). Email dispatch errors do not roll back account creation.
+2. **Verification**: When user submits token to `POST /api/v1/auth/verify-email`:
+   - Token is looked up in `email_verification_tokens`.
+   - Expiration checked (`now < expires_at`).
+   - If user is already verified: succeeds idempotently.
+   - If unverified: marks `user.email_verified = true`.
+   - Token is deleted (single-use).
+3. **Resend**:
+   - `POST /api/v1/auth/resend-verification` accepts `{ "email": "..." }`.
+   - Anti-enumeration: returns `200 OK` regardless of whether account exists or is active.
+   - Rate limit: strict 60-second cooldown between resends.
+   - Deletes old tokens for user and generates a fresh 24-hour token.
+
+---
+
 ## 13. User Profile
 
 An authenticated user can view and update their own profile.
@@ -892,6 +920,19 @@ If an admin can assign roles through an API, the operation must:
 - Update the `user_roles` relationship.
 - Never expose password/security secrets.
 
+### 21.1 Admin User Update & Security Invariants
+
+Endpoint: `PUT /api/v1/admin/users/{id}`
+
+An administrator can update a user's `fullName`, `phone`, `status`, and `roles`.
+
+Security Invariants:
+1. **Self-Disable Guard**: An admin cannot lock or disable their own account (`INACTIVE` or `BLOCKED`).
+2. **Self-Demotion Guard**: An admin cannot remove the `ADMIN` role from themselves.
+3. **Last-Active-Admin Guard**: If the target user is an active admin, the system verifies `countActiveAdmins() > 1` before allowing status change away from `ACTIVE` or removal of the `ADMIN` role.
+4. **Pessimistic Concurrency Control**: During admin updates affecting `ADMIN` status or roles, the service acquires a pessimistic write lock (`SELECT ... FOR UPDATE`) on the `ADMIN` role record in MySQL, ensuring serialized updates and preventing split-brain race conditions that could leave the platform without an admin.
+5. **No Password Modification**: Password hashes can never be altered via this endpoint.
+
 ---
 
 ## 22. Administrative User Access
@@ -945,6 +986,8 @@ The exact status values and state transitions must follow `docs/database.md` and
 | Logout | — | ✓ | ✓ |
 | Password reset request | ✓ | ✓ | ✓ |
 | Password reset confirm | ✓ | ✓ | ✓ |
+| Verify email | ✓ | ✓ | ✓ |
+| Resend verification email | ✓ | ✓ | ✓ |
 | View public movies | ✓ | ✓ | ✓ |
 | View public cinemas | ✓ | ✓ | ✓ |
 | View public showtimes | ✓ | ✓ | ✓ |

@@ -10,6 +10,8 @@ public interface EmailService {
 
     void sendPasswordResetEmail(String toEmail, String resetToken);
 
+    void sendVerificationEmail(String toEmail, String customerName, String verificationToken);
+
     void sendBookingConfirmationEmail(String toEmail, String customerName, Booking booking, List<Ticket> tickets);
 
     void sendRefundConfirmationEmail(String toEmail, String customerName, Booking booking, Refund refund);

@@ -153,6 +153,23 @@ watch(
             <span v-if="seat.seatTypeName" class="text-[10px] text-slate-400">({{ seat.seatTypeName }})</span>
           </div>
         </div>
+
+        <!-- Food Concessions if any -->
+        <div v-if="booking?.foods && booking.foods.length > 0" class="pt-3 border-t border-slate-800/80 space-y-1">
+          <div class="flex items-center justify-between text-slate-400 font-medium text-[11px]">
+            <span>🍿 Bắp & Nước kèm theo</span>
+            <span class="text-emerald-400 font-mono font-bold">{{ formatCurrency(booking.foodAmount || 0) }}</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5 pt-0.5">
+            <span
+              v-for="f in booking.foods"
+              :key="f.id"
+              class="px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 text-[11px]"
+            >
+              {{ f.foodName }} × {{ f.quantity }}
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- Single QR Code for the whole booking -->

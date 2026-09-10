@@ -14,7 +14,7 @@ public class TmdbProperties {
     private String apiKey;
     private String baseUrl = "https://api.themoviedb.org/3";
     private String imageBaseUrl = "https://image.tmdb.org/t/p";
-    private String language = "en-US";
+    private String language = "vi-VN";
     private String posterSize = "w500";
     private String backdropSize = "original";
     private int connectTimeoutMs = 5000;

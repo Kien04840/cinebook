@@ -54,6 +54,13 @@ Payment
 
 Promotion
 └── promotions
+
+Food / Concessions
+├── food_items
+└── booking_foods
+
+Notification
+└── notifications
 ```
 
 ---
@@ -114,6 +121,17 @@ Promotion
 | expires_at  | datetime         | NOT NULL             |
 | used_at     | datetime         |                      |
 | created_at  | datetime         | NOT NULL             |
+
+#### `email_verification_tokens`
+| Column      | Type             | Notes                                      |
+|-------------|------------------|--------------------------------------------|
+| id          | varchar(36) PK   | UUID                                       |
+| user_id     | varchar(36)      | FK → users (ON DELETE CASCADE), NOT NULL    |
+| token       | varchar(100)     | UNIQUE, NOT NULL                           |
+| expires_at  | datetime         | NOT NULL (24 hours TTL)                    |
+| created_at  | datetime         | NOT NULL, default CURRENT_TIMESTAMP        |
+
+**Indexes**: `uk_email_verification_tokens_token`, `idx_email_verification_tokens_user`, `idx_email_verification_tokens_expires`
 
 ---
 
@@ -405,12 +423,77 @@ Managed authoritatively by `PricingService`. Time slot rules match half-open int
 
 ---
 
+### 3.9 Food & Concessions (Phase 3.1)
+
+#### `food_items`
+| Column            | Type             | Notes                                                 |
+|-------------------|------------------|-------------------------------------------------------|
+| id                | varchar(36) PK   | UUID                                                  |
+| name              | varchar(100)     | NOT NULL                                              |
+| description       | varchar(255)     |                                                       |
+| price             | decimal(12,2)    | NOT NULL, CHECK ≥ 0                                   |
+| image_url         | varchar(500)     |                                                       |
+| status            | varchar(20)      | NOT NULL, default 'ACTIVE' (ACTIVE, INACTIVE)         |
+| created_at        | datetime         | NOT NULL, default CURRENT_TIMESTAMP                   |
+| updated_at        | datetime         | NOT NULL, default CURRENT_TIMESTAMP ON UPDATE         |
+| deleted_at        | datetime         | soft delete                                           |
+
+**Constraints & Indexes**:
+- `uk_food_items_name_deleted UNIQUE (name, deleted_at)`
+- `idx_food_items_status (status)`
+- `idx_food_items_deleted (deleted_at)`
+- **Data Integrity & Encoding**: Table collation is `utf8mb4_0900_ai_ci`. All food items are persisted in clean Vietnamese UTF-8 text. JDBC connection string in `application.yml` explicitly enforces `&characterEncoding=UTF-8` to prevent mojibake across transport layers.
+
+#### `booking_foods`
+| Column            | Type             | Notes                                                 |
+|-------------------|------------------|-------------------------------------------------------|
+| id                | varchar(36) PK   | UUID                                                  |
+| booking_id        | varchar(36)      | FK → bookings (ON DELETE CASCADE), NOT NULL           |
+| food_item_id      | varchar(36)      | FK → food_items, NOT NULL                             |
+| food_name         | varchar(100)     | NOT NULL (snapshot at booking time)                   |
+| unit_price        | decimal(12,2)    | NOT NULL (snapshot at booking time)                   |
+| quantity          | int              | NOT NULL, 1..20                                       |
+| subtotal          | decimal(12,2)    | NOT NULL (unit_price * quantity)                      |
+| created_at        | datetime         | NOT NULL, default CURRENT_TIMESTAMP                   |
+
+**Indexes**:
+- `idx_booking_foods_booking (booking_id)`
+- `idx_booking_foods_food_item (food_item_id)`
+
+---
+
+### 3.10 Notifications (Phase 3.2: In-App Notifications)
+
+#### `notifications`
+| Column            | Type             | Notes                                                 |
+|-------------------|------------------|-------------------------------------------------------|
+| id                | varchar(36) PK   | UUID                                                  |
+| user_id           | varchar(36)      | FK → users (ON DELETE CASCADE), NOT NULL              |
+| booking_id        | varchar(36)      | FK → bookings (ON DELETE CASCADE), NOT NULL           |
+| type              | varchar(50)      | NOT NULL (PAYMENT_SUCCESS, BOOKING_CANCELLED, REFUND_COMPLETED) |
+| title             | varchar(255)     | NOT NULL                                              |
+| message           | text             | NOT NULL                                              |
+| is_read           | tinyint(1)       | NOT NULL, default 0                                   |
+| created_at        | datetime         | NOT NULL, default CURRENT_TIMESTAMP                   |
+| read_at           | datetime         | NULL (timestamp when marked as read)                 |
+
+**Unique Constraints & Idempotency**:
+- `uk_notifications_booking_type UNIQUE (booking_id, type)`: Ensures strictly one notification per business event per booking at database level.
+
+**Indexes**:
+- `idx_notifications_user_unread (user_id, is_read, created_at)`
+- `idx_notifications_user_created (user_id, created_at)`
+- `idx_notifications_booking (booking_id)`
+
+---
+
 ## 4. Important Relationships (Cardinality)
 
 ```text
 users 1 ─── * bookings
 users 1 ─── * refresh_tokens
 users 1 ─── * password_reset_tokens
+users 1 ─── * notifications
 users * ─── * roles                  (via user_roles)
 
 movies * ─── * genres                (via movies_genres)
@@ -428,7 +511,10 @@ seats 1 ─── * tickets
 bookings 1 ─── * tickets
 bookings 1 ─── * seat_holds
 bookings 1 ─── * payments
+bookings 1 ─── * booking_foods
+bookings 1 ─── * notifications
 bookings * ─── * promotions          (via booking_promotions)
+food_items 1 ─── * booking_foods
 
 payments 1 ─── 0..1 refunds
 ```
@@ -517,6 +603,11 @@ From `AGENTS.md`:
 - If schema is insufficient → identify gap → propose smallest safe change → get approval before destructive changes.
 
 Non-destructive additive changes required by a feature may be implemented when consistent with the existing design.
+
+### 9.1 Phase 4 Schema Impact (Business Analytics & Reporting)
+
+Phase 4 (4.1 Report Export XLSX/CSV & 4.2 Final System Audit) introduces **zero database schema modifications** (no new tables, columns, constraints, or indexes).
+All analytics, dashboard aggregates, and report exports operate strictly as read-only projections and native SQL aggregations over the existing 29 JPA entities (`payments`, `refunds`, `bookings`, `tickets`, `showtimes`, `auditoriums`, `cinemas`, `seats`, `movies`, `users`, etc.).
 
 ---
 

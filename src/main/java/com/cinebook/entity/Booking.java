@@ -129,6 +129,13 @@ private String cancelledReason;
     @OneToMany(mappedBy = "booking")
     private List<BookingPromotion> bookingPromotions = new ArrayList<>();
 
+    @OneToMany(
+        mappedBy = "booking",
+        cascade = CascadeType.ALL,
+        orphanRemoval = true
+    )
+    private List<BookingFood> bookingFoods = new ArrayList<>();
+
     @PrePersist
     protected void onCreate() {
         if (id == null) {

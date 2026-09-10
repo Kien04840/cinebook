@@ -15,5 +15,7 @@ public interface UserService {
     com.cinebook.dto.response.PageResponse<UserProfileResponse> getAdminUsers(String q, com.cinebook.enums.UserStatus status, org.springframework.data.domain.Pageable pageable);
 
     UserProfileResponse updateUserStatus(String userId, com.cinebook.enums.UserStatus status);
+
+    UserProfileResponse adminUpdateUser(String userId, com.cinebook.dto.request.AdminUpdateUserRequest request);
 }
 

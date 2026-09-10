@@ -83,6 +83,12 @@ public class Movie {
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
 
+    @Column(name = "title_manual_override", nullable = false)
+    private Boolean titleManualOverride = false;
+
+    @Column(name = "overview_manual_override", nullable = false)
+    private Boolean overviewManualOverride = false;
+
     @Version
     @Column(nullable = false)
     private Long version;
@@ -115,6 +121,14 @@ public class Movie {
 
         if (version == null) {
             version = 0L;
+        }
+
+        if (titleManualOverride == null) {
+            titleManualOverride = false;
+        }
+
+        if (overviewManualOverride == null) {
+            overviewManualOverride = false;
         }
     }
 

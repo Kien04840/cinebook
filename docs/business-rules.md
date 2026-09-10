@@ -31,7 +31,22 @@ It defines what the application must do, what is allowed, what is forbidden, and
 - User roles are `CUSTOMER` and `ADMIN`.
 - A customer cannot access admin endpoints (`/api/v1/admin/**`) $\rightarrow$ `403 Forbidden`.
 - An unauthenticated user cannot access protected endpoints $\rightarrow$ `401 Unauthorized`.
-- Active user status: `ACTIVE`, `BLOCKED`. Blocked users cannot authenticate or initiate bookings.
+- Active user status: `ACTIVE`, `BLOCKED`, `INACTIVE`. Blocked or inactive users cannot authenticate or initiate bookings.
+
+### 3.1 Admin User Management Invariants
+- **Self-Disable Protection**: An administrator cannot disable or lock their own account (`INACTIVE` or `BLOCKED`).
+- **Self-Demotion Protection**: An administrator cannot remove the `ADMIN` role from their own account.
+- **Last-Active-Admin Protection**: An administrator cannot be disabled, locked, or stripped of the `ADMIN` role if they are the sole active administrator remaining in the system.
+- **Admin Privacy Protection (No Email, Phone, Password Modification)**: Admin user update APIs strictly update profile metadata (`fullName`, `status`, `roles`) and must NEVER accept or overwrite `email`, `phone`, `password`, or `passwordHash`. Email, phone, and password are secure personal identity attributes owned exclusively by the account owner.
+
+### 3.2 Email Verification Rules (Non-blocking V1)
+- **Token Validity**: 24 hours (`expires_at = now() + 24 hours`).
+- **Token Generation**: Cryptographically secure random token generated via `SecureRandom` URL-safe Base64 encoding.
+- **Single-Use**: Token is consumed and deleted immediately upon successful verification.
+- **Idempotency**: Submitting a token for an already-verified account succeeds idempotently without error.
+- **Non-blocking V1**: Registration immediately issues active JWT tokens; mail delivery failure does not roll back user registration.
+- **Resend Rate Limit**: Enforces a strict 60-second cooldown between resend requests per account.
+- **Anti-Enumeration**: Resend endpoint returns a generic success response even if the email does not exist in the database, preventing user enumeration.
 
 ---
 
@@ -130,6 +145,11 @@ $$\text{Ticket Price} = \max\left(0, (\text{Showtime Base Price} \times \text{Se
     - VIP (`cap = 1, mod = 20,000`): $(90,000 \times 1) + 20,000 = 110,000$ VND
     - Couple (`cap = 2, mod = 40,000`): $(90,000 \times 2) + 40,000 = 220,000$ VND
 
+### 7.3 Showtime Starting Minimum Price (SSOT)
+- `PricingService.calculateMinimumTicketPrice(Showtime)` is the Single Source of Truth for computing the lowest possible ticket price for a showtime.
+- It calculates: $\text{basePrice} + \text{dayModifier} + \text{timeSlotModifier}$ for a standard seat (`capacity = 1`, `modifier = 0`), ensuring prices displayed in listing cards (`ShowtimeSummaryResponse.minPrice`) match the actual price customers pay.
+- Frontend renders `"Từ {price}"` based on `minPrice` instead of raw `basePrice`.
+
 ---
 
 ## 8. Booking & Seat Hold (Critical)
@@ -218,6 +238,17 @@ PENDING_PAYMENT  ──(Payment SUCCESS)──►  PAID  ──(Refund SUCCESS)�
    - Duplicate scan protection: If all tickets in the booking are already `USED`, returns `409 Conflict`.
    - Never transitions `CANCELLED` tickets back to `VALID/USED`.
 
+### 8.5 Seat Adjacency & No Single Orphan Seat Invariant
+- **Objective**: Prevent ticket booking patterns that isolate a single unsold seat (`capacity = 1`) between selected seats, sold seats, aisle gaps, or physical room borders, which severely damages cinema revenue.
+- **Rules & Mechanics**:
+  1. **Contiguous Runs per Row**: For each physical row, active seats are partitioned into contiguous blocks (interrupted by aisle gaps or non-active seats).
+  2. **Run Evaluation**: A contiguous block of remaining unselected seats is evaluated. An empty run with total people capacity equal to 1 is considered an orphan seat.
+  3. **Couple Seat Support**: Empty Couple seats have `capacity = 2`, so leaving an empty Couple seat does not count as an isolated single seat.
+  4. **Pre-existing Orphan Exemption**: Customers are never penalized for orphan seats that already existed prior to their selection. A violation occurs if and only if $\text{orphanCountAfter} > \text{orphanCountBefore}$.
+  5. **Two-Tier Enforcement**:
+     - **Client-Side (UX)**: `frontend/src/utils/seatAdjacency.ts` validates seat map selections in real time, displays an inline warning banner, and disables checkout buttons.
+     - **Server-Side (Authoritative)**: `BookingServiceImpl.validateSeatAdjacency(showtime, seats)` performs authoritative server validation upon booking creation. Any violation strictly throws `BadRequestException` (`400`).
+
 ---
 
 ## 9. Payment & Refund (Finalized V2)
@@ -266,6 +297,9 @@ PENDING_PAYMENT  ──(Payment SUCCESS)──►  PAID  ──(Refund SUCCESS)�
 - **Order Minimum**: If `minOrderAmount` is present, `grossAmount` must be $\ge \text{minOrderAmount}$.
 - **Net Total Invariant**: $\text{booking.totalAmount} = \max(0, \text{grossAmount} - \text{discountAmount}) \ge 0$.
 - **Stacking Policy**: Strictly **at most 1 promotion per booking** in V1 (no stacking).
+- **Selection & Dual-Input Flow**: Users can browse and select active, available promotions via `GET /api/v1/promotions/available` or manually enter a coupon code.
+- **No Auto-Apply Policy**: The system must never auto-apply promotions silently; users must explicitly make a choice.
+- **Authoritative Server Recalculation**: The frontend may display estimated discounts, but the backend is the sole authority that recalculates discount amounts and verifies all rules (`minOrderAmount`, dates, usage limits).
 - **Usage Limit & Concurrency**: `usedCount <= usageLimit` (when limit is configured), protected via pessimistic locking (`SELECT ... FOR UPDATE`).
 - **Quota Release**: Expired or cancelled `PENDING_PAYMENT` bookings release their `usedCount` reservation (`usedCount = max(0, usedCount - 1)`).
 - **Immutable Snapshot**: When applied, `discountAmount` is snapshotted into `booking_promotions`.
@@ -280,9 +314,21 @@ PENDING_PAYMENT  ──(Payment SUCCESS)──►  PAID  ──(Refund SUCCESS)�
 - **Gross Tickets Sold**: Count of tickets in bookings with status `PAID` or `REFUNDED`.
 - **Refunded Tickets**: Count of tickets with status `CANCELLED` in `REFUNDED` bookings.
 - **Net Tickets Sold**: $\text{Gross Tickets Sold} - \text{Refunded Tickets}$.
-- **Showtime Capacity**: Count of `ACTIVE` seats in the showtime's auditorium.
+- **Showtime Capacity**: Count of `ACTIVE` seats in the showtime's auditorium (capacity-weighted with Couple seats counting as 2).
 - **Occupied Seats**: Count of tickets with status `VALID` or `USED` for that showtime.
-- **Occupancy Rate**: $\frac{\text{Occupied Seats}}{\text{Total Capacity}} \times 100\%$ (guarded against division by zero: returns `0.00%` when capacity is 0).
+- **Showtime Occupancy Rate**: $\frac{\text{Occupied Seats}}{\text{Total Capacity}} \times 100\%$ (guarded against division by zero: returns `0.00%` when capacity is 0). Defensively clamped to $[0.00, 100.00]\%$. If occupied capacity exceeds total capacity, an anomaly warning is logged (`[OCCUPANCY ANOMALY]`).
+- **Dashboard Average Occupancy Rate**: Calculated as capacity-weighted aggregate:
+  $$\text{Average Occupancy Rate} = \frac{\sum \text{Occupied Seats}}{\sum \text{Total Capacity}} \times 100\%$$
+  Guarantees rooms of different sizes contribute proportionally without mathematical skew from arithmetic averaging.
+- **Date Range Filters & Semantics**:
+  - **Inclusive Boundaries**: `from` date begins at `00:00:00`, `to` date ends at `23:59:59.999999999`.
+  - **Range Validation**: Requires `from <= to`. If `from > to`, immediately returns `400 Bad Request` (`"Ngày bắt đầu không được lớn hơn ngày kết thúc."`).
+  - **Presets**: `TODAY`, `YESTERDAY`, `7d` (default), `30d`, `THIS_MONTH`, and `custom` (interactive date pickers).
+- **Report Export Formats (XLSX / CSV)**:
+  - **CSV Format**: Must encode using UTF-8 with Byte Order Mark (`\uFEFF` BOM) prefix so Microsoft Excel renders Vietnamese characters correctly without mojibake. Standard comma delimiters with quoted strings.
+  - **XLSX Format**: Must use Apache POI OOXML (`poi-ooxml:5.4.0`) to generate valid `.xlsx` workbooks with styled header rows (bold text, background fill), auto-adjusted column widths, and proper numeric cell formatting.
+  - **Filter Consistency**: Export queries must respect the active UI filters (`from`, `to`, `groupBy`, `sortBy`, `cinemaId`, `movieId`, `limit`). If `from > to`, return `400 Bad Request`.
+  - **RBAC**: Strictly restricted to `ADMIN`.
 
 ---
 
@@ -309,3 +355,35 @@ Entities supporting soft delete (`users`, `movies`, `cinemas`, `auditoriums`):
 | 8 | Secrets (passwords, tokens, gateway keys) are never exposed or logged |
 | 9 | Monetary amounts are never negative |
 | 10 | Database unique constraints and foreign keys are respected |
+| 11 | Concession quantities are strictly bounded (1..20 per item) with server-authoritative pricing |
+| 12 | In-app notification creation is strictly idempotent and failures must never rollback financial transactions |
+
+---
+
+## 14. Food & Concessions Rules (Phase 3.1)
+
+- **Server-Authoritative Pricing**: Tiền bắp nước được tính toán độc lập tại server (`subtotal = unitPrice * quantity`). Giá do client gửi lên hoàn toàn bị bỏ qua.
+- **Giới hạn số lượng**: Mỗi món chỉ được chọn tối đa 20 đơn vị (`1 <= quantity <= 20`).
+- **Trạng thái kinh doanh**: Chỉ cho phép đặt các món ăn có trạng thái `ACTIVE` và chưa bị xóa mềm (`deleted_at IS NULL`).
+- **Snapshot bất biến**: Khi đơn đặt vé được tạo, giá món và tên món được snapshot vào bảng `booking_foods`. Mọi thay đổi giá sau đó của món ăn không ảnh hưởng đến đơn hàng đã đặt.
+- **Tổng tiền thanh toán**: $\text{Total Amount} = \max(0, \text{Gross Ticket} - \text{Discount}) + \text{Food Total}$. Toàn bộ số tiền này được gửi sang cổng VNPay.
+
+---
+
+## 15. In-App Notifications Rules (Phase 3.2)
+
+- **Sự kiện nghiệp vụ hợp lệ**:
+  1. `PAYMENT_SUCCESS`: Kích hoạt khi và chỉ khi giao dịch thanh toán vé được xác nhận thành công trên server (`Payment -> SUCCESS`, `Booking -> PAID`).
+  2. `BOOKING_CANCELLED`: Kích hoạt khi và chỉ khi đơn đặt vé chuyển sang trạng thái `CANCELLED` (do khách hủy hoặc hệ thống hủy).
+  3. `REFUND_COMPLETED`: Kích hoạt khi và chỉ khi giao dịch hoàn tiền hoàn tất thành công (`Booking -> REFUNDED`).
+- **Quy tắc hủy thanh toán VNPay (VNPay Cancel Policy)**: Khách hàng hủy thanh toán tại cổng VNPay chỉ chuyển trạng thái `Payment -> CANCELLED`, giữ nguyên `Booking -> PENDING_PAYMENT` và giữ chỗ ghế còn hạn. Tuyệt đối **KHÔNG** phát sinh thông báo `BOOKING_CANCELLED`.
+- **Cơ chế Idempotent hai tầng (Two-Level Idempotency)**:
+  - Tầng ứng dụng: Kiểm tra `existsByBookingIdAndType(bookingId, type)` trước khi lưu.
+  - Tầng cơ sở dữ liệu: Ràng buộc duy nhất `uk_notifications_booking_type(booking_id, type)` đảm bảo không bao giờ sinh thông báo trùng lặp dù có race condition từ IPN và Return URL.
+- **Nguyên tắc cô lập lỗi (Notification Failure Isolation)**:
+  - Việc tạo thông báo là side effect phụ, chạy với `Propagation.REQUIRES_NEW`.
+  - Mọi ngoại lệ phát sinh trong quá trình tạo thông báo được bắt và ghi log an toàn, tuyệt đối **KHÔNG** làm rollback giao dịch tài chính chính.
+- **Làm mới dữ liệu (Frontend Polling)**:
+  - Sử dụng REST API định kỳ mỗi 30 giây (`unread-count`) khi người dùng đã đăng nhập.
+  - Không sử dụng WebSocket, Redis Pub/Sub, hay Message Broker.
+

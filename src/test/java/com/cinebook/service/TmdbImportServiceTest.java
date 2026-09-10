@@ -221,7 +221,7 @@ class TmdbImportServiceTest {
 
     @Test
     void importMovie_CreateNew_Success() {
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
         when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.empty());
         when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> {
@@ -249,7 +249,7 @@ class TmdbImportServiceTest {
         existingMovie.setStatus(MovieStatus.HIDDEN); // admin set this
         existingMovie.setMovieGenres(new HashSet<>());
 
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
         when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.of(existingMovie));
         when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -271,7 +271,7 @@ class TmdbImportServiceTest {
         existingMovie.setStatus(MovieStatus.NOW_SHOWING);
         existingMovie.setMovieGenres(new HashSet<>());
 
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
         when(movieRepository.findByTmdbId(550L))
                 .thenReturn(Optional.empty())
@@ -293,7 +293,7 @@ class TmdbImportServiceTest {
 
     @Test
     void importMovie_GenreMapping_UsesExistingGenreByTmdbId() {
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of(actionGenre)); // already exists
         when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.empty());
         when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> {
@@ -315,7 +315,7 @@ class TmdbImportServiceTest {
         newlyCreatedGenre.setTmdbId(28L);
         newlyCreatedGenre.setName("Action");
 
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of()); // no genres in DB yet
         when(genreRepository.save(any(Genre.class))).thenAnswer(inv -> {
             Genre g = inv.getArgument(0);
@@ -340,7 +340,7 @@ class TmdbImportServiceTest {
     void importMovie_MissingTrailer_DoesNotFail() {
         sampleTmdbMovie.setVideos(null); // no videos
 
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
         when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.empty());
         when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> {
@@ -359,7 +359,7 @@ class TmdbImportServiceTest {
     void importMovie_MissingCredits_DoesNotFail() {
         sampleTmdbMovie.setCredits(null); // no credits
 
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
         when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.empty());
         when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> {
@@ -375,8 +375,9 @@ class TmdbImportServiceTest {
     @Test
     void importMovie_MissingTitle_ThrowsBadRequest() {
         sampleTmdbMovie.setTitle(null);
+        sampleTmdbMovie.setOriginalTitle(null);
 
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
 
         assertThrows(BadRequestException.class, () -> tmdbImportService.importMovie(550L));
         verify(movieRepository, never()).save(any());
@@ -384,7 +385,7 @@ class TmdbImportServiceTest {
 
     @Test
     void importMovie_ImageUrlBuilding() {
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
         when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.empty());
         when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> {
@@ -419,7 +420,7 @@ class TmdbImportServiceTest {
         videos.setResults(List.of(unofficialTrailer, officialTrailer));
         sampleTmdbMovie.setVideos(videos);
 
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
         when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.empty());
         when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> {
@@ -443,7 +444,7 @@ class TmdbImportServiceTest {
         deletedMovie.setMovieGenres(new HashSet<>());
         // deletedAt would be set in real scenario — we check status is not changed
 
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
         when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.of(deletedMovie));
         when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -479,7 +480,7 @@ class TmdbImportServiceTest {
         // TMDB now has Action (not Comedy)
         sampleTmdbMovie.setGenres(List.of(actionTmdbGenre));
 
-        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(sampleTmdbMovie);
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(sampleTmdbMovie);
         when(genreRepository.findAll()).thenReturn(List.of(actionGenre, comedyGenre));
         when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.of(existingMovie));
         when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
@@ -490,5 +491,247 @@ class TmdbImportServiceTest {
         assertEquals(1, result.getGenres().size());
         assertTrue(result.getGenres().contains("Action"));
         assertFalse(result.getGenres().contains("Comedy"));
+    }
+
+    // =========================================================
+    //  Localization & Fallback Tests (Subagent B)
+    // =========================================================
+
+    @Test
+    void importMovie_ViTitleAndViOverview_SuccessWithoutFallback() {
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle("Sàn Đấu Sinh Tử");
+        viMovie.setOriginalTitle("Fight Club");
+        viMovie.setOverview("Một nhân viên văn phòng mắc chứng mất ngủ...");
+        viMovie.setRuntime(139);
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setOriginalLanguage("en");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.empty());
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TmdbMovieImportResponse response = tmdbImportService.importMovie(550L);
+
+        assertEquals("Sàn Đấu Sinh Tử", response.getTitle());
+        assertEquals("Fight Club", response.getOriginalTitle());
+        // Verify en-US was never requested because vi-VN overview was present
+        verify(tmdbClient, never()).getMovieDetail(550L, "en-US");
+    }
+
+    @Test
+    void importMovie_ViTitleNoViOverview_FallbackToEnOverview() {
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle("Sàn Đấu Sinh Tử");
+        viMovie.setOriginalTitle("Fight Club");
+        viMovie.setOverview(""); // missing Vietnamese overview
+        viMovie.setRuntime(139);
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setOriginalLanguage("en");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+
+        TmdbMovieDetailDto enMovie = new TmdbMovieDetailDto();
+        enMovie.setId(550L);
+        enMovie.setOverview("An insomniac office worker forms an underground fight club.");
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(enMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.empty());
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TmdbMovieImportResponse response = tmdbImportService.importMovie(550L);
+
+        assertEquals("Sàn Đấu Sinh Tử", response.getTitle());
+        verify(tmdbClient, times(1)).getMovieDetail(550L, "en-US");
+        verify(movieRepository).save(argThat(m -> 
+            "An insomniac office worker forms an underground fight club.".equals(m.getOverview())
+        ));
+    }
+
+    @Test
+    void importMovie_NoViTitle_FallbackToOriginalTitle() {
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle(null); // missing Vietnamese title
+        viMovie.setOriginalTitle("Fight Club");
+        viMovie.setOverview("Một nhân viên văn phòng...");
+        viMovie.setRuntime(139);
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setOriginalLanguage("en");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.empty());
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TmdbMovieImportResponse response = tmdbImportService.importMovie(550L);
+
+        assertEquals("Fight Club", response.getTitle());
+    }
+
+    @Test
+    void importMovie_NoViOverviewAndNoEnOverview_SucceedsWithEmptyOverview() {
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle("Fight Club");
+        viMovie.setOriginalTitle("Fight Club");
+        viMovie.setOverview(null); // missing Vietnamese overview
+        viMovie.setRuntime(139);
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setOriginalLanguage("en");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+
+        TmdbMovieDetailDto enMovie = new TmdbMovieDetailDto();
+        enMovie.setId(550L);
+        enMovie.setOverview(null); // missing English overview too
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(tmdbClient.getMovieDetail(550L, "en-US")).thenReturn(enMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.empty());
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        assertDoesNotThrow(() -> {
+            TmdbMovieImportResponse response = tmdbImportService.importMovie(550L);
+            assertNotNull(response);
+        });
+
+        verify(movieRepository).save(argThat(m -> "".equals(m.getOverview())));
+    }
+
+    @Test
+    void importMovie_TitleOverrideTrue_PreservesAdminTitleOnResync() {
+        Movie existingMovie = new Movie();
+        existingMovie.setId("movie-123");
+        existingMovie.setTmdbId(550L);
+        existingMovie.setTitle("Tiêu Đề Biên Tập Bởi Admin");
+        existingMovie.setOverview("Overview Cũ");
+        existingMovie.setTitleManualOverride(true);
+        existingMovie.setOverviewManualOverride(false);
+        existingMovie.setMovieGenres(new HashSet<>());
+
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle("Tiêu Đề Mới Từ TMDB");
+        viMovie.setOriginalTitle("Fight Club");
+        viMovie.setOverview("Overview Mới Từ TMDB");
+        viMovie.setRuntime(139);
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setOriginalLanguage("en");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.of(existingMovie));
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TmdbMovieImportResponse response = tmdbImportService.importMovie(550L);
+
+        // Title preserved, overview updated from TMDB
+        assertEquals("Tiêu Đề Biên Tập Bởi Admin", existingMovie.getTitle());
+        assertEquals("Overview Mới Từ TMDB", existingMovie.getOverview());
+    }
+
+    @Test
+    void importMovie_OverviewOverrideTrue_PreservesAdminOverviewOnResync() {
+        Movie existingMovie = new Movie();
+        existingMovie.setId("movie-123");
+        existingMovie.setTmdbId(550L);
+        existingMovie.setTitle("Tiêu Đề Cũ");
+        existingMovie.setOverview("Nội dung tóm tắt chuẩn xác do Admin viết");
+        existingMovie.setTitleManualOverride(false);
+        existingMovie.setOverviewManualOverride(true);
+        existingMovie.setMovieGenres(new HashSet<>());
+
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle("Tiêu Đề Mới Từ TMDB");
+        viMovie.setOriginalTitle("Fight Club");
+        viMovie.setOverview("Overview Mới Từ TMDB");
+        viMovie.setRuntime(139);
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setOriginalLanguage("en");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.of(existingMovie));
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TmdbMovieImportResponse response = tmdbImportService.importMovie(550L);
+
+        // Title updated from TMDB, overview preserved
+        assertEquals("Tiêu Đề Mới Từ TMDB", existingMovie.getTitle());
+        assertEquals("Nội dung tóm tắt chuẩn xác do Admin viết", existingMovie.getOverview());
+    }
+
+    @Test
+    void importMovie_TitleOverrideOnly_OverviewStillSyncsFromTmdb() {
+        Movie existingMovie = new Movie();
+        existingMovie.setId("movie-123");
+        existingMovie.setTmdbId(550L);
+        existingMovie.setTitle("Admin Custom Title");
+        existingMovie.setOverview("Old Overview");
+        existingMovie.setTitleManualOverride(true);
+        existingMovie.setOverviewManualOverride(false);
+        existingMovie.setMovieGenres(new HashSet<>());
+
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle("TMDB New Title");
+        viMovie.setOriginalTitle("Original Title");
+        viMovie.setOverview("Fresh TMDB Overview");
+        viMovie.setRuntime(139);
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setOriginalLanguage("en");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.of(existingMovie));
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        tmdbImportService.importMovie(550L);
+
+        assertEquals("Admin Custom Title", existingMovie.getTitle());
+        assertEquals("Fresh TMDB Overview", existingMovie.getOverview());
+    }
+
+    @Test
+    void importMovie_OverviewOverrideOnly_TitleStillSyncsFromTmdb() {
+        Movie existingMovie = new Movie();
+        existingMovie.setId("movie-123");
+        existingMovie.setTmdbId(550L);
+        existingMovie.setTitle("Old Movie Title");
+        existingMovie.setOverview("Admin Curated Overview");
+        existingMovie.setTitleManualOverride(false);
+        existingMovie.setOverviewManualOverride(true);
+        existingMovie.setMovieGenres(new HashSet<>());
+
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle("Fresh TMDB Title");
+        viMovie.setOriginalTitle("Original Title");
+        viMovie.setOverview("TMDB New Overview");
+        viMovie.setRuntime(139);
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setOriginalLanguage("en");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.of(existingMovie));
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        tmdbImportService.importMovie(550L);
+
+        assertEquals("Fresh TMDB Title", existingMovie.getTitle());
+        assertEquals("Admin Curated Overview", existingMovie.getOverview());
     }
 }

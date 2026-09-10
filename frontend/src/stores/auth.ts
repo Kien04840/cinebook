@@ -4,6 +4,18 @@ import type { User, LoginPayload, RegisterPayload, UpdateProfilePayload } from '
 import authService from '@/services/auth.service'
 import userService from '@/services/user.service'
 
+/**
+ * Pinia Store quản lý trạng thái xác thực và phiên làm việc của người dùng (Authentication Store).
+ * Sử dụng Composition API (Setup Syntax).
+ * 
+ * Kiến trúc quản lý phiên:
+ * 1. Lưu trữ: Access Token và Refresh Token được lưu trong LocalStorage để duy trì đăng nhập qua các lần reload.
+ * 2. Khôi phục phiên (restoreSession): Tự động gọi API lấy thông tin người dùng mới nhất khi mở lại trang.
+ * 3. Phân quyền phản ứng (Reactive Role Checking):
+ *    - isAdmin: Kiểm tra người dùng có quyền ADMIN hoặc ROLE_ADMIN không.
+ *    - isAuthenticated: Kiểm tra trạng thái đã đăng nhập hay chưa.
+ * 4. Tự động đồng bộ: Lắng nghe sự kiện custom "cinebook:auth:expired" từ Axios Interceptor để tự động dọn dẹp phiên khi token hết hạn.
+ */
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null)
   const accessToken = ref<string | null>(null)
@@ -11,7 +23,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoading = ref<boolean>(false)
   const isInitialized = ref<boolean>(false)
 
-  // Initialize state from localStorage
+  // Khởi tạo trạng thái ban đầu từ LocalStorage của trình duyệt
   if (typeof window !== 'undefined') {
     accessToken.value = localStorage.getItem('cinebook_access_token')
     refreshToken.value = localStorage.getItem('cinebook_refresh_token')
@@ -26,7 +38,7 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // Getters
+  // Getters - Tính toán trạng thái phản ứng
   const isAuthenticated = computed(() => !!accessToken.value && !!user.value)
   const isAdmin = computed(() => {
     if (!user.value?.roles) return false

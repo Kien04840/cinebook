@@ -202,6 +202,16 @@ function isHoldActive(): boolean {
                   <span>Giảm giá khuyến mãi {{ booking.promotion?.code ? `(${booking.promotion.code})` : '' }}</span>
                   <span>-{{ formatCurrency(booking.discountAmount) }}</span>
                 </div>
+                <div v-if="booking.foods && booking.foods.length > 0" class="pt-2 border-t border-slate-800 space-y-1">
+                  <div class="flex justify-between text-slate-300">
+                    <span class="font-medium">🍿 Bắp & Nước</span>
+                    <span class="font-mono text-emerald-400 font-bold">{{ formatCurrency(booking.foodAmount || 0) }}</span>
+                  </div>
+                  <div v-for="f in booking.foods" :key="f.id" class="flex justify-between text-xs text-slate-400 pl-3">
+                    <span>{{ f.foodName }} × {{ f.quantity }}</span>
+                    <span class="font-mono">{{ formatCurrency(f.subtotal) }}</span>
+                  </div>
+                </div>
                 <div class="flex justify-between text-base font-black text-white pt-2.5 border-t border-slate-800">
                   <span>Tổng tiền thanh toán</span>
                   <span class="text-emerald-400 text-lg font-black">{{ formatCurrency(booking.totalAmount) }}</span>

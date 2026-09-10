@@ -56,6 +56,10 @@ With the introduction of Couple seats (`capacity = 2`), occupancy tracking is **
 * **Occupancy Rate**:
   * $\text{Occupancy Rate} = \frac{\text{Occupied People}}{\text{Total Capacity}} \times 100\%$ (rounded to 2 decimal places).
   * If $\text{Total Capacity} = 0$, $\text{Occupancy Rate} = 0.00\%$.
+  * **Defensive Clamping**: Clamped to $[0.00, 100.00]\%$. If occupied capacity exceeds total capacity due to data anomalies, rate is clamped to $100.00\%$ and an anomaly warning is logged (`[OCCUPANCY ANOMALY]`).
+  * **Dashboard Aggregate Occupancy**: Platform-level average occupancy rate is calculated as a capacity-weighted aggregate:
+    $$\text{Average Occupancy Rate} = \frac{\sum \text{Occupied Seats of all showtimes}}{\sum \text{Total Capacity of all showtimes}} \times 100\%$$
+    This avoids mathematical distortion caused by unweighted arithmetic averaging across rooms of different capacities.
   * *Note*: Ticket counts and gross revenue remain unmultiplied counts and financial amounts.
 
 ### 3.4 Booking Statistics
@@ -91,6 +95,13 @@ With the introduction of Couple seats (`capacity = 2`), occupancy tracking is **
   * If `to` is null: defaults to current date at `23:59:59.999999999`.
 * **Validation**:
   * If `from > to`: returns `400 Bad Request` with message: *"Ngày bắt đầu không được lớn hơn ngày kết thúc."*
+* **Frontend Date Range Presets**:
+  * `TODAY`: Hôm nay (`startOfDay` to `now`).
+  * `YESTERDAY`: Hôm qua (`yesterday 00:00:00` to `yesterday 23:59:59`).
+  * `7d` (Default): 7 ngày qua.
+  * `30d`: 30 ngày qua.
+  * `THIS_MONTH`: Tháng này (từ ngày 1 đến ngày cuối tháng).
+  * `custom`: Tùy chọn (hiển thị bộ chọn ngày `from` và `to` với validation `from <= to`).
 
 ---
 

@@ -36,6 +36,21 @@ import com.cinebook.repository.ShowtimeRepository;
 import com.cinebook.repository.TicketRepository;
 import java.util.ArrayList;
 
+/**
+ * Dịch vụ quản lý phòng chiếu và tự động khởi tạo/chuẩn hóa sơ đồ ghế thực tế (Auditorium & Seat Layout Engine).
+ * 
+ * Kiến trúc & Cơ chế hoạt động:
+ * 1. Khởi tạo sơ đồ ghế thực tế (Realistic Seat Layout Generation):
+ *    - Hàng đầu (Standard): Ghế phổ thông gần màn hình chiếu.
+ *    - Hàng giữa (VIP): Vị trí trung tâm có góc nhìn đẹp nhất, gán loại ghế VIP.
+ *    - Hàng cuối (Couple): Dành riêng cho ghế đôi. Mỗi ghế đôi nằm ở cột lẻ (cột 1, 3, 5,...) và chiếm span 2 cột vật lý.
+ * 2. Bảo vệ phòng chiếu đã phát sinh dữ liệu (Auditorium Protection Rule):
+ *    - Nếu phòng chiếu đã có lịch chiếu có người đặt (hasBookings), đã phát hành vé (hasTickets) hoặc đang có người giữ chỗ (hasActiveHolds),
+ *      hệ thống nghiêm cấm reset sơ đồ ghế hoặc sửa đổi cấu trúc vật lý để bảo vệ toàn vẹn dữ liệu tài chính lịch sử.
+ * 3. Chuẩn hóa hàng loạt tại chỗ (In-Place Batch Normalization):
+ *    - Thực thi trong các Transaction độc lập (TransactionDefinition.PROPAGATION_REQUIRES_NEW) cho từng phòng chiếu,
+ *      đảm bảo một phòng chiếu gặp lỗi sẽ không làm rollback tiến trình của toàn bộ các phòng chiếu khác.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -76,6 +91,9 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         return auditoriumMapper.toAuditoriumDetailResponse(auditorium, hasShowtimes, hasBookings, hasTickets);
     }
 
+    /**
+     * Tạo mới phòng chiếu và tự động sinh ma trận ghế thực tế dựa trên rowsCount và columnsCount.
+     */
     @Override
     @Transactional
     public AuditoriumDetailResponse createAuditorium(String cinemaId, CreateAuditoriumRequest request) {
@@ -157,6 +175,10 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         log.info("Soft-deleted auditorium: id={}", id);
     }
 
+    /**
+     * Thiết lập lại sơ đồ ghế thực tế tại chỗ (In-Place Reset) cho một phòng chiếu cụ thể.
+     * Áp dụng quy tắc bảo vệ nghiêm ngặt: Từ chối nếu phòng chiếu đã có bất kỳ booking, vé, hoặc ghế đang giữ nào.
+     */
     @Override
     @Transactional
     public AuditoriumDetailResponse resetAuditoriumLayout(String id) {
@@ -168,6 +190,7 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         boolean hasTickets = ticketRepository.existsByAuditoriumId(id);
         boolean hasActiveHolds = seatHoldRepository.existsActiveHoldByAuditoriumId(id, now);
 
+        // Quy tắc bảo vệ: Không cho phép thay đổi cấu trúc ghế nếu đã có dữ liệu giao dịch
         if (hasBookings || hasTickets || hasActiveHolds) {
             throw new ConflictException("Không thể thiết lập lại sơ đồ ghế của phòng chiếu đã phát sinh giao dịch đặt vé hoặc đang có người giữ chỗ.");
         }
@@ -181,9 +204,13 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         return auditoriumMapper.toAuditoriumDetailResponse(auditorium, hasShowtimes, false, false);
     }
 
+    /**
+     * Quét và chuẩn hóa hàng loạt sơ đồ ghế thực tế cho toàn bộ các phòng chiếu chưa có giao dịch (Empty Auditoriums).
+     * Bỏ qua an toàn các phòng chiếu đã có booking, vé hoặc ghế đang giữ.
+     */
     @Override
     public NormalizeEmptyLayoutsResponse normalizeEmptyAuditoriumsLayout() {
-        List<Auditorium> auditoriums = auditoriumRepository.findByDeletedAtIsNull();
+        List<Auditorium> auditoriums = auditoriumRepository.findAllWithCinemaByDeletedAtIsNull();
 
         int scannedCount = 0;
         int normalizedCount = 0;

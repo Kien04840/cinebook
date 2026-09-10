@@ -6,7 +6,7 @@ spring:
     active: local
 
   datasource:
-    url: jdbc:mysql://localhost:3306/cinebook?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/cinebook?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
     username: root
     password: 
 
@@ -46,7 +46,7 @@ tmdb:
   api-key: ${TMDB_API_KEY:}
   base-url: ${TMDB_BASE_URL:https://api.themoviedb.org/3}
   image-base-url: ${TMDB_IMAGE_BASE_URL:https://image.tmdb.org/t/p}
-  language: ${TMDB_LANGUAGE:en-US}
+  language: ${TMDB_LANGUAGE:vi-VN}
   poster-size: ${TMDB_POSTER_SIZE:w500}
   backdrop-size: ${TMDB_BACKDROP_SIZE:original}
   connect-timeout-ms: ${TMDB_CONNECT_TIMEOUT:5000}

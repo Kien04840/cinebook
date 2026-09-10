@@ -596,6 +596,35 @@ class PaymentServiceTest {
         verify(seatHoldRepository, never()).deleteByBookingId(any());
     }
 
+    @Test
+    @DisplayName("processReturn - Pending payment with valid signature and code 00 updates payment to SUCCESS and confirms booking")
+    void testProcessReturn_Pending_Success_MarksPaid() {
+        testPayment.setPaymentStatus(PaymentStatus.PENDING);
+
+        Map<String, String> params = new HashMap<>();
+        params.put("vnp_TxnRef", "PAY-20260901-ABC12345");
+        params.put("vnp_ResponseCode", "00");
+        params.put("vnp_TransactionStatus", "00");
+        params.put("vnp_TransactionNo", "14567890");
+        params.put("vnp_Amount", "18000000");
+        params.put("vnp_SecureHash", "valid_hash");
+
+        when(vnPayService.verifySignature(params, "valid_hash")).thenReturn(true);
+        when(paymentRepository.findByPaymentCode("PAY-20260901-ABC12345")).thenReturn(Optional.of(testPayment));
+        when(paymentRepository.saveAndFlush(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PaymentResultResponse response = paymentService.processReturn(params);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getPaymentCode()).isEqualTo("PAY-20260901-ABC12345");
+        assertThat(response.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        assertThat(testPayment.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        assertThat(testPayment.getGatewayTransactionId()).isEqualTo("14567890");
+
+        verify(paymentRepository).saveAndFlush(testPayment);
+        verify(bookingService).confirmPaidBooking(testBooking.getId(), testPayment.getId());
+    }
+
 
     @Test
     @DisplayName("processReturn - Invalid signature throws 400 Bad Request")

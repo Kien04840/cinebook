@@ -1,6 +1,7 @@
 import apiClient from './api'
 import type { MessageResponse } from '@/types/api.types'
 import type { UserProfileResponse, UpdateProfilePayload, ChangePasswordPayload } from '@/types/auth.types'
+import type { AdminUpdateUserRequest } from '@/types/user.types'
 
 export const userService = {
   async getProfile(): Promise<UserProfileResponse> {
@@ -33,6 +34,11 @@ export const userService = {
     const response = await apiClient.patch<UserProfileResponse>(`/api/v1/admin/users/${userId}/status`, null, {
       params: { status },
     })
+    return response.data
+  },
+
+  async adminUpdateUser(userId: string, payload: AdminUpdateUserRequest): Promise<UserProfileResponse> {
+    const response = await apiClient.put<UserProfileResponse>(`/api/v1/admin/users/${userId}`, payload)
     return response.data
   },
 }

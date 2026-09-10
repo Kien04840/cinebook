@@ -14,16 +14,21 @@ public class BookingMapper {
 
     private final ShowtimeMapper showtimeMapper;
     private final RefundMapper refundMapper;
+    private final FoodItemMapper foodItemMapper;
 
     public BookingMapper(ShowtimeMapper showtimeMapper) {
-        this.showtimeMapper = showtimeMapper;
-        this.refundMapper = null;
+        this(showtimeMapper, null, new FoodItemMapper());
+    }
+
+    public BookingMapper(ShowtimeMapper showtimeMapper, RefundMapper refundMapper) {
+        this(showtimeMapper, refundMapper, new FoodItemMapper());
     }
 
     @Autowired
-    public BookingMapper(ShowtimeMapper showtimeMapper, RefundMapper refundMapper) {
+    public BookingMapper(ShowtimeMapper showtimeMapper, RefundMapper refundMapper, FoodItemMapper foodItemMapper) {
         this.showtimeMapper = showtimeMapper;
         this.refundMapper = refundMapper;
+        this.foodItemMapper = foodItemMapper != null ? foodItemMapper : new FoodItemMapper();
     }
 
 
@@ -85,7 +90,7 @@ public class BookingMapper {
             List<TicketResponse> tickets,
             List<PaymentSummaryResponse> payments
     ) {
-        return toBookingDetailResponse(booking, seats, tickets, payments, null);
+        return toBookingDetailResponse(booking, seats, tickets, payments, null, null);
     }
 
     public BookingDetailResponse toBookingDetailResponse(
@@ -94,6 +99,17 @@ public class BookingMapper {
             List<TicketResponse> tickets,
             List<PaymentSummaryResponse> payments,
             BookingPromotionResponse promotion
+    ) {
+        return toBookingDetailResponse(booking, seats, tickets, payments, promotion, null);
+    }
+
+    public BookingDetailResponse toBookingDetailResponse(
+            Booking booking,
+            List<BookingSeatResponse> seats,
+            List<TicketResponse> tickets,
+            List<PaymentSummaryResponse> payments,
+            BookingPromotionResponse promotion,
+            List<BookingFoodResponse> foods
     ) {
         if (booking == null) {
             return null;
@@ -111,6 +127,20 @@ public class BookingMapper {
         BigDecimal discountAmount = (promotion != null && promotion.getDiscountAmount() != null)
                 ? promotion.getDiscountAmount()
                 : BigDecimal.ZERO;
+
+        List<BookingFoodResponse> effectiveFoods = foods;
+        if (effectiveFoods == null && booking.getBookingFoods() != null && !booking.getBookingFoods().isEmpty()) {
+            effectiveFoods = foodItemMapper.toBookingFoodResponseList(booking.getBookingFoods());
+        }
+
+        BigDecimal foodAmount = BigDecimal.ZERO;
+        if (effectiveFoods != null) {
+            for (BookingFoodResponse f : effectiveFoods) {
+                if (f.getSubtotal() != null) {
+                    foodAmount = foodAmount.add(f.getSubtotal());
+                }
+            }
+        }
 
         ShowtimeDetailResponse showtimeDetail = booking.getShowtime() != null
                 ? showtimeMapper.toShowtimeDetailResponse(booking.getShowtime())
@@ -133,6 +163,7 @@ public class BookingMapper {
                 .totalAmount(booking.getTotalAmount())
                 .grossAmount(grossAmount)
                 .discountAmount(discountAmount)
+                .foodAmount(foodAmount)
                 .holdExpiresAt(booking.getHoldExpiresAt())
                 .createdAt(booking.getCreatedAt())
                 .cancelledAt(booking.getCancelledAt())
@@ -142,6 +173,7 @@ public class BookingMapper {
                 .tickets(tickets != null ? tickets : Collections.emptyList())
                 .payments(payments != null ? payments : Collections.emptyList())
                 .promotion(promotion)
+                .foods(effectiveFoods != null ? effectiveFoods : Collections.emptyList())
                 .user(userSummary)
                 .build();
     }

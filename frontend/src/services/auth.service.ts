@@ -34,6 +34,20 @@ export const authService = {
     })
     return response.data
   },
+
+  async verifyEmail(token: string): Promise<MessageResponse> {
+    const response = await apiClient.post<MessageResponse>('/api/v1/auth/verify-email', {
+      token,
+    })
+    return response.data
+  },
+
+  async resendVerification(email: string): Promise<MessageResponse> {
+    const response = await apiClient.post<MessageResponse>('/api/v1/auth/resend-verification', {
+      email,
+    })
+    return response.data
+  },
 }
 
 export default authService

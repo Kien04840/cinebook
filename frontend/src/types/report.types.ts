@@ -89,3 +89,20 @@ export interface ShowtimeOccupancyResponse {
   occupancyRate: number
 }
 
+export type ReportType = 'REVENUE' | 'MOVIES' | 'CINEMAS' | 'OCCUPANCY'
+export type ReportFormat = 'XLSX' | 'CSV'
+export type DateFilterPreset = 'TODAY' | 'YESTERDAY' | '7d' | '30d' | 'THIS_MONTH' | 'custom'
+
+export interface ExportReportParams {
+  reportType?: ReportType
+  format?: ReportFormat
+  from?: string
+  to?: string
+  groupBy?: 'DAY' | 'MONTH' | 'YEAR'
+  sortBy?: 'REVENUE' | 'TICKETS' | 'START_TIME' | 'OCCUPANCY_RATE'
+  cinemaId?: string
+  movieId?: string
+  limit?: number
+}
+
+

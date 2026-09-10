@@ -11,7 +11,23 @@ public class TmdbApiException extends AppException {
         super(message, status);
     }
 
+    public TmdbApiException(String message, HttpStatus status, String code) {
+        super(message, status, code);
+    }
+
+    public TmdbApiException(String message, HttpStatus status, ErrorCode code) {
+        super(message, status, code);
+    }
+
     public TmdbApiException(String message, Throwable cause, HttpStatus status) {
         super(message, cause, status);
+    }
+
+    public TmdbApiException(String message, Throwable cause, HttpStatus status, String code) {
+        super(message, cause, status, code);
+    }
+
+    public TmdbApiException(String message, Throwable cause, HttpStatus status, ErrorCode code) {
+        super(message, cause, status, code);
     }
 }

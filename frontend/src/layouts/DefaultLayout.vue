@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { useI18n } from '@/composables/useI18n'
 import Button from '@/components/common/Button.vue'
+import NotificationBell from '@/components/common/NotificationBell.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -114,6 +115,9 @@ async function handleLogout() {
               >
                 {{ t('nav.adminDashboard') }}
               </router-link>
+
+              <!-- Notification Bell -->
+              <NotificationBell />
 
               <!-- Profile Dropdown -->
               <div class="relative">

@@ -58,16 +58,16 @@ class AuditoriumNormalizationLiveIntegrationTest {
 
     @Test
     @Order(2)
-    @DisplayName("Normalize empty auditoriums is idempotent: 106 scanned, 90 unchanged/normalized, 16 protected")
+    @DisplayName("Normalize empty auditoriums is idempotent: 106 scanned, safe unchanged/normalized, protected skipped")
     void testNormalizeEmptyAuditoriumsLayout_IdempotentRun() {
         NormalizeEmptyLayoutsResponse res = auditoriumService.normalizeEmptyAuditoriumsLayout();
 
         assertThat(res.getScannedCount()).isEqualTo(106);
         // All safe rooms are normalized and unchanged; all protected rooms skipped
-        assertThat(res.getNormalizedCount() + res.getUnchangedCount()).isEqualTo(90);
-        assertThat(res.getSkippedCount()).isEqualTo(16);
-        assertThat(res.getSkippedBecauseBookings()).isEqualTo(16);
-        assertThat(res.getSkippedBecauseTickets()).isEqualTo(13);
+        assertThat(res.getNormalizedCount() + res.getUnchangedCount()).isEqualTo(85);
+        assertThat(res.getSkippedCount()).isEqualTo(21);
+        assertThat(res.getSkippedBecauseBookings()).isEqualTo(21);
+        assertThat(res.getSkippedBecauseTickets()).isEqualTo(18);
         assertThat(res.getFailedCount()).isEqualTo(0);
     }
 
@@ -97,6 +97,6 @@ class AuditoriumNormalizationLiveIntegrationTest {
         long protectedWithTickets = auditoriumRepository.findAllWithCinemaByDeletedAtIsNull().stream()
                 .filter(a -> ticketRepository.existsByAuditoriumId(a.getId()))
                 .count();
-        assertThat(protectedWithTickets).isEqualTo(13);
+        assertThat(protectedWithTickets).isEqualTo(18);
     }
 }

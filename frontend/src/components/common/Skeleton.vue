@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 interface Props {
-  variant?: 'text' | 'title' | 'avatar' | 'poster' | 'button' | 'card' | 'custom'
+  variant?: 'text' | 'title' | 'avatar' | 'poster' | 'button' | 'card' | 'table-row' | 'custom'
   width?: string
   height?: string
   rounded?: string
@@ -49,6 +49,12 @@ const variantDefaults = computed(() => {
         height: props.height || 'h-48',
         rounded: props.rounded || 'rounded-2xl',
       }
+    case 'table-row':
+      return {
+        width: props.width || 'w-full',
+        height: props.height || 'h-12',
+        rounded: props.rounded || 'rounded-md',
+      }
     case 'custom':
       return {
         width: props.width,
@@ -69,6 +75,7 @@ const variantDefaults = computed(() => {
 <template>
   <div
     role="status"
+    aria-busy="true"
     aria-label="Đang tải..."
     :class="[
       'bg-slate-800/80 border border-slate-750/50 overflow-hidden relative shrink-0',

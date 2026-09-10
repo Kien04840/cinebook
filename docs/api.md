@@ -214,9 +214,68 @@ Details of token delivery (email) and exact payload are implementation concerns;
 - Access Token: 15 minutes (900 seconds)
 - Refresh Token: 7 days (604800 seconds)
 - Password Reset Token: 15 minutes (900 seconds)
+- Email Verification Token: 24 hours (86400 seconds)
 
 **Registration Behavior**:
-- Returns tokens immediately (no email verification required before login).
+- Returns tokens immediately (no email verification required before login - non-blocking V1).
+- Dispatches email verification link asynchronously in the background.
+
+---
+
+### 4.6 Verify Email
+
+```http
+POST /api/v1/auth/verify-email
+```
+
+**Auth**: Public
+
+**Request Body**:
+```json
+{
+  "token": "a1b2c3d4e5f6..."
+}
+```
+
+**Response `200 OK`**:
+```json
+{
+  "message": "Email has been verified successfully"
+}
+```
+
+**Possible errors**:
+- `400 Bad Request`: Token empty, invalid, or expired. Single-use token deleted after use.
+- Idempotent: If user email is already verified, returns `200 OK`.
+
+---
+
+### 4.7 Resend Verification Email
+
+```http
+POST /api/v1/auth/resend-verification
+```
+
+**Auth**: Public
+
+**Request Body**:
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response `200 OK`**:
+```json
+{
+  "message": "If your email is registered and eligible, a verification link has been sent"
+}
+```
+
+**Behavior & Protections**:
+- **Anti-enumeration**: If email does not exist or account is inactive, returns `200 OK` without leaking user existence.
+- **Rate limiting**: Enforces 60-second cooldown between resend requests. Throws `400 Bad Request` if cooldown active.
+- **Single-use**: Replaces previous active verification tokens for the user.
 
 ---
 
@@ -396,7 +455,32 @@ GET /api/v1/showtimes
 ```
 
 **Auth**: Public  
-**Query**: `movieId`, `cinemaId`, `date`, `status`, pagination
+**Query**: `movieId`, `cinemaId`, `date`, `status`, pagination  
+**Response**: `ShowtimeSummaryResponse`
+```json
+{
+  "id": "uuid",
+  "movieId": "uuid",
+  "movieTitle": "string",
+  "cinemaId": "uuid",
+  "cinemaName": "string",
+  "auditoriumId": "uuid",
+  "auditoriumName": "string",
+  "startTime": "2026-09-10T14:30:00",
+  "endTime": "2026-09-10T17:00:00",
+  "format": "TWO_D",
+  "basePrice": 90000.00,
+  "minPrice": 90000.00,
+  "status": "ACTIVE"
+}
+```
+- `minPrice`: Authoritative minimum ticket price computed via `PricingService` (SSOT) factoring in day and time slot modifiers for standard seating.
+
+### 7.2 Showtime detail
+```http
+GET /api/v1/showtimes/{id}
+```
+**Auth**: Public
 
 ### 7.3 Admin Showtimes Management CRUD
 
@@ -949,7 +1033,34 @@ GET /api/v1/promotions/validate?code=SUMMER20&grossAmount=180000
 }
 ```
 
-### 10.2 Apply Promotion in Booking
+### 10.2 List Available Promotions
+```http
+GET /api/v1/promotions/available
+```
+**Auth**: Public / Authenticated  
+**Description**: Returns active promotions that are within their valid date window (`startAt <= now <= endAt`) and have not reached their usage limit (`usedCount < usageLimit` or limit is null), ordered by expiration date ascending. Used by booking checkout to show eligible vouchers for selection without automatic application.  
+**Response**: `200 OK`
+```json
+[
+  {
+    "id": "1b5d95fb-aca4-4971-a3d5-3b717f81987c",
+    "code": "SUMMER20",
+    "name": "Giảm 20% mùa hè",
+    "description": "Ưu đãi giảm giá vé xem phim mùa hè",
+    "discountType": "PERCENTAGE",
+    "discountValue": 20.00,
+    "maxDiscountAmount": 50000.00,
+    "minOrderAmount": 100000.00,
+    "startAt": "2026-06-01T00:00:00",
+    "endAt": "2026-09-30T23:59:59",
+    "usageLimit": 1000,
+    "usedCount": 124,
+    "status": "ACTIVE"
+  }
+]
+```
+
+### 10.3 Apply Promotion in Booking
 ```http
 POST /api/v1/bookings
 ```
@@ -962,7 +1073,7 @@ POST /api/v1/bookings
 }
 ```
 
-### 10.3 Admin Promotion Endpoints
+### 10.4 Admin Promotion Endpoints
 All require `ADMIN`:
 ```http
 POST   /api/v1/admin/promotions          // Create promotion
@@ -1204,8 +1315,12 @@ All endpoints in this section require `ADMIN` authentication (`Authorization: Be
 `GET /api/v1/admin/reports/dashboard`
 
 **Query Parameters:**
-- `from` (optional): ISO-8601 Date/DateTime (e.g. `2026-08-01` or `2026-08-01T00:00:00`). Defaults to 1st day of current month.
-- `to` (optional): ISO-8601 Date/DateTime (e.g. `2026-08-31` or `2026-08-31T23:59:59`). Defaults to end of today.
+- `from` (optional): ISO-8601 Date/DateTime (e.g. `2026-08-01` or `2026-08-01T00:00:00`). Inclusive start (`00:00:00`). Defaults to 1st day of current month.
+- `to` (optional): ISO-8601 Date/DateTime (e.g. `2026-08-31` or `2026-08-31T23:59:59`). Inclusive end (`23:59:59.999999999`). Defaults to end of today.
+- **Validation**: Requires `from <= to`. If `from > to`, responds with `400 Bad Request` (`"Ngày bắt đầu không được lớn hơn ngày kết thúc."`).
+
+**Metric Semantics:**
+- `averageOccupancyRate`: Capacity-weighted aggregate percentage calculated as $\frac{\sum \text{occupiedSeats}}{\sum \text{totalCapacity}} \times 100\%$. Defensively clamped to $[0.00, 100.00]\%$. Returns `0.00` if total capacity is 0.
 
 **Response `200 OK`:**
 ```json
@@ -1420,13 +1535,24 @@ All endpoints in this section require `ADMIN` authentication (`Authorization: Be
 `GET /api/v1/admin/reports/export`
 
 **Query Parameters:**
-- `reportType`: `REVENUE`, `MOVIES`, `CINEMAS`, `OCCUPANCY`
-- `format`: `CSV`, `XLSX`
-- `from`, `to`, `groupBy`, `sortBy`, `cinemaId`, `movieId`
+- `reportType` (bắt buộc): Loại báo cáo (`REVENUE`, `MOVIES`, `CINEMAS`, `OCCUPANCY`)
+- `format` (bắt buộc): Định dạng xuất (`CSV`, `XLSX`)
+- `from` (tùy chọn): ISO-8601 Date/DateTime (mặc định đầu tháng hiện tại)
+- `to` (tùy chọn): ISO-8601 Date/DateTime (mặc định cuối ngày hôm nay)
+- `groupBy` (tùy chọn, áp dụng cho `REVENUE`): `DAY` (mặc định), `MONTH`
+- `sortBy` (tùy chọn, áp dụng cho `MOVIES`, `CINEMAS`, `OCCUPANCY`): `REVENUE` (mặc định), `TICKETS`, hoặc `START_TIME`, `OCCUPANCY_RATE`
+- `cinemaId` (tùy chọn, UUID): Lọc theo rạp
+- `movieId` (tùy chọn, UUID): Lọc theo phim
+- `limit` (tùy chọn, int): Giới hạn số lượng bản ghi xuất (mặc định `10` cho movies/cinemas, `1000` cho showtimes)
 
-**Response `200 OK`:** Binary file download with headers:
-- `Content-Type`: `text/csv; charset=UTF-8` or `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
-- `Content-Disposition`: `attachment; filename="<report-name>-<timestamp>.<csv|xlsx>"`
+**Response `200 OK`:** Luồng dữ liệu nhị phân (Binary stream / byte array) kèm các header:
+- `Content-Type`: `text/csv; charset=UTF-8` (đối với CSV) hoặc `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` (đối với XLSX)
+- `Content-Disposition`: `attachment; filename="<report-name>-<timestamp>.<csv|xlsx>"` (ví dụ: `cinebook-revenue-report-2026-09-10.xlsx`)
+- `Access-Control-Expose-Headers`: `Content-Disposition` (đã cấu hình tại `SecurityConfig` để SPA frontend đọc được tên file server-side)
+
+**Validation:**
+- Trả về `400 Bad Request` nếu `from > to` ("Ngày bắt đầu không được lớn hơn ngày kết thúc.").
+- Trả về `401 Unauthorized` nếu chưa đăng nhập, `403 Forbidden` nếu không có quyền `ADMIN`.
 
 ---
 
@@ -1630,5 +1756,161 @@ Transitions any `SCHEDULED` showtimes with `now >= endTime` to `FINISHED` (non-d
   "finishedCount": 5
 }
 ```
+
+---
+
+## 22. Admin User Management API
+
+All endpoints in this section require `ADMIN` authentication (`Authorization: Bearer <ADMIN_JWT>`).
+
+### 22.1 Update User Details (Admin)
+`PUT /api/v1/admin/users/{id}`
+
+Updates an existing user's fullName, status, and roles.
+
+**Privacy Invariants**:
+- **Email, Phone & Password Protection**: Admin CANNOT modify `email`, `phone`, `password`, or `passwordHash`. These fields are strictly owned by the individual user and protected for privacy and account ownership security.
+
+**Path Parameter**:
+- `id` (UUID): The target user ID.
+
+**Request Body**:
+```json
+{
+  "fullName": "Nguyễn Văn Admin",
+  "status": "ACTIVE",
+  "roles": ["ADMIN", "CUSTOMER"]
+}
+```
+
+**Validation & Invariants**:
+- `fullName`: `@NotBlank`, max 100 characters.
+- `status`: `@NotNull` (`ACTIVE`, `INACTIVE`, `BLOCKED`).
+- `roles`: `@NotEmpty`, valid roles (`ADMIN`, `CUSTOMER`). Role names are normalized (stripped of `ROLE_` prefix).
+- **Self-Disable Guard**: An admin cannot set their own status to `INACTIVE` or `BLOCKED` (`400 Bad Request`).
+- **Self-Demotion Guard**: An admin cannot remove the `ADMIN` role from themselves (`400 Bad Request`).
+- **Last-Active-Admin Guard**: Cannot disable or demote the last active admin in the system (`400 Bad Request`).
+- **Concurrent Lock**: Acquires `PESSIMISTIC_WRITE` lock on the `ADMIN` role row to serialize concurrent admin mutations safely.
+
+**Response `200 OK`**:
+```json
+{
+  "id": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "email": "user@example.com",
+  "fullName": "Nguyễn Văn Admin",
+  "phone": "0912345678",
+  "avatarUrl": "https://example.com/avatar.jpg",
+  "status": "ACTIVE",
+  "emailVerified": true,
+  "roles": ["ADMIN", "CUSTOMER"],
+  "createdAt": "2026-08-01T10:00:00",
+  "updatedAt": "2026-09-10T18:00:00"
+}
+```
+
+**Error Responses**:
+- `400 Bad Request`: Validation failure or security invariant violated (self-disable, self-demotion, last active admin).
+- `401 Unauthorized`: Missing or invalid JWT.
+- `403 Forbidden`: Authenticated user is not an `ADMIN`.
+- `404 Not Found`: Target user ID does not exist.
+- `409 Conflict`: Phone number already taken by another account.
+
+---
+
+## 23. Food & Concessions API (Phase 3.1)
+
+### 23.1 Get Active Foods (Public)
+`GET /api/v1/foods`
+
+**Auth**: Optional (PermitAll)  
+**Response `200 OK`**: Danh sách các món bắp nước đang kinh doanh (`FoodItemResponse[]`).
+
+### 23.2 Admin Food Item CRUD
+- `GET /api/v1/admin/foods`: Lấy danh sách toàn bộ món ăn (kèm lọc `search`, `status`).
+- `POST /api/v1/admin/foods`: Thêm mới món ăn / combo (`CreateFoodItemRequest`).
+- `PUT /api/v1/admin/foods/{id}`: Cập nhật thông tin món ăn (`UpdateFoodItemRequest`).
+- `DELETE /api/v1/admin/foods/{id}`: Xóa mềm món ăn.
+
+---
+
+## 24. In-App Notifications API (Phase 3.2)
+
+Tất cả các endpoint trong mục này yêu cầu đăng nhập (`Authorization: Bearer <JWT>`). Người dùng chỉ có thể xem và thao tác trên thông báo thuộc quyền sở hữu của chính mình.
+
+### 24.1 Lấy danh sách thông báo phân trang
+`GET /api/v1/notifications`
+
+**Auth**: Yêu cầu xác thực (Bearer Token)  
+**Query Parameters**:
+- `page` (int, default: 0): Số thứ tự trang (0-indexed).
+- `size` (int, default: 10): Số lượng thông báo trên một trang.
+- `sort` (string, default: `createdAt,desc`): Thứ tự sắp xếp (mặc định mới nhất lên đầu).
+
+**Response `200 OK`**:
+```json
+{
+  "content": [
+    {
+      "id": "notif-uuid-1",
+      "title": "Thanh toán thành công",
+      "message": "Đơn đặt vé #CB-2026-001 đã được thanh toán thành công. Chúc bạn xem phim vui vẻ!",
+      "type": "PAYMENT_SUCCESS",
+      "bookingId": "booking-uuid-1",
+      "bookingCode": "CB-2026-001",
+      "isRead": false,
+      "createdAt": "2026-09-10T22:30:00",
+      "readAt": null
+    }
+  ],
+  "page": 0,
+  "size": 10,
+  "totalElements": 1,
+  "totalPages": 1
+}
+```
+
+### 24.2 Lấy số lượng thông báo chưa đọc
+`GET /api/v1/notifications/unread-count`
+
+**Auth**: Yêu cầu xác thực (Bearer Token)  
+**Response `200 OK`**:
+```json
+{
+  "unreadCount": 3
+}
+```
+
+### 24.3 Đánh dấu thông báo đã đọc
+`PATCH /api/v1/notifications/{id}/read`
+
+**Auth**: Yêu cầu xác thực (Bearer Token)  
+**Path Parameter**:
+- `id` (UUID): Mã định danh thông báo. Bắt buộc thuộc quyền sở hữu của người dùng đăng nhập.
+
+**Response `200 OK`**:
+```json
+{
+  "id": "notif-uuid-1",
+  "title": "Thanh toán thành công",
+  "message": "Đơn đặt vé #CB-2026-001 đã được thanh toán thành công. Chúc bạn xem phim vui vẻ!",
+  "type": "PAYMENT_SUCCESS",
+  "bookingId": "booking-uuid-1",
+  "bookingCode": "CB-2026-001",
+  "isRead": true,
+  "createdAt": "2026-09-10T22:30:00",
+  "readAt": "2026-09-10T22:35:00"
+}
+```
+
+**Lỗi**:
+- `401 Unauthorized`: Chưa đăng nhập hoặc token không hợp lệ.
+- `404 Not Found`: Không tìm thấy thông báo hoặc không thuộc quyền sở hữu của người dùng.
+
+### 24.4 Đánh dấu toàn bộ thông báo đã đọc
+`PATCH /api/v1/notifications/read-all`
+
+**Auth**: Yêu cầu xác thực (Bearer Token)  
+**Response `204 No Content`**
+
 
 

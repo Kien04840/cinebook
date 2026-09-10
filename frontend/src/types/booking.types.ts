@@ -58,6 +58,7 @@ export interface BookingDetailResponse {
   totalAmount: number
   grossAmount: number
   discountAmount: number
+  foodAmount?: number
   holdExpiresAt: string // ISO string
   createdAt: string
   cancelledAt?: string
@@ -67,6 +68,7 @@ export interface BookingDetailResponse {
   tickets?: TicketResponse[]
   payments?: PaymentSummaryResponse[]
   promotion?: BookingPromotionResponse
+  foods?: import('./food.types').BookingFoodResponse[]
   user?: UserSummaryResponse
 }
 
@@ -141,9 +143,12 @@ export interface CreateBookingPayload {
   showtimeId: string
   seatIds: string[]
   promotionCode?: string
+  foodItems?: import('./food.types').BookingFoodItemRequest[]
 }
 
 export interface CancelBookingPayload {
   reason?: string
 }
+
+export type { BookingFoodResponse, BookingFoodItemRequest } from './food.types'
 

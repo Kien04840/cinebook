@@ -128,10 +128,17 @@ public class ReportServiceImpl implements ReportService {
         long totalShowtimes = occupancies.size();
         BigDecimal avgOccupancy = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         if (!occupancies.isEmpty()) {
-            BigDecimal sumRate = occupancies.stream()
-                    .map(ShowtimeOccupancyResponse::getOccupancyRate)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            avgOccupancy = sumRate.divide(BigDecimal.valueOf(occupancies.size()), 2, RoundingMode.HALF_UP);
+            long totalOccupiedSeats = occupancies.stream()
+                    .mapToLong(ShowtimeOccupancyResponse::getOccupiedSeats)
+                    .sum();
+            long totalCapacity = occupancies.stream()
+                    .mapToLong(ShowtimeOccupancyResponse::getTotalCapacity)
+                    .sum();
+            if (totalCapacity > 0) {
+                double rawRate = (double) totalOccupiedSeats / totalCapacity * 100.0;
+                double guardedRate = Math.min(100.0, Math.max(0.0, rawRate));
+                avgOccupancy = BigDecimal.valueOf(guardedRate).setScale(2, RoundingMode.HALF_UP);
+            }
         }
 
         OperationKpiResponse operations = OperationKpiResponse.builder()
@@ -380,7 +387,8 @@ public class ReportServiceImpl implements ReportService {
     }
 
     private List<ShowtimeOccupancyResponse> calculateOccupancies(LocalDateTime from, LocalDateTime to, String cinemaId, String movieId) {
-        List<Showtime> showtimes = showtimeRepository.findActiveShowtimesForReport(from, to, cinemaId, movieId);
+        DateRange range = normalizeDateRange(from, to);
+        List<Showtime> showtimes = showtimeRepository.findActiveShowtimesForReport(range.from, range.to, cinemaId, movieId);
         if (showtimes.isEmpty()) {
             return Collections.emptyList();
         }
@@ -402,11 +410,16 @@ public class ReportServiceImpl implements ReportService {
                     .sum();
             int availableSeats = Math.max(0, totalCapacity - occupiedCapacity);
 
+            if (occupiedCapacity > totalCapacity) {
+                log.warn("[OCCUPANCY ANOMALY] Showtime ID {} has occupiedCapacity ({}) exceeding totalCapacity ({})",
+                        s.getId(), occupiedCapacity, totalCapacity);
+            }
+
             BigDecimal occupancyRate = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
             if (totalCapacity > 0) {
-                occupancyRate = BigDecimal.valueOf(occupiedCapacity)
-                        .multiply(BigDecimal.valueOf(100))
-                        .divide(BigDecimal.valueOf(totalCapacity), 2, RoundingMode.HALF_UP);
+                double rawRate = (double) occupiedCapacity / totalCapacity * 100.0;
+                double guardedRate = Math.min(100.0, Math.max(0.0, rawRate));
+                occupancyRate = BigDecimal.valueOf(guardedRate).setScale(2, RoundingMode.HALF_UP);
             }
 
             results.add(ShowtimeOccupancyResponse.builder()
@@ -567,13 +580,14 @@ public class ReportServiceImpl implements ReportService {
             String movieId,
             Integer limit
     ) {
+        DateRange range = normalizeDateRange(from, to);
         ReportType type = reportType != null ? reportType : ReportType.REVENUE;
         ReportFormat fmt = format != null ? format : ReportFormat.CSV;
 
         if (fmt == ReportFormat.XLSX) {
-            return exportXlsx(type, from, to, groupBy, sortBy, cinemaId, movieId, limit);
+            return exportXlsx(type, range.from, range.to, groupBy, sortBy, cinemaId, movieId, limit);
         } else {
-            return exportCsv(type, from, to, groupBy, sortBy, cinemaId, movieId, limit);
+            return exportCsv(type, range.from, range.to, groupBy, sortBy, cinemaId, movieId, limit);
         }
     }
 

@@ -17,6 +17,7 @@ Administrative functionality in CineBook is partitioned into focused, cohesive d
 | **Showtime Scheduling & Conflicts** | [`docs/use-cases/showtime.md`](file:///d:/HOCTAP/DoAn/CineBook/docs/use-cases/showtime.md) | `POST /api/v1/admin/showtimes`<br>`PUT /api/v1/admin/showtimes/{id}`<br>`DELETE /api/v1/admin/showtimes/{id}` |
 | **Promotion & Voucher Management** | [`docs/use-cases/promotion.md`](file:///d:/HOCTAP/DoAn/CineBook/docs/use-cases/promotion.md) | `POST /api/v1/admin/promotions`<br>`PUT /api/v1/admin/promotions/{id}`<br>`PATCH /api/v1/admin/promotions/{id}/status`<br>`DELETE /api/v1/admin/promotions/{id}` |
 | **Payment Reconciliation & Admin Refund** | [`docs/use-cases/payment.md`](file:///d:/HOCTAP/DoAn/CineBook/docs/use-cases/payment.md) | `POST /api/v1/admin/bookings/{bookingId}/refund`<br>`GET /api/v1/admin/refunds`<br>`GET /api/v1/admin/payments/{id}` |
+| **User Account Administration** | [`docs/business-rules.md` §3](file:///d:/HOCTAP/DoAn/CineBook/docs/business-rules.md)<br>[`docs/api.md` §22](file:///d:/HOCTAP/DoAn/CineBook/docs/api.md) | `GET /api/v1/admin/users`<br>`GET /api/v1/admin/users/{id}`<br>`PUT /api/v1/admin/users/{id}` |
 | **Reporting & Executive Dashboard** | [`docs/use-cases/reporting.md`](file:///d:/HOCTAP/DoAn/CineBook/docs/use-cases/reporting.md) | `GET /api/v1/admin/reports/dashboard`<br>`GET /api/v1/admin/reports/revenue`<br>`GET /api/v1/admin/reports/movies`<br>`GET /api/v1/admin/reports/cinemas`<br>`GET /api/v1/admin/reports/showtimes/occupancy`<br>`GET /api/v1/admin/reports/export` |
 
 ---
@@ -32,4 +33,7 @@ Administrative functionality in CineBook is partitioned into focused, cohesive d
    - Zero hard deletes on transactional entities (`payments`, `refunds`, `bookings`, `tickets`).
 3. **Data Protection**:
    - Administrative responses never expose raw customer password hashes, reset tokens, or third-party secret keys.
+4. **User Privacy Boundaries**:
+   - When modifying user accounts via `PUT /api/v1/admin/users/{id}`, administrators can ONLY edit `fullName`, `status`, and `roles`.
+   - Administrators CANNOT edit `email`, `phone`, `password`, or `passwordHash`. Email and phone are sensitive identity attributes owned exclusively by the account holder.
 

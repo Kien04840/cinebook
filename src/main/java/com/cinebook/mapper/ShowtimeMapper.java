@@ -9,18 +9,62 @@ import com.cinebook.entity.Auditorium;
 import com.cinebook.entity.Cinema;
 import com.cinebook.entity.Movie;
 import com.cinebook.entity.Showtime;
-import lombok.RequiredArgsConstructor;
+import com.cinebook.service.PricingService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+
 @Component
-@RequiredArgsConstructor
 public class ShowtimeMapper {
 
     private final MovieMapper movieMapper;
     private final CinemaMapper cinemaMapper;
     private final AuditoriumMapper auditoriumMapper;
+    private final PricingService pricingService;
+
+    public ShowtimeMapper(
+            MovieMapper movieMapper,
+            CinemaMapper cinemaMapper,
+            AuditoriumMapper auditoriumMapper
+    ) {
+        this(movieMapper, cinemaMapper, auditoriumMapper, null);
+    }
+
+    @Autowired
+    public ShowtimeMapper(
+            MovieMapper movieMapper,
+            CinemaMapper cinemaMapper,
+            AuditoriumMapper auditoriumMapper,
+            @Autowired(required = false) PricingService pricingService
+    ) {
+        this.movieMapper = movieMapper;
+        this.cinemaMapper = cinemaMapper;
+        this.auditoriumMapper = auditoriumMapper;
+        this.pricingService = pricingService;
+    }
 
     public ShowtimeSummaryResponse toShowtimeSummaryResponse(Showtime showtime) {
+        if (showtime == null) {
+            return null;
+        }
+
+        BigDecimal minPrice = null;
+        if (pricingService != null) {
+            try {
+                minPrice = pricingService.calculateMinimumTicketPrice(showtime);
+            } catch (Exception ignored) {
+                minPrice = showtime.getBasePrice();
+            }
+        }
+        if (minPrice == null) {
+            minPrice = showtime.getBasePrice();
+        }
+
+        return toShowtimeSummaryResponse(showtime, minPrice);
+    }
+
+    public ShowtimeSummaryResponse toShowtimeSummaryResponse(Showtime showtime, BigDecimal minPrice) {
         if (showtime == null) {
             return null;
         }
@@ -48,6 +92,7 @@ public class ShowtimeMapper {
                 .startTime(showtime.getStartTime())
                 .endTime(showtime.getEndTime())
                 .basePrice(showtime.getBasePrice())
+                .minPrice(minPrice != null ? minPrice : showtime.getBasePrice())
                 .status(showtime.getStatus())
                 .createdAt(showtime.getCreatedAt())
                 .updatedAt(showtime.getUpdatedAt())

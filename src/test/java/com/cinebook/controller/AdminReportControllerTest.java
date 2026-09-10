@@ -171,5 +171,50 @@ class AdminReportControllerTest {
                 .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"revenue-report.xlsx\""))
                 .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
     }
+
+    @Test
+    @DisplayName("GET /api/v1/admin/reports/export with MOVIES, CINEMAS, OCCUPANCY types")
+    void exportReport_DifferentReportTypes_Returns200() throws Exception {
+        byte[] dummyXlsx = new byte[]{0x50, 0x4B, 0x03, 0x04};
+        when(reportService.exportReport(eq(ReportType.MOVIES), eq(ReportFormat.XLSX), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(dummyXlsx);
+        when(reportService.getExportFilename(eq(ReportType.MOVIES), eq(ReportFormat.XLSX)))
+                .thenReturn("movies-report.xlsx");
+
+        mockMvc.perform(get("/api/v1/admin/reports/export")
+                        .param("reportType", "MOVIES")
+                        .param("format", "XLSX"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"movies-report.xlsx\""));
+
+        when(reportService.exportReport(eq(ReportType.OCCUPANCY), eq(ReportFormat.CSV), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn("occupancy,data".getBytes());
+        when(reportService.getExportFilename(eq(ReportType.OCCUPANCY), eq(ReportFormat.CSV)))
+                .thenReturn("occupancy-report.csv");
+
+        mockMvc.perform(get("/api/v1/admin/reports/export")
+                        .param("reportType", "OCCUPANCY")
+                        .param("format", "CSV"))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"occupancy-report.csv\""));
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/admin/reports/export with invalid from date - Returns 400 Bad Request")
+    void exportReport_InvalidFromDate_Returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/reports/export")
+                        .param("from", "not-a-date"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("GET /api/v1/admin/reports/dashboard with from > to - Returns 400 Bad Request")
+    void getDashboard_FromAfterTo_Returns400() throws Exception {
+        mockMvc.perform(get("/api/v1/admin/reports/dashboard")
+                        .param("from", "2026-09-01")
+                        .param("to", "2026-08-01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Ngày bắt đầu không được lớn hơn ngày kết thúc."));
+    }
 }
 

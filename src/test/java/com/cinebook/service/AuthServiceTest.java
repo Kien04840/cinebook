@@ -6,6 +6,7 @@ import com.cinebook.dto.request.PasswordResetRequest;
 import com.cinebook.dto.request.RefreshTokenRequest;
 import com.cinebook.dto.request.RegisterRequest;
 import com.cinebook.dto.response.AuthResponse;
+import com.cinebook.entity.EmailVerificationToken;
 import com.cinebook.entity.PasswordResetToken;
 import com.cinebook.entity.RefreshToken;
 import com.cinebook.entity.Role;
@@ -15,6 +16,7 @@ import com.cinebook.exception.BadRequestException;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.UnauthorizedException;
 import com.cinebook.mapper.UserMapper;
+import com.cinebook.repository.EmailVerificationTokenRepository;
 import com.cinebook.repository.PasswordResetTokenRepository;
 import com.cinebook.repository.RefreshTokenRepository;
 import com.cinebook.repository.RoleRepository;
@@ -58,6 +60,9 @@ class AuthServiceTest {
 
     @Mock
     private PasswordResetTokenRepository passwordResetTokenRepository;
+
+    @Mock
+    private EmailVerificationTokenRepository emailVerificationTokenRepository;
 
     @Mock
     private PasswordEncoder passwordEncoder;
@@ -126,6 +131,8 @@ class AuthServiceTest {
 
         verify(userRepository).save(any(User.class));
         verify(refreshTokenRepository).save(any(RefreshToken.class));
+        verify(emailVerificationTokenRepository).save(any(EmailVerificationToken.class));
+        verify(emailService).sendVerificationEmail(eq("test@example.com"), eq("Test User"), anyString());
     }
 
     @Test
@@ -290,6 +297,148 @@ class AuthServiceTest {
         assertThrows(BadRequestException.class, () ->
                 authService.confirmPasswordReset(new PasswordResetConfirmRequest(rawToken, "newPassword123"))
         );
+    }
+
+    @Test
+    void register_MailDispatchFailure_DoesNotRollbackRegistration() {
+        RegisterRequest request = RegisterRequest.builder()
+                .email("test-mail-fail@example.com")
+                .password("password123")
+                .fullName("Mail Fail User")
+                .build();
+
+        when(userRepository.existsByEmail("test-mail-fail@example.com")).thenReturn(false);
+        when(roleRepository.findByName("CUSTOMER")).thenReturn(Optional.of(customerRole));
+        when(passwordEncoder.encode("password123")).thenReturn("encoded_password");
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User u = invocation.getArgument(0);
+            u.setId("user-mail-fail");
+            return u;
+        });
+        when(jwtTokenProvider.generateAccessToken(any())).thenReturn("mock-access-token");
+        when(jwtTokenProvider.getExpirationInSeconds()).thenReturn(900L);
+        doThrow(new RuntimeException("SMTP connection timed out"))
+                .when(emailService).sendVerificationEmail(anyString(), anyString(), anyString());
+
+        AuthResponse response = authService.register(request);
+
+        assertNotNull(response);
+        assertEquals("mock-access-token", response.getAccessToken());
+        verify(userRepository).save(any(User.class));
+        verify(emailVerificationTokenRepository).save(any(EmailVerificationToken.class));
+    }
+
+    @Test
+    void verifyEmail_Success() {
+        String tokenString = "valid-token-123";
+        EmailVerificationToken token = new EmailVerificationToken();
+        token.setId("token-id-1");
+        token.setToken(tokenString);
+        token.setUser(sampleUser);
+        token.setExpiresAt(LocalDateTime.now().plusHours(24));
+        token.setCreatedAt(LocalDateTime.now().minusMinutes(5));
+
+        sampleUser.setEmailVerified(false);
+
+        when(emailVerificationTokenRepository.findByToken(tokenString)).thenReturn(Optional.of(token));
+
+        authService.verifyEmail(tokenString);
+
+        assertTrue(sampleUser.isEmailVerified());
+        verify(userRepository).save(sampleUser);
+        verify(emailVerificationTokenRepository).delete(token);
+    }
+
+    @Test
+    void verifyEmail_AlreadyVerified_Idempotent() {
+        String tokenString = "valid-token-already-verified";
+        EmailVerificationToken token = new EmailVerificationToken();
+        token.setId("token-id-2");
+        token.setToken(tokenString);
+        token.setUser(sampleUser);
+        token.setExpiresAt(LocalDateTime.now().plusHours(24));
+        token.setCreatedAt(LocalDateTime.now().minusMinutes(10));
+
+        sampleUser.setEmailVerified(true);
+
+        when(emailVerificationTokenRepository.findByToken(tokenString)).thenReturn(Optional.of(token));
+
+        authService.verifyEmail(tokenString);
+
+        assertTrue(sampleUser.isEmailVerified());
+        verify(userRepository, never()).save(sampleUser);
+        verify(emailVerificationTokenRepository).delete(token);
+    }
+
+    @Test
+    void verifyEmail_InvalidToken_ThrowsBadRequest() {
+        when(emailVerificationTokenRepository.findByToken("invalid-token")).thenReturn(Optional.empty());
+
+        assertThrows(BadRequestException.class, () -> authService.verifyEmail("invalid-token"));
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void verifyEmail_ExpiredToken_ThrowsBadRequest() {
+        String tokenString = "expired-token";
+        EmailVerificationToken token = new EmailVerificationToken();
+        token.setId("token-id-3");
+        token.setToken(tokenString);
+        token.setUser(sampleUser);
+        token.setExpiresAt(LocalDateTime.now().minusHours(1));
+
+        when(emailVerificationTokenRepository.findByToken(tokenString)).thenReturn(Optional.of(token));
+
+        assertThrows(BadRequestException.class, () -> authService.verifyEmail(tokenString));
+        verify(emailVerificationTokenRepository).delete(token);
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void resendVerification_Success() {
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(sampleUser));
+        when(emailVerificationTokenRepository.findFirstByUserIdOrderByCreatedAtDesc("user-123"))
+                .thenReturn(Optional.empty());
+
+        authService.resendVerificationEmail("test@example.com");
+
+        verify(emailVerificationTokenRepository).deleteByUserId("user-123");
+        verify(emailVerificationTokenRepository).save(any(EmailVerificationToken.class));
+        verify(emailService).sendVerificationEmail(eq("test@example.com"), eq("Test User"), anyString());
+    }
+
+    @Test
+    void resendVerification_RateLimited_ThrowsBadRequest() {
+        EmailVerificationToken recentToken = new EmailVerificationToken();
+        recentToken.setUser(sampleUser);
+        recentToken.setCreatedAt(LocalDateTime.now().minusSeconds(20)); // only 20s ago
+
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(sampleUser));
+        when(emailVerificationTokenRepository.findFirstByUserIdOrderByCreatedAtDesc("user-123"))
+                .thenReturn(Optional.of(recentToken));
+
+        assertThrows(BadRequestException.class, () -> authService.resendVerificationEmail("test@example.com"));
+        verify(emailVerificationTokenRepository, never()).deleteByUserId(anyString());
+        verify(emailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void resendVerification_UserNotFound_SilentlyReturns() {
+        when(userRepository.findByEmail("notfound@example.com")).thenReturn(Optional.empty());
+
+        assertDoesNotThrow(() -> authService.resendVerificationEmail("notfound@example.com"));
+        verify(emailVerificationTokenRepository, never()).deleteByUserId(anyString());
+        verify(emailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void resendVerification_AlreadyVerified_SilentlyReturns() {
+        sampleUser.setEmailVerified(true);
+        when(userRepository.findByEmail("test@example.com")).thenReturn(Optional.of(sampleUser));
+
+        assertDoesNotThrow(() -> authService.resendVerificationEmail("test@example.com"));
+        verify(emailVerificationTokenRepository, never()).deleteByUserId(anyString());
+        verify(emailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
     }
 }
 

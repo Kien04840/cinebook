@@ -3,18 +3,33 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import type { ShowtimeDetailResponse, ShowtimeSeatStatusResponse } from '@/types/showtime.types'
 import type { BookingDetailResponse } from '@/types/booking.types'
+import type { BookingFoodItemRequest } from '@/types/food.types'
 import showtimeService from '@/services/showtime.service'
 import bookingService from '@/services/booking.service'
 import paymentService from '@/services/payment.service'
 import { useToast } from '@/composables/useToast'
 import { useI18n } from '@/composables/useI18n'
 import { formatCurrency } from '@/utils/formatters'
+import { getErrorMessage } from '@/utils/error'
+import { validateSeatAdjacency } from '@/utils/seatAdjacency'
 import SeatMap from '@/components/booking/SeatMap.vue'
 import SeatLegend from '@/components/booking/SeatLegend.vue'
+import FoodSelection from '@/components/booking/FoodSelection.vue'
 import BookingSummary from '@/components/booking/BookingSummary.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
 import Button from '@/components/common/Button.vue'
 
+/**
+ * View điều phối toàn bộ quy trình đặt vé xem phim của khách hàng (Booking View).
+ * 
+ * Luồng hoạt động & Ràng buộc giao diện:
+ * 1. Tải dữ liệu suất chiếu (Showtime Detail) & sơ đồ ghế (Seat Map) cùng trạng thái thời gian thực.
+ * 2. Phục hồi đơn giữ chỗ (Resume Active Hold): Nếu khách hàng đã tạo đơn PENDING_PAYMENT trước đó
+ *    và thời gian giữ chỗ 5 phút vẫn còn, hệ thống tự động tải lại các ghế đã chọn và tiếp tục đếm ngược.
+ * 3. Lựa chọn ghế: Khách chọn tối đa 8 ghế, phân biệt ghế thường, VIP và ghế đôi (tự động chiếm 2 cột).
+ * 4. Đếm ngược thời gian giữ chỗ (Countdown Timer): Hiển thị đồng hồ đếm ngược 5 phút khi đơn được tạo.
+ * 5. Thanh toán VNPay: Gửi yêu cầu khởi tạo thanh toán và chuyển hướng sang cổng VNPay Sandbox.
+ */
 const route = useRoute()
 const toast = useToast()
 const { t } = useI18n()
@@ -25,12 +40,16 @@ const showtime = ref<ShowtimeDetailResponse | null>(null)
 const seats = ref<ShowtimeSeatStatusResponse[]>([])
 const selectedSeatIds = ref<string[]>([])
 const appliedPromotionCode = ref<string>('')
+const selectedFoodQuantities = ref<Record<string, number>>({})
+const selectedFoodItems = ref<BookingFoodItemRequest[]>([])
+const estimatedFoodTotal = ref<number>(0)
 
 const isLoading = ref<boolean>(true)
 const isSubmitting = ref<boolean>(false)
 const errorMessage = ref<string>('')
 const conflictMessage = ref<string>('')
 
+// Trích xuất danh sách các loại ghế xuất hiện trong phòng chiếu để hiển thị phần chú thích (Legend)
 const legendSeatTypes = computed(() => {
   const map = new Map<string, { id?: string; name: string; capacity?: number; colorToken?: string; icon?: string }>()
   for (const s of seats.value) {
@@ -46,7 +65,7 @@ const legendSeatTypes = computed(() => {
   return Array.from(map.values())
 })
 
-// Hold State
+// Trạng thái giữ chỗ 5 phút và đồng hồ đếm ngược
 const createdBooking = ref<BookingDetailResponse | null>(null)
 const holdRemainingSeconds = ref<number>(0)
 const isHoldExpired = ref<boolean>(false)
@@ -60,7 +79,7 @@ const mobileDisplayPrice = computed<number>(() => {
   if (createdBooking.value) {
     return createdBooking.value.totalAmount
   }
-  return selectedSeatsObjects.value.reduce((sum, s) => {
+  const seatTotal = selectedSeatsObjects.value.reduce((sum, s) => {
     if (s.calculatedPrice !== undefined && s.calculatedPrice !== null) {
       return sum + Number(s.calculatedPrice)
     }
@@ -69,6 +88,21 @@ const mobileDisplayPrice = computed<number>(() => {
     const cap = Number(s.capacity) || 1
     return sum + (base * cap + mod)
   }, 0)
+  return seatTotal + estimatedFoodTotal.value
+})
+
+const adjacencyValidation = computed(() => {
+  return validateSeatAdjacency(seats.value, selectedSeatIds.value)
+})
+
+const isAdjacencyViolated = computed(() => {
+  return !adjacencyValidation.value.isValid
+})
+
+const adjacencyWarningMessage = computed(() => {
+  if (!isAdjacencyViolated.value) return ''
+  const rows = adjacencyValidation.value.violatingRows.join(', ')
+  return t('booking.orphanSeatWarning', { row: rows })
 })
 
 async function loadBookingData() {
@@ -100,6 +134,13 @@ async function loadBookingData() {
         selectedSeatIds.value = activeBooking.seats.map((s) => s.seatId)
         if (activeBooking.promotion?.code) {
           appliedPromotionCode.value = activeBooking.promotion.code
+        }
+        if (activeBooking.foods && activeBooking.foods.length > 0) {
+          const qtyMap: Record<string, number> = {}
+          for (const f of activeBooking.foods) {
+            qtyMap[f.foodItemId] = f.quantity
+          }
+          selectedFoodQuantities.value = qtyMap
         }
         isHoldExpired.value = false
         startCountdown(activeBooking.holdExpiresAt)
@@ -145,6 +186,11 @@ async function handleCreateBooking() {
     return
   }
 
+  if (isAdjacencyViolated.value) {
+    toast.warning(t('common.warningTitle'), adjacencyWarningMessage.value)
+    return
+  }
+
   isSubmitting.value = true
   conflictMessage.value = ''
 
@@ -153,6 +199,7 @@ async function handleCreateBooking() {
       showtimeId: showtimeId.value,
       seatIds: selectedSeatIds.value,
       promotionCode: appliedPromotionCode.value ? appliedPromotionCode.value.trim().toUpperCase() : undefined,
+      foodItems: selectedFoodItems.value.length > 0 ? selectedFoodItems.value : undefined,
     })
 
     createdBooking.value = response
@@ -164,16 +211,16 @@ async function handleCreateBooking() {
       `Mã đặt vé: ${response.bookingCode}`
     )
   } catch (err: any) {
-    const msg = err.response?.data?.message || t('booking.seatConflictDesc')
+    const msg = getErrorMessage(err, t('booking.seatConflictDesc'))
     const status = err.response?.status
 
     if (status === 409 || status === 400) {
       conflictMessage.value = msg
-      toast.error(t('booking.seatConflictTitle'), msg)
+      toast.error(msg, t('booking.seatConflictTitle'))
       // Refresh seat map to reflect newest availability
       await refreshSeatMap()
     } else {
-      toast.error(t('common.errorTitle'), msg)
+      toast.error(msg, t('common.errorTitle'))
     }
   } finally {
     isSubmitting.value = false
@@ -210,7 +257,7 @@ function startCountdown(expiresAtIso: string) {
     if (diff <= 0) {
       isHoldExpired.value = true
       stopCountdown()
-      toast.error(t('booking.holdExpiredTitle'), t('booking.holdExpiredDesc'))
+      toast.error(t('booking.holdExpiredDesc'), t('booking.holdExpiredTitle'))
     }
   }
 
@@ -238,6 +285,9 @@ async function handleReselectSeats() {
   isHoldExpired.value = false
   holdRemainingSeconds.value = 0
   selectedSeatIds.value = []
+  selectedFoodQuantities.value = {}
+  selectedFoodItems.value = []
+  estimatedFoodTotal.value = 0
   await refreshSeatMap()
 }
 
@@ -251,8 +301,8 @@ async function handleProceedToPayment() {
     })
     window.location.href = res.paymentUrl
   } catch (err: any) {
-    const msg = err.response?.data?.message || 'Không thể khởi tạo thanh toán VNPay.'
-    toast.error(t('common.errorTitle'), msg)
+    const msg = getErrorMessage(err, 'Không thể khởi tạo thanh toán VNPay.')
+    toast.error(msg, t('common.errorTitle'))
     isSubmitting.value = false
   }
 }
@@ -331,6 +381,18 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <!-- Adjacency / Single Orphan Seat Warning Banner -->
+          <div
+            v-if="isAdjacencyViolated"
+            class="p-4 rounded-2xl bg-amber-950/70 border border-amber-600/80 text-amber-200 text-xs flex items-start gap-3 shadow-lg animate-fade-in"
+          >
+            <span class="text-lg leading-none shrink-0">⚠️</span>
+            <div class="space-y-0.5">
+              <p class="font-bold text-white">{{ t('common.warningTitle') }}</p>
+              <p>{{ adjacencyWarningMessage }}</p>
+            </div>
+          </div>
+
           <!-- Seat Legend -->
           <SeatLegend :seat-types="legendSeatTypes" />
 
@@ -342,6 +404,14 @@ onUnmounted(() => {
             :disabled="!!createdBooking || isSubmitting"
             @toggle-seat="handleToggleSeat"
           />
+
+          <!-- Food & Concessions Selection -->
+          <FoodSelection
+            v-model="selectedFoodQuantities"
+            :disabled="!!createdBooking || isSubmitting"
+            @change="selectedFoodItems = $event"
+            @update:total-price="estimatedFoodTotal = $event"
+          />
         </div>
 
         <!-- Right: Booking Summary & Hold Panel (4 cols) -->
@@ -350,10 +420,13 @@ onUnmounted(() => {
             :showtime="showtime"
             :selected-seats="selectedSeatsObjects"
             :created-booking="createdBooking"
+            :food-amount="createdBooking ? (createdBooking.foodAmount || 0) : estimatedFoodTotal"
             :is-submitting="isSubmitting"
             :hold-remaining-seconds="holdRemainingSeconds"
             :is-hold-expired="isHoldExpired"
             :applied-promotion-code="appliedPromotionCode"
+            :has-adjacency-violation="isAdjacencyViolated"
+            :adjacency-warning-message="adjacencyWarningMessage"
             @update:promotion-code="appliedPromotionCode = $event"
             @remove-seat="handleRemoveSeat"
             @submit-booking="handleCreateBooking"
@@ -413,7 +486,7 @@ onUnmounted(() => {
             v-else
             variant="primary"
             size="md"
-            :disabled="selectedSeatIds.length === 0 || isSubmitting"
+            :disabled="selectedSeatIds.length === 0 || isSubmitting || isAdjacencyViolated"
             :loading="isSubmitting"
             class="shadow-lg shadow-indigo-600/30"
             @click="handleCreateBooking"

@@ -1,5 +1,6 @@
 package com.cinebook.controller;
 
+import com.cinebook.dto.response.PromotionResponse;
 import com.cinebook.dto.response.ValidatePromotionResponse;
 import com.cinebook.service.PromotionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -9,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Tag(name = "Promotion", description = "Customer promotion preview and validation endpoints")
 @RestController
@@ -24,6 +26,13 @@ public class PromotionController {
             @org.springframework.data.web.PageableDefault(size = 20, sort = "createdAt", direction = org.springframework.data.domain.Sort.Direction.DESC) org.springframework.data.domain.Pageable pageable
     ) {
         com.cinebook.dto.response.PageResponse<com.cinebook.dto.response.PromotionResponse> response = promotionService.getPublicPromotions(pageable);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Get list of available promotions ready to be used")
+    @GetMapping("/available")
+    public ResponseEntity<List<PromotionResponse>> getAvailablePromotions() {
+        List<PromotionResponse> response = promotionService.getAvailablePromotions();
         return ResponseEntity.ok(response);
     }
 

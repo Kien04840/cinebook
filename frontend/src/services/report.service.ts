@@ -7,6 +7,8 @@ import type {
   CinemaReportResponse,
   ShowtimeOccupancyResponse,
   UserStatisticsResponse,
+  ReportType,
+  ReportFormat,
 } from '@/types/report.types'
 
 export const reportService = {
@@ -74,12 +76,57 @@ export const reportService = {
     return response.data
   },
 
-  async exportReport(type: string, format: 'XLSX' | 'CSV' = 'XLSX', from?: string, to?: string): Promise<Blob> {
-    const response = await apiClient.get('/api/v1/admin/reports/export', {
-      params: { type, format, from, to },
+  async exportReport(
+    reportType: ReportType = 'REVENUE',
+    format: ReportFormat = 'XLSX',
+    from?: string,
+    to?: string,
+    extraParams?: {
+      groupBy?: 'DAY' | 'MONTH' | 'YEAR'
+      sortBy?: 'REVENUE' | 'TICKETS' | 'START_TIME' | 'OCCUPANCY_RATE'
+      cinemaId?: string
+      movieId?: string
+      limit?: number
+    }
+  ): Promise<{ data: Blob; filename: string }> {
+    const response = await apiClient.get<Blob>('/api/v1/admin/reports/export', {
+      params: {
+        reportType,
+        format,
+        from,
+        to,
+        ...extraParams,
+      },
       responseType: 'blob',
     })
-    return response.data
+
+    let filename = ''
+    const contentDisposition = response.headers?.['content-disposition'] || response.headers?.['Content-Disposition']
+    if (contentDisposition) {
+      const match = /filename\*?=['"]?(?:UTF-\d['"]*)?([^;\r\n"']*)['"]?/i.exec(contentDisposition)
+      if (match && match[1]) {
+        filename = decodeURIComponent(match[1].trim())
+      }
+    }
+
+    if (!filename) {
+      const ext = format.toLowerCase()
+      const datePart = from && to ? `${from}_to_${to}` : (from || to || new Date().toISOString().split('T')[0])
+      filename = `cinebook-${reportType.toLowerCase()}-report-${datePart}.${ext}`
+    }
+
+    return { data: response.data, filename }
+  },
+
+  downloadBlob(blob: Blob, filename: string): void {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
   },
 }
 

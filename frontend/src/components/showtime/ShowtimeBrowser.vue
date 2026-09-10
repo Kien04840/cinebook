@@ -6,7 +6,6 @@ import showtimeService from '@/services/showtime.service'
 import { formatCurrency } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import DateSelector from './DateSelector.vue'
-import Spinner from '@/components/common/Spinner.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
 
 interface Props {
@@ -222,10 +221,26 @@ onMounted(() => {
       @retry="fetchShowtimes"
     />
 
-    <!-- Loading State -->
-    <div v-else-if="isLoading" class="p-12 rounded-2xl bg-slate-850/60 border border-slate-800 flex flex-col items-center justify-center space-y-3">
-      <Spinner size="md" color="text-indigo-500" />
-      <p class="text-xs text-slate-400">{{ t('showtime.loading') }}</p>
+    <!-- Loading Skeleton (Cinema + Format + Slot grid) -->
+    <div v-else-if="isLoading" class="space-y-4" role="status" aria-busy="true" aria-label="Đang tải suất chiếu...">
+      <div v-for="n in 2" :key="n" class="rounded-2xl bg-slate-800/80 border border-slate-700/80 overflow-hidden shadow-sm">
+        <!-- Cinema Header Skeleton -->
+        <div class="p-4 bg-slate-850/80 border-b border-slate-700/80 flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-slate-700/80 animate-shimmer shrink-0"></div>
+          <div class="space-y-1.5 flex-1">
+            <div class="w-40 sm:w-56 h-4.5 rounded bg-slate-700/80 animate-shimmer"></div>
+            <div class="w-24 h-3 rounded bg-slate-700/60 animate-shimmer"></div>
+          </div>
+        </div>
+
+        <!-- Formats & Slots Skeleton -->
+        <div class="p-4 sm:p-5 space-y-3">
+          <div class="w-20 h-5 rounded bg-slate-700/70 animate-shimmer"></div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+            <div v-for="s in 4" :key="s" class="h-24 rounded-xl bg-slate-900/80 border border-slate-700/60 animate-shimmer"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Empty State -->
@@ -313,7 +328,7 @@ onMounted(() => {
 
                 <!-- Price -->
                 <span class="text-[11px] font-bold text-emerald-400 mt-1.5">
-                  {{ formatCurrency(st.basePrice) }}
+                  {{ t('showtimes.fromPrice', { price: formatCurrency(st.minPrice ?? st.basePrice) }) }}
                 </span>
               </button>
             </div>

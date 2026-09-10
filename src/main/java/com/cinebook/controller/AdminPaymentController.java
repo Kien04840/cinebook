@@ -24,7 +24,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "Admin Payment & Refund", description = "Admin payment management, reconciliation, and refund operations")
+/**
+ * Controller quản lý thanh toán, đối soát tài chính và hoàn tiền dành cho Quản trị viên (Admin Payment & Refund Controller).
+ * Chỉ người dùng có vai trò ADMIN mới được phép truy cập.
+ */
+@Tag(name = "Admin Payment & Refund", description = "Các API quản lý thanh toán, đối soát giao dịch và hoàn tiền dành cho Quản trị viên")
 @RestController
 @RequestMapping("/api/v1/admin")
 @RequiredArgsConstructor

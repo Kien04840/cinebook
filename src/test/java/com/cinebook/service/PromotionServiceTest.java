@@ -86,6 +86,19 @@ class PromotionServiceTest {
     }
 
     @Test
+    @DisplayName("getAvailablePromotions - Returns list of active available promotions")
+    void testGetAvailablePromotions() {
+        when(promotionRepository.findAvailablePromotions(any(LocalDateTime.class)))
+                .thenReturn(List.of(testPromotion));
+
+        List<PromotionResponse> available = promotionService.getAvailablePromotions();
+
+        assertThat(available).hasSize(1);
+        assertThat(available.get(0).getCode()).isEqualTo("SUMMER20");
+        assertThat(available.get(0).getStatus()).isEqualTo(PromotionStatus.ACTIVE);
+    }
+
+    @Test
     @DisplayName("getPromotionDetail - Success")
     void testGetPromotionDetail_Success() {
         when(promotionRepository.findById("promo-1")).thenReturn(Optional.of(testPromotion));
