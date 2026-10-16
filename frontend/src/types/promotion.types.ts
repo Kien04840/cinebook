@@ -1,5 +1,5 @@
 export type PromotionDiscountType = 'PERCENTAGE' | 'FIXED_AMOUNT'
-export type PromotionStatus = 'ACTIVE' | 'INACTIVE' | 'EXPIRED'
+export type PromotionStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'EXPIRED' | 'INACTIVE'
 
 export interface ValidatePromotionResponse {
   valid: boolean

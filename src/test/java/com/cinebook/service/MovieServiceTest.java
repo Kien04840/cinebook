@@ -17,6 +17,7 @@ import com.cinebook.mapper.GenreMapper;
 import com.cinebook.mapper.MovieMapper;
 import com.cinebook.repository.GenreRepository;
 import com.cinebook.repository.MovieRepository;
+import com.cinebook.repository.ShowtimeRepository;
 import com.cinebook.service.impl.MovieServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +55,9 @@ class MovieServiceTest {
 
     @Mock
     private com.cinebook.repository.BookingRepository bookingRepository;
+
+    @Mock
+    private ShowtimeRepository showtimeRepository;
 
     @Spy
     private GenreMapper genreMapper = new GenreMapper();
@@ -242,6 +246,7 @@ class MovieServiceTest {
     @Test
     void deleteMovie_SoftDelete_Success() {
         when(movieRepository.findById("movie-1")).thenReturn(Optional.of(sampleMovie));
+        when(showtimeRepository.existsByMovieIdAndStatusAndStartTimeAfter(eq("movie-1"), any(), any())).thenReturn(false);
         when(movieRepository.save(any(Movie.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         movieService.deleteMovie("movie-1");
@@ -249,6 +254,37 @@ class MovieServiceTest {
         assertNotNull(sampleMovie.getDeletedAt());
         assertEquals(MovieStatus.HIDDEN, sampleMovie.getStatus());
         verify(movieRepository).save(sampleMovie);
+    }
+
+    @Test
+    void deleteMovie_WithFutureScheduledShowtimes_ThrowsBadRequestException() {
+        when(movieRepository.findById("movie-1")).thenReturn(Optional.of(sampleMovie));
+        when(showtimeRepository.existsByMovieIdAndStatusAndStartTimeAfter(eq("movie-1"), any(), any())).thenReturn(true);
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> movieService.deleteMovie("movie-1"));
+        assertTrue(ex.getMessage().contains("vẫn còn các suất chiếu sắp tới"));
+        verify(movieRepository, never()).save(any());
+    }
+
+    @Test
+    void updateMovie_SetHiddenWithFutureShowtimes_ThrowsBadRequestException() {
+        when(movieRepository.findById("movie-1")).thenReturn(Optional.of(sampleMovie));
+        when(showtimeRepository.existsByMovieIdAndStatusAndStartTimeAfter(eq("movie-1"), any(), any())).thenReturn(true);
+
+        UpdateMovieRequest request = UpdateMovieRequest.builder()
+                .title(sampleMovie.getTitle())
+                .overview(sampleMovie.getOverview())
+                .durationMinutes(sampleMovie.getDurationMinutes())
+                .director(sampleMovie.getDirector())
+                .actors(sampleMovie.getActors())
+                .releaseDate(sampleMovie.getReleaseDate())
+                .ageRating(sampleMovie.getAgeRating())
+                .status(MovieStatus.HIDDEN)
+                .build();
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> movieService.updateMovie("movie-1", request));
+        assertTrue(ex.getMessage().contains("vẫn còn các suất chiếu sắp tới"));
+        verify(movieRepository, never()).save(any());
     }
 
     @Test
@@ -315,6 +351,119 @@ class MovieServiceTest {
 
         assertFalse(sampleMovie.getTitleManualOverride());
         assertFalse(sampleMovie.getOverviewManualOverride());
+    }
+
+    @Test
+    void transitionComingSoonMovies_Case1_YesterdayReleaseDate_TransitionsToNowShowing() {
+        LocalDate today = LocalDate.of(2026, 9, 11);
+        Movie movie = new Movie();
+        movie.setId("m-past");
+        movie.setStatus(MovieStatus.COMING_SOON);
+        movie.setReleaseDate(today.minusDays(1));
+
+        when(movieRepository.findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today))
+                .thenReturn(List.of(movie));
+
+        int updated = movieService.transitionComingSoonMovies(today);
+
+        assertEquals(1, updated);
+        assertEquals(MovieStatus.NOW_SHOWING, movie.getStatus());
+        assertNotNull(movie.getUpdatedAt());
+        verify(movieRepository).saveAll(List.of(movie));
+    }
+
+    @Test
+    void transitionComingSoonMovies_Case2_TodayReleaseDate_TransitionsToNowShowing() {
+        LocalDate today = LocalDate.of(2026, 9, 11);
+        Movie movie = new Movie();
+        movie.setId("m-today");
+        movie.setStatus(MovieStatus.COMING_SOON);
+        movie.setReleaseDate(today);
+
+        when(movieRepository.findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today))
+                .thenReturn(List.of(movie));
+
+        int updated = movieService.transitionComingSoonMovies(today);
+
+        assertEquals(1, updated);
+        assertEquals(MovieStatus.NOW_SHOWING, movie.getStatus());
+        verify(movieRepository).saveAll(List.of(movie));
+    }
+
+    @Test
+    void transitionComingSoonMovies_Case3_TomorrowReleaseDate_StaysComingSoon() {
+        LocalDate today = LocalDate.of(2026, 9, 11);
+        // Tomorrow release date is not returned by query (releaseDate <= today)
+        when(movieRepository.findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today))
+                .thenReturn(List.of());
+
+        int updated = movieService.transitionComingSoonMovies(today);
+
+        assertEquals(0, updated);
+        verify(movieRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    void transitionComingSoonMovies_Case4_NowShowing_Unchanged() {
+        LocalDate today = LocalDate.of(2026, 9, 11);
+        // Movies with NOW_SHOWING status are not queried (query checks status == COMING_SOON)
+        when(movieRepository.findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today))
+                .thenReturn(List.of());
+
+        int updated = movieService.transitionComingSoonMovies(today);
+
+        assertEquals(0, updated);
+        verify(movieRepository).findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today);
+    }
+
+    @Test
+    void transitionComingSoonMovies_Case5_EndOfShowing_Unchanged() {
+        LocalDate today = LocalDate.of(2026, 9, 11);
+        when(movieRepository.findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today))
+                .thenReturn(List.of());
+
+        int updated = movieService.transitionComingSoonMovies(today);
+
+        assertEquals(0, updated);
+        verify(movieRepository).findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today);
+    }
+
+    @Test
+    void transitionComingSoonMovies_Case6_Hidden_Unchanged() {
+        LocalDate today = LocalDate.of(2026, 9, 11);
+        when(movieRepository.findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today))
+                .thenReturn(List.of());
+
+        int updated = movieService.transitionComingSoonMovies(today);
+
+        assertEquals(0, updated);
+        verify(movieRepository).findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today);
+    }
+
+    @Test
+    void transitionComingSoonMovies_Case7_NullReleaseDate_Unchanged() {
+        LocalDate today = LocalDate.of(2026, 9, 11);
+        when(movieRepository.findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today))
+                .thenReturn(List.of());
+
+        int updated = movieService.transitionComingSoonMovies(today);
+
+        assertEquals(0, updated);
+        verify(movieRepository).findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, today);
+    }
+
+    @Test
+    void transitionComingSoonMovies_Case8_UsesVietnamTimezone() {
+        java.time.ZoneId vnZone = java.time.ZoneId.of("Asia/Ho_Chi_Minh");
+        LocalDate expectedVnDate = LocalDate.now(vnZone);
+
+        when(movieRepository.findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, expectedVnDate))
+                .thenReturn(List.of());
+
+        int updated = movieService.transitionComingSoonMovies();
+
+        assertEquals(0, updated);
+        verify(movieRepository).findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, expectedVnDate);
     }
 }
 

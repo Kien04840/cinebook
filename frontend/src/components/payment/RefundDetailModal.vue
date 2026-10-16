@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { formatCurrency, formatDateTime } from '@/utils/formatters'
+import { formatCurrency, formatDateTime, formatStatus } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import Modal from '@/components/common/Modal.vue'
 import Button from '@/components/common/Button.vue'
@@ -26,8 +26,8 @@ const { t } = useI18n()
           <span class="text-slate-400">{{ t('adminRefunds.colRefundCode') }}:</span>
           <strong class="font-mono text-sm text-indigo-400 ml-2 font-bold">{{ refund.refundCode }}</strong>
         </div>
-        <Badge :variant="refund.refundStatus === 'SUCCESS' ? 'success' : 'warning'">
-          {{ refund.refundStatus === 'SUCCESS' ? t('status.SUCCESS') : refund.refundStatus }}
+        <Badge :variant="refund.refundStatus === 'SUCCESS' ? 'success' : (refund.refundStatus === 'FAILED' ? 'danger' : 'warning')">
+          {{ formatStatus(refund.refundStatus) }}
         </Badge>
       </div>
 

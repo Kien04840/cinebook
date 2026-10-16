@@ -72,6 +72,9 @@ class BookingPaymentResumeIntegrationTest {
     @Mock
     private EmailService emailService;
 
+    @Mock
+    private NotificationService notificationService;
+
     @Spy
     private GenreMapper genreMapper = new GenreMapper();
 
@@ -144,7 +147,8 @@ class BookingPaymentResumeIntegrationTest {
                 ticketRepository,
                 bookingMapper,
                 refundMapperMock(),
-                emailService
+                emailService,
+                notificationService
         );
 
         customer = new User();

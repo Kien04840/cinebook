@@ -169,8 +169,14 @@ async function fetchShowtimes() {
 // Group showtimes by Movie -> Cinema -> Format with City filtering
 const groupedByMovie = computed<MovieShowtimeGroup[]>(() => {
   const movieMap = new Map<string, MovieShowtimeGroup>()
+  const now = new Date()
 
   showtimes.value.forEach((st) => {
+    // If selected date is today, filter out past or already started showtimes
+    if (selectedDate.value === getTodayIso() && new Date(st.startTime) <= now) {
+      return
+    }
+
     // If a city is selected, ensure the showtime's cinema belongs to that city
     if (selectedCity.value && st.cinemaCity && st.cinemaCity !== selectedCity.value) {
       return

@@ -1,5 +1,6 @@
 package com.cinebook.config;
 
+import com.cinebook.security.CorrelationIdFilter;
 import com.cinebook.security.CustomAccessDeniedHandler;
 import com.cinebook.security.JwtAuthenticationEntryPoint;
 import com.cinebook.security.JwtAuthenticationFilter;
@@ -37,7 +38,7 @@ import java.util.List;
  *    - Public: Đăng ký/đăng nhập, xem danh sách phim, lịch chiếu, sơ đồ rạp, callback thanh toán VNPay.
  *    - Customer/User: Đặt vé, giữ chỗ, xem lịch sử giao dịch, quản lý thông tin cá nhân.
  *    - Admin: Toàn quyền quản lý hệ thống chiếu phim (/api/v1/admin/**) thông qua vai trò ROLE_ADMIN.
- * 4. Filter Chain Pipeline: Đăng ký JwtAuthenticationFilter đứng trước UsernamePasswordAuthenticationFilter
+ * 4. Filter Chain Pipeline: Đăng ký CorrelationIdFilter đứng đầu chuỗi và JwtAuthenticationFilter đứng trước UsernamePasswordAuthenticationFilter
  *    để chặn bắt token, giải mã và nạp UserDetails vào SecurityContextHolder trước khi đến Controller.
  */
 @Configuration
@@ -46,6 +47,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
+    private final CorrelationIdFilter correlationIdFilter;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final CustomAccessDeniedHandler customAccessDeniedHandler;
@@ -134,6 +136,9 @@ public class SecurityConfig {
         // để nạp Authentication vào SecurityContext trước khi các bộ lọc phân quyền kiểm tra
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
+        // Đặt CorrelationIdFilter trước JwtAuthenticationFilter để thiết lập MDC request tracing
+        http.addFilterBefore(correlationIdFilter, JwtAuthenticationFilter.class);
+
         return http.build();
     }
 
@@ -143,7 +148,7 @@ public class SecurityConfig {
         configuration.setAllowedOriginPatterns(List.of("*"));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
-        configuration.setExposedHeaders(List.of("Content-Disposition"));
+        configuration.setExposedHeaders(List.of("Content-Disposition", CorrelationIdFilter.CORRELATION_ID_HEADER));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

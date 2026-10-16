@@ -1,0 +1,18 @@
+{
+  "random_seed": 20261002,
+  "start_date": "2026-09-12",
+  "end_date": "2026-10-02",
+  "new_users_count": 60,
+  "new_showtimes_count": 2369,
+  "total_showtimes_in_period": 2995,
+  "total_bookings": 57645,
+  "total_tickets": 109438,
+  "total_payments": 51303,
+  "total_refunds": 2238,
+  "total_booking_promotions": 8612,
+  "total_booking_foods": 22955,
+  "total_notifications": 40137,
+  "gross_revenue": 13806285000.0,
+  "refund_amount": 600019000.0,
+  "net_revenue": 13206266000.0
+}

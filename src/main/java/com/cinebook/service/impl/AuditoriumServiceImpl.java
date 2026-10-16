@@ -10,6 +10,7 @@ import com.cinebook.entity.Seat;
 import com.cinebook.entity.SeatType;
 import com.cinebook.enums.AuditoriumStatus;
 import com.cinebook.enums.SeatStatus;
+import com.cinebook.enums.ShowtimeStatus;
 import com.cinebook.exception.BadRequestException;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.ResourceNotFoundException;
@@ -144,6 +145,12 @@ public class AuditoriumServiceImpl implements AuditoriumService {
             throw new ConflictException("Auditorium with name '" + request.getName() + "' already exists in this cinema");
         }
 
+        if ((request.getStatus() == AuditoriumStatus.MAINTENANCE || request.getStatus() == AuditoriumStatus.DECOMMISSIONED)
+                && showtimeRepository != null
+                && showtimeRepository.existsByAuditoriumIdAndStatusAndStartTimeAfter(id, ShowtimeStatus.SCHEDULED, LocalDateTime.now())) {
+            throw new BadRequestException("Không thể chuyển phòng chiếu sang trạng thái bảo trì hoặc ngưng hoạt động vì vẫn còn các suất chiếu sắp tới chưa diễn ra.");
+        }
+
         auditorium.setName(request.getName().trim());
         auditorium.setType(request.getType().trim().toUpperCase());
         auditorium.setStatus(request.getStatus());
@@ -165,8 +172,8 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         Auditorium auditorium = auditoriumRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Auditorium not found with id: " + id));
 
-        if (showtimeRepository.existsByAuditoriumId(id)) {
-            throw new ConflictException("Cannot delete auditorium with existing showtimes");
+        if (showtimeRepository.existsByAuditoriumId(id) || bookingRepository.existsByAuditoriumId(id)) {
+            throw new ConflictException("Cannot delete auditorium with existing showtimes or bookings");
         }
 
         auditorium.setDeletedAt(LocalDateTime.now());
@@ -177,7 +184,8 @@ public class AuditoriumServiceImpl implements AuditoriumService {
 
     /**
      * Thiết lập lại sơ đồ ghế thực tế tại chỗ (In-Place Reset) cho một phòng chiếu cụ thể.
-     * Áp dụng quy tắc bảo vệ nghiêm ngặt: Từ chối nếu phòng chiếu đã có bất kỳ booking, vé, hoặc ghế đang giữ nào.
+     * Áp dụng quy tắc bảo vệ nghiêm ngặt: Từ chối nếu phòng chiếu đã có bất kỳ booking, vé, hoặc ghế đang giữ nào,
+     * hoặc đang có suất chiếu sắp diễn ra trong tương lai.
      */
     @Override
     @Transactional
@@ -189,10 +197,11 @@ public class AuditoriumServiceImpl implements AuditoriumService {
         boolean hasBookings = bookingRepository.existsByAuditoriumId(id);
         boolean hasTickets = ticketRepository.existsByAuditoriumId(id);
         boolean hasActiveHolds = seatHoldRepository.existsActiveHoldByAuditoriumId(id, now);
+        boolean hasFutureShowtimes = showtimeRepository.existsByAuditoriumIdAndStatusAndStartTimeAfter(id, ShowtimeStatus.SCHEDULED, now);
 
-        // Quy tắc bảo vệ: Không cho phép thay đổi cấu trúc ghế nếu đã có dữ liệu giao dịch
-        if (hasBookings || hasTickets || hasActiveHolds) {
-            throw new ConflictException("Không thể thiết lập lại sơ đồ ghế của phòng chiếu đã phát sinh giao dịch đặt vé hoặc đang có người giữ chỗ.");
+        // Quy tắc bảo vệ: Không cho phép thay đổi cấu trúc ghế nếu đã có dữ liệu giao dịch hoặc lịch chiếu sắp tới
+        if (hasBookings || hasTickets || hasActiveHolds || hasFutureShowtimes) {
+            throw new ConflictException("Không thể thiết lập lại sơ đồ ghế của phòng chiếu đã phát sinh giao dịch đặt vé, đang có người giữ chỗ hoặc có lịch chiếu sắp diễn ra.");
         }
 
         applyRealisticLayoutInPlace(auditorium);

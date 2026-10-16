@@ -734,4 +734,122 @@ class TmdbImportServiceTest {
         assertEquals("Fresh TMDB Title", existingMovie.getTitle());
         assertEquals("Admin Curated Overview", existingMovie.getOverview());
     }
+
+    @Test
+    void importMovie_ExistingMovieWithTrailer_TmdbHasNoVideos_PreservesExistingTrailer() {
+        Movie existingMovie = new Movie();
+        existingMovie.setId("movie-123");
+        existingMovie.setTmdbId(550L);
+        existingMovie.setTitle("Old Movie Title");
+        existingMovie.setOverview("Old Overview");
+        existingMovie.setTrailerUrl("https://www.youtube.com/watch?v=preserved-key");
+        existingMovie.setMovieGenres(new HashSet<>());
+
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle("TMDB Title");
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+        viMovie.setVideos(null); // No videos in TMDB
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.of(existingMovie));
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TmdbMovieImportResponse res = tmdbImportService.importMovie(550L);
+
+        assertEquals("https://www.youtube.com/watch?v=preserved-key", res.getTrailerUrl());
+        assertEquals("https://www.youtube.com/watch?v=preserved-key", existingMovie.getTrailerUrl());
+    }
+
+    @Test
+    void importMovie_ExistingMovieWithEnglishTrailer_TmdbHasVietnameseTrailer_UpgradesTrailer() {
+        Movie existingMovie = new Movie();
+        existingMovie.setId("movie-123");
+        existingMovie.setTmdbId(550L);
+        existingMovie.setTitle("Old Movie Title");
+        existingMovie.setOverview("Old Overview");
+        existingMovie.setTrailerUrl("https://www.youtube.com/watch?v=old-en-key");
+        existingMovie.setMovieGenres(new HashSet<>());
+
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle("TMDB Title");
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+
+        TmdbMovieDetailDto.TmdbVideosResultDto videos = new TmdbMovieDetailDto.TmdbVideosResultDto();
+        TmdbMovieDetailDto.TmdbVideoDto oldEn = new TmdbMovieDetailDto.TmdbVideoDto();
+        oldEn.setKey("old-en-key");
+        oldEn.setSite("YouTube");
+        oldEn.setType("Trailer");
+        oldEn.setIso6391("en");
+        oldEn.setOfficial(true);
+
+        TmdbMovieDetailDto.TmdbVideoDto newVi = new TmdbMovieDetailDto.TmdbVideoDto();
+        newVi.setKey("new-vi-key");
+        newVi.setSite("YouTube");
+        newVi.setType("Trailer");
+        newVi.setIso6391("vi");
+        newVi.setOfficial(true);
+
+        videos.setResults(List.of(oldEn, newVi));
+        viMovie.setVideos(videos);
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.of(existingMovie));
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TmdbMovieImportResponse res = tmdbImportService.importMovie(550L);
+
+        assertEquals("https://www.youtube.com/watch?v=new-vi-key", res.getTrailerUrl());
+        assertEquals("https://www.youtube.com/watch?v=new-vi-key", existingMovie.getTrailerUrl());
+    }
+
+    @Test
+    void importMovie_ExistingMovieWithOfficialTrailer_TmdbHasOnlyUnofficialTrailer_DoesNotDowngrade() {
+        Movie existingMovie = new Movie();
+        existingMovie.setId("movie-123");
+        existingMovie.setTmdbId(550L);
+        existingMovie.setTitle("Old Movie Title");
+        existingMovie.setOverview("Old Overview");
+        existingMovie.setTrailerUrl("https://www.youtube.com/watch?v=official-key");
+        existingMovie.setMovieGenres(new HashSet<>());
+
+        TmdbMovieDetailDto viMovie = new TmdbMovieDetailDto();
+        viMovie.setId(550L);
+        viMovie.setTitle("TMDB Title");
+        viMovie.setReleaseDate("1999-10-15");
+        viMovie.setGenres(List.of(actionTmdbGenre));
+
+        TmdbMovieDetailDto.TmdbVideosResultDto videos = new TmdbMovieDetailDto.TmdbVideosResultDto();
+        TmdbMovieDetailDto.TmdbVideoDto officialOld = new TmdbMovieDetailDto.TmdbVideoDto();
+        officialOld.setKey("official-key");
+        officialOld.setSite("YouTube");
+        officialOld.setType("Trailer");
+        officialOld.setIso6391("en");
+        officialOld.setOfficial(true);
+
+        TmdbMovieDetailDto.TmdbVideoDto unofficialNew = new TmdbMovieDetailDto.TmdbVideoDto();
+        unofficialNew.setKey("unofficial-new-key");
+        unofficialNew.setSite("YouTube");
+        unofficialNew.setType("Trailer");
+        unofficialNew.setIso6391("en");
+        unofficialNew.setOfficial(false);
+
+        videos.setResults(List.of(officialOld, unofficialNew));
+        viMovie.setVideos(videos);
+
+        when(tmdbClient.getMovieDetail(550L, "vi-VN")).thenReturn(viMovie);
+        when(genreRepository.findAll()).thenReturn(List.of(actionGenre));
+        when(movieRepository.findByTmdbId(550L)).thenReturn(Optional.of(existingMovie));
+        when(movieRepository.save(any(Movie.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        TmdbMovieImportResponse res = tmdbImportService.importMovie(550L);
+
+        assertEquals("https://www.youtube.com/watch?v=official-key", res.getTrailerUrl());
+        assertEquals("https://www.youtube.com/watch?v=official-key", existingMovie.getTrailerUrl());
+    }
 }

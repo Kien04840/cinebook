@@ -43,7 +43,39 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
     """)
     Optional<Booking> findByCheckInCodeWithDetails(@Param("checkInCode") String checkInCode);
 
+    @Query("""
+        SELECT b FROM Booking b
+        JOIN FETCH b.showtime s
+        JOIN FETCH s.movie m
+        JOIN FETCH s.auditorium a
+        JOIN FETCH a.cinema c
+        JOIN FETCH b.user u
+        WHERE b.bookingStatus = com.cinebook.enums.BookingStatus.PAID
+          AND s.startTime BETWEEN :now AND :windowEnd
+    """)
+    List<Booking> findUpcomingPaidBookings(
+            @Param("now") LocalDateTime now,
+            @Param("windowEnd") LocalDateTime windowEnd,
+            Pageable pageable
+    );
+
     boolean existsByShowtimeId(String showtimeId);
+ 
+    @Query("""
+        SELECT COUNT(b) > 0
+        FROM Booking b
+        WHERE b.showtime.id = :showtimeId
+          AND b.bookingStatus IN :statuses
+    """)
+    boolean existsByShowtimeIdAndBookingStatusIn(
+            @Param("showtimeId") String showtimeId,
+            @Param("statuses") java.util.Collection<BookingStatus> statuses
+    );
+
+    List<Booking> findByShowtimeIdAndBookingStatusIn(
+            String showtimeId,
+            java.util.Collection<BookingStatus> statuses
+    );
 
     Optional<Booking> findByIdAndUserId(String id, String userId);
 
@@ -163,4 +195,35 @@ public interface BookingRepository extends JpaRepository<Booking, String> {
         WHERE b.showtime.auditorium.id = :auditoriumId
     """)
     boolean existsByAuditoriumId(@Param("auditoriumId") String auditoriumId);
+
+    @Query(value = """
+        SELECT COUNT(*),
+               COALESCE(SUM(CASE WHEN booking_status = 'PAID' THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN booking_status = 'CANCELLED' THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN booking_status = 'EXPIRED' THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN booking_status = 'REFUNDED' THEN 1 ELSE 0 END), 0)
+        FROM bookings
+        WHERE created_at >= :from AND created_at <= :to
+    """, nativeQuery = true)
+    Object[] countBookingKpiBetween(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
+    @Query(value = """
+        SELECT COUNT(*),
+               COALESCE(SUM(CASE WHEN booking_status = 'PAID' THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN booking_status = 'CANCELLED' THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN booking_status = 'EXPIRED' THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN booking_status = 'REFUNDED' THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(total_amount), 0)
+        FROM bookings
+        WHERE created_at >= :from AND created_at <= :to
+    """, nativeQuery = true)
+    Object[] findBookingStatisticsBetweenNative(
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to
+    );
+
+    boolean existsByUserId(String userId);
 }

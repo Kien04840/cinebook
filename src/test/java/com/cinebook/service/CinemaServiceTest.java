@@ -43,6 +43,9 @@ class CinemaServiceTest {
     @Mock
     private CinemaRepository cinemaRepository;
 
+    @Mock
+    private com.cinebook.repository.ShowtimeRepository showtimeRepository;
+
     @Spy
     private CinemaMapper cinemaMapper = new CinemaMapper(new AuditoriumMapper(new SeatMapper()));
 
@@ -156,11 +159,45 @@ class CinemaServiceTest {
     @Test
     void deleteCinema_Success() {
         when(cinemaRepository.findByIdAndDeletedAtIsNull("cin-1")).thenReturn(Optional.of(sampleCinema));
+        when(showtimeRepository.existsByCinemaIdAndStatusAndStartTimeAfter(eq("cin-1"), any(), any())).thenReturn(false);
 
         cinemaService.deleteCinema("cin-1");
 
         assertNotNull(sampleCinema.getDeletedAt());
         assertEquals(CinemaStatus.CLOSED, sampleCinema.getStatus());
         verify(cinemaRepository).save(sampleCinema);
+    }
+
+    @Test
+    void deleteCinema_WithFutureScheduledShowtimes_ThrowsBadRequestException() {
+        when(cinemaRepository.findByIdAndDeletedAtIsNull("cin-1")).thenReturn(Optional.of(sampleCinema));
+        when(showtimeRepository.existsByCinemaIdAndStatusAndStartTimeAfter(eq("cin-1"), any(), any())).thenReturn(true);
+
+        com.cinebook.exception.BadRequestException ex = assertThrows(
+                com.cinebook.exception.BadRequestException.class,
+                () -> cinemaService.deleteCinema("cin-1")
+        );
+        assertTrue(ex.getMessage().contains("vẫn còn các suất chiếu sắp tới"));
+        verify(cinemaRepository, never()).save(any());
+    }
+
+    @Test
+    void updateCinema_CloseCinemaWithFutureShowtimes_ThrowsBadRequestException() {
+        UpdateCinemaRequest request = UpdateCinemaRequest.builder()
+                .name("CineBook Hanoi Center")
+                .address("123 Trang Tien")
+                .city("Hanoi")
+                .status(CinemaStatus.CLOSED)
+                .build();
+
+        when(cinemaRepository.findByIdAndDeletedAtIsNull("cin-1")).thenReturn(Optional.of(sampleCinema));
+        when(showtimeRepository.existsByCinemaIdAndStatusAndStartTimeAfter(eq("cin-1"), any(), any())).thenReturn(true);
+
+        com.cinebook.exception.BadRequestException ex = assertThrows(
+                com.cinebook.exception.BadRequestException.class,
+                () -> cinemaService.updateCinema("cin-1", request)
+        );
+        assertTrue(ex.getMessage().contains("vẫn còn các suất chiếu sắp tới"));
+        verify(cinemaRepository, never()).save(any());
     }
 }

@@ -24,6 +24,7 @@ public class ErrorResponse {
     private String code;
     private String message;
     private String path;
+    private String correlationId;
     private List<FieldErrorDetail> details;
 
     @Getter

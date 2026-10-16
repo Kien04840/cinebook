@@ -13,11 +13,15 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
+import org.slf4j.MDC;
+
 import java.text.NumberFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -69,11 +73,10 @@ public class EmailServiceImpl implements EmailService {
                 """.formatted(toEmail, resetLink);
 
                 helper.setText(htmlContent, true);
-                mailSender.send(message);
-                log.info("Password reset email successfully dispatched to {}", toEmail);
+                dispatchEmailAsync(message, "Password reset", toEmail);
             }
         } catch (Exception e) {
-            log.error("Failed to send password reset email to {}: {}", toEmail, e.getMessage());
+            log.error("Failed to prepare password reset email to {}: {}", toEmail, e.getMessage());
         }
     }
 
@@ -107,11 +110,10 @@ public class EmailServiceImpl implements EmailService {
                 """.formatted(customerName != null ? customerName : "Quý khách", verifyLink);
 
                 helper.setText(htmlContent, true);
-                mailSender.send(message);
-                log.info("Verification email successfully dispatched to {}", toEmail);
+                dispatchEmailAsync(message, "Verification", toEmail);
             }
         } catch (Exception e) {
-            log.error("Failed to send verification email to {}: {}", toEmail, e.getMessage());
+            log.error("Failed to prepare verification email to {}: {}", toEmail, e.getMessage());
         }
     }
 
@@ -197,11 +199,10 @@ public class EmailServiceImpl implements EmailService {
                 );
 
                 helper.setText(htmlContent, true);
-                mailSender.send(message);
-                log.info("Booking confirmation email dispatched to {}", toEmail);
+                dispatchEmailAsync(message, "Booking confirmation", toEmail);
             }
         } catch (Exception e) {
-            log.error("Failed to send booking confirmation email for booking {}: {}", booking.getBookingCode(), e.getMessage());
+            log.error("Failed to prepare booking confirmation email for booking {}: {}", booking.getBookingCode(), e.getMessage());
         }
     }
 
@@ -276,11 +277,31 @@ public class EmailServiceImpl implements EmailService {
                 );
 
                 helper.setText(htmlContent, true);
-                mailSender.send(message);
-                log.info("Refund confirmation email dispatched to {}", toEmail);
+                dispatchEmailAsync(message, "Refund confirmation", toEmail);
             }
         } catch (Exception e) {
-            log.error("Failed to send refund confirmation email for refund {}: {}", refund.getRefundCode(), e.getMessage());
+            log.error("Failed to prepare refund confirmation email for refund {}: {}", refund.getRefundCode(), e.getMessage());
         }
+    }
+
+    /**
+     * Gửi email bất đồng bộ qua thread pool, đảm bảo sao chép và khôi phục context SLF4J MDC
+     * (bao gồm Correlation ID) sang luồng worker để theo dõi truy vết log thống nhất.
+     */
+    private void dispatchEmailAsync(MimeMessage message, String emailType, String toEmail) {
+        Map<String, String> mdcContext = MDC.getCopyOfContextMap();
+        CompletableFuture.runAsync(() -> {
+            if (mdcContext != null) {
+                MDC.setContextMap(mdcContext);
+            }
+            try {
+                mailSender.send(message);
+                log.info("{} email successfully dispatched to {}", emailType, toEmail);
+            } catch (Exception ex) {
+                log.error("Failed to asynchronously dispatch {} email to {}: {}", emailType, toEmail, ex.getMessage());
+            } finally {
+                MDC.clear();
+            }
+        });
     }
 }

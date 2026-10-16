@@ -168,7 +168,7 @@ onMounted(() => {
         ]"
         @click="handleStatusFilter(status)"
       >
-        {{ status === 'ALL' ? 'Tất cả trạng thái' : status }}
+        {{ status === 'ALL' ? 'Tất cả trạng thái' : formatStatus(status) }}
       </button>
     </div>
 

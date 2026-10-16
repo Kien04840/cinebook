@@ -92,6 +92,21 @@ public interface TicketRepository extends JpaRepository<Ticket, String> {
     );
 
     @Query("""
+        SELECT COUNT(t) > 0
+        FROM Ticket t
+        WHERE t.booking.showtime.id = :showtimeId
+          AND t.ticketStatus IN (com.cinebook.enums.TicketStatus.VALID, com.cinebook.enums.TicketStatus.USED)
+    """)
+    boolean hasPaidOrUsedTickets(@Param("showtimeId") String showtimeId);
+
+    @Query("""
+        SELECT COUNT(t) > 0
+        FROM Ticket t
+        WHERE t.booking.showtime.id = :showtimeId
+    """)
+    boolean existsByShowtimeId(@Param("showtimeId") String showtimeId);
+
+    @Query("""
         SELECT t FROM Ticket t
         JOIN FETCH t.seat s
         LEFT JOIN FETCH s.seatType st
@@ -161,4 +176,95 @@ public interface TicketRepository extends JpaRepository<Ticket, String> {
             @Param("seatId") String seatId,
             @Param("currentTime") java.time.LocalDateTime currentTime
     );
+
+    @Query(value = """
+        SELECT DATE_FORMAT(t.created_at, :dateFormat) AS period,
+               COUNT(t.id) AS ticket_count
+        FROM tickets t
+        JOIN bookings b ON t.booking_id = b.id
+        WHERE b.booking_status IN ('PAID', 'REFUNDED')
+          AND t.ticket_status <> 'CANCELLED'
+          AND t.created_at >= :from AND t.created_at <= :to
+        GROUP BY DATE_FORMAT(t.created_at, :dateFormat)
+        ORDER BY period ASC
+    """, nativeQuery = true)
+    List<Object[]> findTicketTrendNative(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to,
+            @Param("dateFormat") String dateFormat
+    );
+
+    @Query(value = """
+        SELECT m.id AS movie_id,
+               COUNT(t.id) AS gross_tickets,
+               COALESCE(SUM(CASE WHEN t.ticket_status = 'CANCELLED' THEN 1 ELSE 0 END), 0) AS refunded_tickets
+        FROM movies m
+        JOIN showtimes s ON s.movie_id = m.id
+        JOIN bookings b ON b.showtime_id = s.id
+        JOIN tickets t ON t.booking_id = b.id
+        WHERE b.booking_status IN ('PAID', 'REFUNDED')
+          AND t.created_at >= :from AND t.created_at <= :to
+        GROUP BY m.id
+    """, nativeQuery = true)
+    List<Object[]> findMovieTicketReportNative(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to
+    );
+
+    @Query(value = """
+        SELECT c.id AS cinema_id,
+               COUNT(t.id) AS gross_tickets,
+               COALESCE(SUM(CASE WHEN t.ticket_status = 'CANCELLED' THEN 1 ELSE 0 END), 0) AS refunded_tickets
+        FROM cinemas c
+        JOIN auditoriums a ON a.cinema_id = c.id
+        JOIN showtimes s ON s.auditorium_id = a.id
+        JOIN bookings b ON b.showtime_id = s.id
+        JOIN tickets t ON t.booking_id = b.id
+        WHERE b.booking_status IN ('PAID', 'REFUNDED')
+          AND t.created_at >= :from AND t.created_at <= :to
+        GROUP BY c.id
+    """, nativeQuery = true)
+    List<Object[]> findCinemaTicketReportNative(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to
+    );
+
+    @Query(value = """
+        SELECT COUNT(t.id) AS gross_tickets,
+               COALESCE(SUM(CASE WHEN b.booking_status = 'REFUNDED' AND t.ticket_status = 'CANCELLED' THEN 1 ELSE 0 END), 0) AS refunded_tickets
+        FROM tickets t
+        JOIN bookings b ON t.booking_id = b.id
+        WHERE b.booking_status IN ('PAID', 'REFUNDED')
+          AND t.created_at >= :from AND t.created_at <= :to
+    """, nativeQuery = true)
+    Object[] countTicketKpiBetween(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to
+    );
+
+    @Query(value = """
+        SELECT b.showtime_id AS showtime_id,
+               COALESCE(SUM(st.capacity), 0) AS occupied_capacity
+        FROM bookings b
+        JOIN tickets t ON t.booking_id = b.id AND t.ticket_status IN ('VALID', 'USED')
+        JOIN seats se ON t.seat_id = se.id
+        JOIN seat_types st ON se.seat_type_id = st.id
+        WHERE b.showtime_id IN (:showtimeIds)
+        GROUP BY b.showtime_id
+    """, nativeQuery = true)
+    List<Object[]> sumOccupiedCapacityByShowtimeIds(
+            @Param("showtimeIds") Collection<String> showtimeIds
+    );
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = """
+        UPDATE tickets t
+        JOIN bookings b ON t.booking_id = b.id
+        JOIN showtimes s ON b.showtime_id = s.id
+        SET t.ticket_status = 'EXPIRED'
+        WHERE t.ticket_status = 'VALID'
+          AND b.booking_status = 'PAID'
+          AND s.end_time < :now
+    """, nativeQuery = true)
+    int expirePastTickets(@Param("now") java.time.LocalDateTime now);
 }

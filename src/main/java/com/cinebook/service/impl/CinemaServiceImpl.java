@@ -7,10 +7,13 @@ import com.cinebook.dto.response.CinemaSummaryResponse;
 import com.cinebook.dto.response.PageResponse;
 import com.cinebook.entity.Cinema;
 import com.cinebook.enums.CinemaStatus;
+import com.cinebook.enums.ShowtimeStatus;
+import com.cinebook.exception.BadRequestException;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.ResourceNotFoundException;
 import com.cinebook.mapper.CinemaMapper;
 import com.cinebook.repository.CinemaRepository;
+import com.cinebook.repository.ShowtimeRepository;
 import com.cinebook.repository.specification.CinemaSpecification;
 import com.cinebook.service.CinemaService;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +32,7 @@ import java.time.LocalDateTime;
 public class CinemaServiceImpl implements CinemaService {
 
     private final CinemaRepository cinemaRepository;
+    private final ShowtimeRepository showtimeRepository;
     private final CinemaMapper cinemaMapper;
 
     @Override
@@ -113,6 +117,12 @@ public class CinemaServiceImpl implements CinemaService {
         Cinema cinema = cinemaRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Cinema not found with id: " + id));
 
+        if (request.getStatus() == CinemaStatus.CLOSED
+                && showtimeRepository != null
+                && showtimeRepository.existsByCinemaIdAndStatusAndStartTimeAfter(id, ShowtimeStatus.SCHEDULED, LocalDateTime.now())) {
+            throw new BadRequestException("Không thể đóng rạp chiếu vì vẫn còn các suất chiếu sắp tới chưa hoàn thành.");
+        }
+
         cinema.setName(request.getName().trim());
         cinema.setAddress(request.getAddress().trim());
         cinema.setCity(request.getCity().trim());
@@ -129,7 +139,13 @@ public class CinemaServiceImpl implements CinemaService {
         Cinema cinema = cinemaRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Cinema not found with id: " + id));
 
-        cinema.setDeletedAt(LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        if (showtimeRepository != null && showtimeRepository.existsByCinemaIdAndStatusAndStartTimeAfter(
+                id, ShowtimeStatus.SCHEDULED, now)) {
+            throw new BadRequestException("Không thể đóng hoặc xóa rạp chiếu vì vẫn còn các suất chiếu sắp tới chưa diễn ra.");
+        }
+
+        cinema.setDeletedAt(now);
         cinema.setStatus(CinemaStatus.CLOSED);
         cinemaRepository.save(cinema);
         log.info("Soft-deleted cinema: id={}", id);

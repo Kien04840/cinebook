@@ -8,20 +8,21 @@ const props = withDefaults(
     color?: string
     height?: number
     valueFormat?: (v: number) => string
+    tooltipFormat?: (v: number) => string
     emptyText?: string
   }>(),
   {
     color: '#6366f1',
-    height: 260,
+    height: 290,
     valueFormat: (v: number) => v.toLocaleString(),
-    emptyText: 'Chua co du lieu thong ke.',
+    emptyText: 'Chưa có dữ liệu thống kê.',
   }
 )
 
 const hoveredIndex = ref<number | null>(null)
 const mousePos = ref<{ x: number; y: number }>({ x: 0, y: 0 })
 
-const padding = { top: 20, right: 25, bottom: 40, left: 65 }
+const padding = { top: 20, right: 25, bottom: 65, left: 65 }
 const width = 600
 
 const innerWidth = computed(() => width - padding.left - padding.right)
@@ -59,6 +60,11 @@ function getBarHeight(val: number): number {
 function getY(val: number): number {
   const normalized = Math.min(Math.max(val / maxValue.value, 0), 1)
   return padding.top + innerHeight.value - normalized * innerHeight.value
+}
+
+function truncateLabel(str: string, maxLen = 16): string {
+  if (!str) return ''
+  return str.length > maxLen ? str.slice(0, maxLen - 1) + '…' : str
 }
 
 function handleMouseMove(event: MouseEvent, index: number) {
@@ -110,6 +116,16 @@ function handleMouseMove(event: MouseEvent, index: number) {
           </text>
         </g>
 
+        <!-- Baseline -->
+        <line
+          :x1="padding.left"
+          :y1="getY(0)"
+          :x2="width - padding.right"
+          :y2="getY(0)"
+          stroke="#475569"
+          stroke-width="1"
+        />
+
         <g v-for="(val, idx) in values" :key="idx">
           <rect
             :x="getBarX(idx)"
@@ -128,11 +144,12 @@ function handleMouseMove(event: MouseEvent, index: number) {
 
           <text
             :x="getBarX(idx) + barWidth / 2"
-            :y="height - 12"
-            text-anchor="middle"
-            class="text-[10px] fill-slate-300 font-medium truncate"
+            :y="getY(0) + 14"
+            :transform="`rotate(-35, ${getBarX(idx) + barWidth / 2}, ${getY(0) + 14})`"
+            text-anchor="end"
+            class="text-[10px] fill-slate-300 font-medium"
           >
-            {{ labels[idx] }}
+            {{ truncateLabel(labels[idx]) }}
           </text>
         </g>
       </svg>
@@ -147,7 +164,7 @@ function handleMouseMove(event: MouseEvent, index: number) {
       >
         <div class="font-bold text-white mb-0.5">{{ labels[hoveredIndex] }}</div>
         <div class="font-mono font-semibold text-indigo-300">
-          {{ valueFormat(values[hoveredIndex] ?? 0) }}
+          {{ (tooltipFormat || valueFormat)(values[hoveredIndex] ?? 0) }}
         </div>
       </div>
     </div>

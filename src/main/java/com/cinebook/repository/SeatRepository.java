@@ -57,4 +57,17 @@ public interface SeatRepository extends JpaRepository<Seat, String> {
     @org.springframework.data.jpa.repository.Modifying
     @org.springframework.data.jpa.repository.Query("DELETE FROM Seat s WHERE s.auditorium.id = :auditoriumId")
     void deleteByAuditoriumId(@org.springframework.data.repository.query.Param("auditoriumId") String auditoriumId);
+
+    @org.springframework.data.jpa.repository.Query(value = """
+        SELECT s.auditorium_id AS auditorium_id,
+               COALESCE(SUM(st.capacity), 0) AS total_capacity
+        FROM seats s
+        JOIN seat_types st ON s.seat_type_id = st.id
+        WHERE s.status = 'ACTIVE'
+          AND s.auditorium_id IN (:auditoriumIds)
+        GROUP BY s.auditorium_id
+    """, nativeQuery = true)
+    List<Object[]> sumCapacityByAuditoriumIds(
+            @org.springframework.data.repository.query.Param("auditoriumIds") Collection<String> auditoriumIds
+    );
 }

@@ -5,6 +5,7 @@ target/
 # Java
 *.class
 *.log
+hs_err_pid*.log
 
 # IntelliJ IDEA
 .idea/
@@ -14,7 +15,8 @@ target/
 out/
 
 # VS Code
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 
 # Eclipse
 .classpath
@@ -36,16 +38,28 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+!frontend/.env.development
+!frontend/.env.production
+*.local
 
 # Spring Boot
 application-local.yml
 application-local.yaml
 application-local.properties
+application-*.local.yml
+application-*.local.yaml
 
 # Node / Frontend
 node_modules/
 frontend/dist/
 frontend/node_modules/
+
+# Python Cache
+**/__pycache__/
+**/*.pyc
+
+# Docker
+docker-compose.override.yml
 
 # Temporary files
 *.tmp

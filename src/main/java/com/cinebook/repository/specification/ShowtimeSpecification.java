@@ -23,6 +23,10 @@ public final class ShowtimeSpecification {
     }
 
     public static Specification<Showtime> isPubliclyVisible() {
+        return isPubliclyVisible(LocalDateTime.now());
+    }
+
+    public static Specification<Showtime> isPubliclyVisible(LocalDateTime now) {
         return (root, query, cb) -> {
             Join<Showtime, Movie> movieJoin = root.join("movie");
             Join<Showtime, Auditorium> auditoriumJoin = root.join("auditorium");
@@ -30,6 +34,7 @@ public final class ShowtimeSpecification {
 
             return cb.and(
                     cb.equal(root.get("status"), ShowtimeStatus.SCHEDULED),
+                    cb.greaterThan(root.get("startTime"), now != null ? now : LocalDateTime.now()),
                     cb.isNull(movieJoin.get("deletedAt")),
                     cb.notEqual(movieJoin.get("status"), MovieStatus.HIDDEN),
                     cb.isNull(auditoriumJoin.get("deletedAt")),

@@ -8,6 +8,7 @@ import movieService from '@/services/movie.service'
 import genreService from '@/services/genre.service'
 import { useI18n } from '@/composables/useI18n'
 import MovieCard from '@/components/movie/MovieCard.vue'
+import MovieSearchAutocomplete from '@/components/movie/MovieSearchAutocomplete.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ErrorAlert from '@/components/common/ErrorAlert.vue'
@@ -33,21 +34,13 @@ const errorMessage = ref<string>('')
 
 // Debounce timer for search
 let debounceTimer: any = null
-function handleSearchInput(e: Event) {
-  const val = (e.target as HTMLInputElement).value
-  searchQuery.value = val
+watch(searchQuery, (val) => {
   clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => {
     debouncedSearch.value = val
     currentPage.value = 0
   }, 350)
-}
-
-function clearSearch() {
-  searchQuery.value = ''
-  debouncedSearch.value = ''
-  currentPage.value = 0
-}
+})
 
 function selectStatus(status: MovieStatus | '') {
   selectedStatus.value = status
@@ -133,35 +126,13 @@ onMounted(async () => {
     <!-- Search & Filter Controls Card -->
     <div class="p-4 sm:p-5 rounded-2xl bg-slate-800/90 border border-slate-700/80 shadow-md space-y-4">
       <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
-        <!-- Search Input with Clear Button (6 cols) -->
-        <div class="md:col-span-6 relative">
-          <div class="relative">
-            <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-400">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            </span>
-
-            <input
-              type="text"
-              :value="searchQuery"
-              :placeholder="t('movies.searchPlaceholder')"
-              class="w-full pl-10 pr-10 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
-              @input="handleSearchInput"
-            />
-
-            <button
-              v-if="searchQuery"
-              type="button"
-              class="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-200"
-              :aria-label="t('common.clearSearch')"
-              @click="clearSearch"
-            >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+        <!-- Search Input with Autocomplete (6 cols) -->
+        <div class="md:col-span-6">
+          <MovieSearchAutocomplete
+            v-model="searchQuery"
+            :placeholder="t('movies.searchPlaceholder')"
+            @search="(q) => { debouncedSearch = q; currentPage = 0 }"
+          />
         </div>
 
         <!-- Genre Filter Dropdown (3 cols) -->

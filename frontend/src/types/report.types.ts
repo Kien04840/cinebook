@@ -61,9 +61,16 @@ export interface MovieReportResponse {
   movieId: string
   movieTitle: string
   posterUrl?: string
-  totalBookings: number
-  ticketsSold: number
+  rank?: number
+  grossRevenue?: number
+  refundAmount?: number
+  netRevenue?: number
   totalRevenue: number
+  grossTicketsSold?: number
+  refundedTickets?: number
+  netTicketsSold?: number
+  ticketsSold: number
+  totalBookings: number
   occupancyRate?: number
 }
 
@@ -71,9 +78,16 @@ export interface CinemaReportResponse {
   cinemaId: string
   cinemaName: string
   city: string
-  totalShowtimes: number
-  ticketsSold: number
+  rank?: number
+  grossRevenue?: number
+  refundAmount?: number
+  netRevenue?: number
   totalRevenue: number
+  grossTicketsSold?: number
+  refundedTickets?: number
+  netTicketsSold?: number
+  ticketsSold: number
+  totalShowtimes: number
   occupancyRate?: number
 }
 

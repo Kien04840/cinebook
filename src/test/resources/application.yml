@@ -3,21 +3,30 @@ spring:
     name: cinebook-test
 
   datasource:
-    url: jdbc:mysql://localhost:3306/cinebook?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true
-    username: root
-    password: 
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/cinebook?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:data.sql
 
   jpa:
     open-in-view: false
+    defer-datasource-initialization: false
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
+        default_batch_fetch_size: 50
+        generate_statistics: true
 
 jwt:
-  secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+  secret: ${JWT_SECRET:CineBookTestJwtSecretKeyForTestingPurposesOnly2026Min32Chars}
   expiration: 900000
   refresh-token:
     expiration: 604800000
@@ -35,11 +44,15 @@ tmdb:
   read-timeout-ms: 10000
 
 vnpay:
-  tmn-code: 2QXUI4J4
-  hash-secret: RAXMQCKQZUNNUIKQQFJSUBJWBYQXZTXU
+  tmn-code: ${VNPAY_TMN_CODE:TEST_TMN_CODE}
+  hash-secret: ${VNPAY_HASH_SECRET:TEST_VNPAY_HASH_SECRET_KEY_FOR_UNIT_TESTING_ONLY}
   payment-url: https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
   return-url: http://localhost:5173/payment/result
   version: "2.1.0"
   command: "pay"
   order-type: "other"
+
+logging:
+  pattern:
+    level: "%5p [%X{correlationId}]"
 

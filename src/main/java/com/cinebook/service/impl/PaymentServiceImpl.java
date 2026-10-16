@@ -41,6 +41,8 @@ import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -101,6 +103,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final BookingMapper bookingMapper;
     private final RefundMapper refundMapper;
     private final EmailService emailService;
+    private final com.cinebook.service.NotificationService notificationService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -325,6 +328,20 @@ public class PaymentServiceImpl implements PaymentService {
             payment.setGatewayResponse(rawJson);
             paymentRepository.saveAndFlush(payment);
             log.info("Giao dịch VNPay IPN {} thất bại với mã lỗi {}.", paymentCode, responseCode);
+
+            try {
+                if (notificationService != null && payment.getBooking() != null && payment.getBooking().getUser() != null) {
+                    notificationService.createNotification(
+                            payment.getBooking().getUser(),
+                            payment.getBooking(),
+                            com.cinebook.enums.NotificationType.PAYMENT_FAILED,
+                            "Thanh toán thất bại",
+                            "Giao dịch thanh toán cho đơn vé #" + payment.getBooking().getBookingCode() + " không thành công."
+                    );
+                }
+            } catch (Exception ex) {
+                log.error("Lỗi khi tạo thông báo thanh toán thất bại cho đơn {}: {}", payment.getBooking().getBookingCode(), ex.getMessage());
+            }
         }
 
         return new IpnResponse("00", "Confirm Success");
@@ -801,10 +818,29 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     /**
-     * Chuẩn hóa tham số trước khi ghi log kiểm toán.
+     * Chuẩn hóa tham số trước khi ghi log kiểm toán nhằm ngăn chặn rò rỉ mã băm bảo mật (vnp_SecureHash)
+     * và thông tin tài chính/thẻ ngân hàng nhạy cảm.
      */
     private Map<String, String> sanitizeParamsForLog(Map<String, String> params) {
-        return params;
+        if (params == null || params.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Map<String, String> sanitized = new LinkedHashMap<>(params.size());
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (key == null) {
+                continue;
+            }
+            if ("vnp_SecureHash".equalsIgnoreCase(key) || "vnp_SecureHashType".equalsIgnoreCase(key)) {
+                sanitized.put(key, "[PROTECTED_HASH]");
+            } else if (key.toLowerCase().contains("card") || key.toLowerCase().contains("cvv") || key.toLowerCase().contains("pin")) {
+                sanitized.put(key, "[PROTECTED]");
+            } else {
+                sanitized.put(key, value);
+            }
+        }
+        return sanitized;
     }
 }
 

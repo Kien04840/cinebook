@@ -157,19 +157,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         // 6. Tạo phiên đăng nhập đầu tiên
-        UserDetailsImpl userDetails = UserDetailsImpl.build(savedUser);
-        String accessToken = jwtTokenProvider.generateAccessToken(userDetails);
-        String rawRefreshToken = createRefreshToken(savedUser);
-
-        UserResponse userResponse = userMapper.toUserResponse(savedUser);
-
-        return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(rawRefreshToken)
-                .tokenType("Bearer")
-                .expiresIn(jwtTokenProvider.getExpirationInSeconds())
-                .user(userResponse)
-                .build();
+        return generateAuthResponse(savedUser);
     }
 
     /**
@@ -206,19 +194,7 @@ public class AuthServiceImpl implements AuthService {
         userRepository.save(user);
 
         // 5. Sinh tokens và trả về kết quả
-        UserDetailsImpl userDetails = UserDetailsImpl.build(user);
-        String accessToken = jwtTokenProvider.generateAccessToken(userDetails);
-        String rawRefreshToken = createRefreshToken(user);
-
-        UserResponse userResponse = userMapper.toUserResponse(user);
-
-        return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(rawRefreshToken)
-                .tokenType("Bearer")
-                .expiresIn(jwtTokenProvider.getExpirationInSeconds())
-                .user(userResponse)
-                .build();
+        return generateAuthResponse(user);
     }
 
     /**
@@ -261,19 +237,7 @@ public class AuthServiceImpl implements AuthService {
         refreshTokenRepository.save(storedToken);
 
         // 6. Cấp phát Refresh Token mới và Access Token mới
-        String newRawRefreshToken = createRefreshToken(user);
-        UserDetailsImpl userDetails = UserDetailsImpl.build(user);
-        String newAccessToken = jwtTokenProvider.generateAccessToken(userDetails);
-
-        UserResponse userResponse = userMapper.toUserResponse(user);
-
-        return AuthResponse.builder()
-                .accessToken(newAccessToken)
-                .refreshToken(newRawRefreshToken)
-                .tokenType("Bearer")
-                .expiresIn(jwtTokenProvider.getExpirationInSeconds())
-                .user(userResponse)
-                .build();
+        return generateAuthResponse(user);
     }
 
     /**
@@ -454,6 +418,24 @@ public class AuthServiceImpl implements AuthService {
         byte[] randomBytes = new byte[32];
         SECURE_RANDOM.nextBytes(randomBytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+    }
+
+    /**
+     * Sinh cặp Access Token và Refresh Token cho người dùng và đóng gói vào AuthResponse.
+     */
+    private AuthResponse generateAuthResponse(User user) {
+        UserDetailsImpl userDetails = UserDetailsImpl.build(user);
+        String accessToken = jwtTokenProvider.generateAccessToken(userDetails);
+        String rawRefreshToken = createRefreshToken(user);
+        UserResponse userResponse = userMapper.toUserResponse(user);
+
+        return AuthResponse.builder()
+                .accessToken(accessToken)
+                .refreshToken(rawRefreshToken)
+                .tokenType("Bearer")
+                .expiresIn(jwtTokenProvider.getExpirationInSeconds())
+                .user(userResponse)
+                .build();
     }
 }
 

@@ -22,6 +22,20 @@ export interface TicketResponse {
   createdAt?: string
 }
 
+export interface RefundResponse {
+  id?: string
+  paymentId?: string
+  bookingId?: string
+  bookingCode?: string
+  refundCode?: string
+  gatewayRefundId?: string
+  amount?: number
+  refundReason?: string
+  refundStatus?: string
+  processedAt?: string
+  createdAt?: string
+}
+
 export interface PaymentSummaryResponse {
   id: string
   paymentCode: string
@@ -32,6 +46,7 @@ export interface PaymentSummaryResponse {
   createdAt: string
   paidAt?: string
   gatewayTransactionId?: string
+  refund?: RefundResponse
 }
 
 export interface BookingPromotionResponse {
@@ -49,7 +64,6 @@ export interface UserSummaryResponse {
   avatarUrl?: string
 }
 
-
 export interface BookingDetailResponse {
   id: string
   bookingCode: string
@@ -61,6 +75,7 @@ export interface BookingDetailResponse {
   foodAmount?: number
   holdExpiresAt: string // ISO string
   createdAt: string
+  updatedAt?: string
   cancelledAt?: string
   cancelledReason?: string
   showtime: ShowtimeDetailResponse

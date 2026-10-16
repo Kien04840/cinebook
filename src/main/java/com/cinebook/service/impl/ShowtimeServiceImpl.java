@@ -6,10 +6,12 @@ import com.cinebook.dto.response.PageResponse;
 import com.cinebook.dto.response.ShowtimeDetailResponse;
 import com.cinebook.dto.response.ShowtimeSummaryResponse;
 import com.cinebook.entity.Auditorium;
+import com.cinebook.entity.Booking;
 import com.cinebook.entity.Cinema;
 import com.cinebook.entity.Movie;
 import com.cinebook.entity.Showtime;
 import com.cinebook.enums.AuditoriumStatus;
+import com.cinebook.enums.BookingStatus;
 import com.cinebook.enums.CinemaStatus;
 import com.cinebook.enums.MovieStatus;
 import com.cinebook.enums.ShowtimeFormat;
@@ -22,7 +24,9 @@ import com.cinebook.repository.AuditoriumRepository;
 import com.cinebook.repository.BookingRepository;
 import com.cinebook.repository.CinemaRepository;
 import com.cinebook.repository.MovieRepository;
+import com.cinebook.repository.SeatHoldRepository;
 import com.cinebook.repository.ShowtimeRepository;
+import com.cinebook.repository.TicketRepository;
 import com.cinebook.repository.specification.ShowtimeSpecification;
 import com.cinebook.service.ShowtimeService;
 import com.cinebook.service.scheduling.SchedulingValidationResult;
@@ -60,7 +64,6 @@ import java.util.List;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ShowtimeServiceImpl implements ShowtimeService {
 
     private final ShowtimeRepository showtimeRepository;
@@ -68,9 +71,50 @@ public class ShowtimeServiceImpl implements ShowtimeService {
     private final AuditoriumRepository auditoriumRepository;
     private final CinemaRepository cinemaRepository;
     private final BookingRepository bookingRepository;
+    private final TicketRepository ticketRepository;
+    private final SeatHoldRepository seatHoldRepository;
     private final ShowtimeMapper showtimeMapper;
     private final SchedulingValidationService validationService;
     private final com.cinebook.service.PricingService pricingService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public ShowtimeServiceImpl(
+            ShowtimeRepository showtimeRepository,
+            MovieRepository movieRepository,
+            AuditoriumRepository auditoriumRepository,
+            CinemaRepository cinemaRepository,
+            BookingRepository bookingRepository,
+            TicketRepository ticketRepository,
+            SeatHoldRepository seatHoldRepository,
+            ShowtimeMapper showtimeMapper,
+            SchedulingValidationService validationService,
+            com.cinebook.service.PricingService pricingService
+    ) {
+        this.showtimeRepository = showtimeRepository;
+        this.movieRepository = movieRepository;
+        this.auditoriumRepository = auditoriumRepository;
+        this.cinemaRepository = cinemaRepository;
+        this.bookingRepository = bookingRepository;
+        this.ticketRepository = ticketRepository;
+        this.seatHoldRepository = seatHoldRepository;
+        this.showtimeMapper = showtimeMapper;
+        this.validationService = validationService;
+        this.pricingService = pricingService;
+    }
+
+    public ShowtimeServiceImpl(
+            ShowtimeRepository showtimeRepository,
+            MovieRepository movieRepository,
+            AuditoriumRepository auditoriumRepository,
+            CinemaRepository cinemaRepository,
+            BookingRepository bookingRepository,
+            ShowtimeMapper showtimeMapper,
+            SchedulingValidationService validationService,
+            com.cinebook.service.PricingService pricingService
+    ) {
+        this(showtimeRepository, movieRepository, auditoriumRepository, cinemaRepository,
+                bookingRepository, null, null, showtimeMapper, validationService, pricingService);
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -104,8 +148,10 @@ public class ShowtimeServiceImpl implements ShowtimeService {
         Movie movie = showtime.getMovie();
         Auditorium auditorium = showtime.getAuditorium();
         Cinema cinema = auditorium != null ? auditorium.getCinema() : null;
+        LocalDateTime now = LocalDateTime.now();
 
         if (showtime.getStatus() != ShowtimeStatus.SCHEDULED
+                || !showtime.getStartTime().isAfter(now)
                 || movie == null || movie.getDeletedAt() != null || movie.getStatus() == MovieStatus.HIDDEN
                 || auditorium == null || auditorium.getDeletedAt() != null || auditorium.getStatus() != AuditoriumStatus.ACTIVE
                 || cinema == null || cinema.getDeletedAt() != null || cinema.getStatus() != CinemaStatus.ACTIVE) {
@@ -153,7 +199,14 @@ public class ShowtimeServiceImpl implements ShowtimeService {
         com.cinebook.dto.response.TicketPricingBreakdown pricingBreakdown = (pricingService != null)
                 ? pricingService.calculateShowtimeBaseBreakdown(showtime)
                 : null;
-        return showtimeMapper.toShowtimeDetailResponse(showtime, pricingBreakdown);
+        ShowtimeDetailResponse response = showtimeMapper.toShowtimeDetailResponse(showtime, pricingBreakdown);
+        boolean hasBookings = bookingRepository != null && bookingRepository.existsByShowtimeId(id);
+        boolean hasPaid = (ticketRepository != null && ticketRepository.hasPaidOrUsedTickets(id))
+                || (bookingRepository != null && bookingRepository.existsByShowtimeIdAndBookingStatusIn(
+                        id, List.of(BookingStatus.PAID, BookingStatus.REFUNDED)));
+        response.setHasBookings(hasBookings);
+        response.setHasPaidTickets(hasPaid);
+        return response;
     }
 
     @Override
@@ -224,6 +277,10 @@ public class ShowtimeServiceImpl implements ShowtimeService {
         Showtime showtime = showtimeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Showtime not found with id: " + id));
 
+        if (showtime.getStatus() == ShowtimeStatus.CANCELLED || showtime.getStatus() == ShowtimeStatus.FINISHED) {
+            throw new BadRequestException("Không thể chỉnh sửa suất chiếu đã hủy hoặc đã kết thúc!");
+        }
+
         Movie movie = validateAndGetMovie(request.getMovieId());
         Auditorium auditorium = validateAndGetAuditorium(request.getAuditoriumId());
 
@@ -280,21 +337,75 @@ public class ShowtimeServiceImpl implements ShowtimeService {
         return showtimeMapper.toShowtimeDetailResponse(updated);
     }
 
+    /**
+     * Xóa hoặc hủy suất chiếu tuân thủ quy tắc nghiệp vụ rạp chiếu (Showtime Deletion/Cancellation Rules):
+     * 
+     * Case 1 (Không có đơn đặt vé/vé):
+     *   - Cho phép xóa vĩnh viễn (physical delete) suất chiếu khỏi cơ sở dữ liệu.
+     *   - Dọn dẹp các bản ghi giữ ghế tạm thời (seat_holds) nếu có.
+     * 
+     * Case 2 (Có đơn đặt vé nhưng CHƯA thanh toán thành công):
+     *   - Cho phép hủy suất chiếu, bảo toàn lịch sử giao dịch.
+     *   - Tự động hủy các đơn đặt vé đang chờ thanh toán (HOLDING, PENDING_PAYMENT).
+     *   - Giải phóng toàn bộ ghế đang giữ (seat_holds) của suất chiếu.
+     *   - Cập nhật trạng thái suất chiếu thành CANCELLED.
+     * 
+     * Case 3 (Đã có vé thanh toán thành công):
+     *   - NGHIÊM CẤM xóa hoặc loại bỏ suất chiếu khỏi cơ sở dữ liệu.
+     *   - Ném ngoại lệ BadRequestException: "Không thể xóa suất chiếu vì đã có vé đã thanh toán."
+     *
+     * @param id Mã định danh suất chiếu cần xóa/hủy
+     */
     @Override
     @Transactional
     public void deleteShowtime(String id) {
         Showtime showtime = showtimeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Showtime not found with id: " + id));
 
-        boolean hasBookings = bookingRepository.existsByShowtimeId(id);
+        // Case 3: Kiểm tra xem đã có vé đã thanh toán hoặc đơn đặt vé thanh toán thành công hay chưa
+        boolean hasPaidTickets = ticketRepository != null && ticketRepository.hasPaidOrUsedTickets(id);
+        boolean hasPaidBookings = bookingRepository != null && bookingRepository.existsByShowtimeIdAndBookingStatusIn(
+                id,
+                List.of(BookingStatus.PAID, BookingStatus.REFUNDED)
+        );
+
+        if (hasPaidTickets || hasPaidBookings) {
+            throw new BadRequestException("Không thể xóa suất chiếu vì đã có vé đã thanh toán.");
+        }
+
+        boolean hasBookings = bookingRepository != null && bookingRepository.existsByShowtimeId(id);
 
         if (hasBookings) {
+            // Case 2: Có booking nhưng chưa thanh toán thành công (chỉ có HOLDING, PENDING_PAYMENT, CANCELLED, EXPIRED)
+            List<Booking> activeUnpaidBookings = bookingRepository.findByShowtimeIdAndBookingStatusIn(
+                    id,
+                    List.of(BookingStatus.HOLDING, BookingStatus.PENDING_PAYMENT)
+            );
+
+            LocalDateTime now = LocalDateTime.now();
+            for (Booking booking : activeUnpaidBookings) {
+                booking.setBookingStatus(BookingStatus.CANCELLED);
+                booking.setCancelledAt(now);
+                booking.setCancelledReason("Suất chiếu đã bị hủy");
+            }
+            if (!activeUnpaidBookings.isEmpty()) {
+                bookingRepository.saveAll(activeUnpaidBookings);
+            }
+
+            if (seatHoldRepository != null) {
+                seatHoldRepository.deleteByShowtimeId(id);
+            }
+
             showtime.setStatus(ShowtimeStatus.CANCELLED);
             showtimeRepository.save(showtime);
-            log.info("Cancelled showtime with existing bookings: id={}", id);
+            log.info("Cancelled showtime with unpaid bookings and cleared seat holds: id={}", id);
         } else {
+            // Case 1: Không có booking nào
+            if (seatHoldRepository != null) {
+                seatHoldRepository.deleteByShowtimeId(id);
+            }
             showtimeRepository.delete(showtime);
-            log.info("Physically deleted showtime without bookings: id={}", id);
+            log.info("Physically deleted empty showtime: id={}", id);
         }
     }
 

@@ -13,8 +13,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -25,6 +25,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
@@ -71,21 +72,10 @@ class ReportServiceTest {
         when(paymentRepository.findGrossRevenueBetween(any(), any())).thenReturn(new BigDecimal("1000000.00"));
         when(refundRepository.findTotalRefundAmountBetween(any(), any())).thenReturn(new BigDecimal("100000.00"));
 
-        when(ticketRepository.countGrossTicketsBetween(any(), any())).thenReturn(10L);
-        when(ticketRepository.countRefundedTicketsBetween(any(), any())).thenReturn(1L);
-
-        when(bookingRepository.countByCreatedAtBetween(any(), any())).thenReturn(8L);
-        when(bookingRepository.countByBookingStatusAndCreatedAtBetween(eq(BookingStatus.PAID), any(), any())).thenReturn(5L);
-        when(bookingRepository.countByBookingStatusAndCreatedAtBetween(eq(BookingStatus.CANCELLED), any(), any())).thenReturn(1L);
-        when(bookingRepository.countByBookingStatusAndCreatedAtBetween(eq(BookingStatus.EXPIRED), any(), any())).thenReturn(1L);
-        when(bookingRepository.countByBookingStatusAndCreatedAtBetween(eq(BookingStatus.REFUNDED), any(), any())).thenReturn(1L);
-
-        when(userRepository.count()).thenReturn(50L);
-        when(userRepository.countByCreatedAtBetween(any(), any())).thenReturn(10L);
-        when(userRepository.countByStatus(eq(UserStatus.ACTIVE))).thenReturn(48L);
-        when(userRepository.countByStatus(eq(UserStatus.BLOCKED))).thenReturn(2L);
-
-        when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.countTicketKpiBetween(any(), any())).thenReturn(new Object[]{10L, 1L});
+        when(bookingRepository.countBookingKpiBetween(any(), any())).thenReturn(new Object[]{8L, 5L, 1L, 1L, 1L});
+        when(userRepository.countUserKpiBetween(any(), any())).thenReturn(new Object[]{50L, 10L, 48L, 2L});
+        when(showtimeRepository.findOperationsKpiNative(any(), any())).thenReturn(new Object[]{0L, 0L, 0L});
 
         // Act
         DashboardResponse response = reportService.getDashboardSummary(from, to);
@@ -128,17 +118,12 @@ class ReportServiceTest {
     @DisplayName("Revenue Trend: Accumulates daily trends and calculates net revenue correctly")
     void getRevenueTrend_DailyGrouping_CalculatesAccurately() {
         // Arrange
-        Payment p1 = new Payment();
-        p1.setAmount(new BigDecimal("200000.00"));
-        p1.setPaidAt(LocalDateTime.of(2026, 8, 10, 14, 0));
-
-        Refund r1 = new Refund();
-        r1.setAmount(new BigDecimal("50000.00"));
-        r1.setProcessedAt(LocalDateTime.of(2026, 8, 10, 16, 0));
-
-        when(paymentRepository.findSuccessfulPaymentsBetween(any(), any())).thenReturn(List.of(p1));
-        when(refundRepository.findSuccessfulRefundsBetween(any(), any())).thenReturn(List.of(r1));
-        when(ticketRepository.findSoldTicketsBetween(any(), any())).thenReturn(Collections.emptyList());
+        when(paymentRepository.findGrossRevenueTrendNative(any(), any(), eq("%Y-%m-%d")))
+                .thenReturn(List.<Object[]>of(new Object[]{"2026-08-10", new BigDecimal("200000.00")}));
+        when(refundRepository.findRefundTrendNative(any(), any(), eq("%Y-%m-%d")))
+                .thenReturn(List.<Object[]>of(new Object[]{"2026-08-10", new BigDecimal("50000.00")}));
+        when(ticketRepository.findTicketTrendNative(any(), any(), eq("%Y-%m-%d")))
+                .thenReturn(Collections.emptyList());
 
         // Act
         List<RevenueTrendResponse> trend = reportService.getRevenueTrend(from, to, ReportGroupBy.DAY);
@@ -156,33 +141,15 @@ class ReportServiceTest {
     @DisplayName("Movie Report: Calculates movie ranking by Net Revenue and Net Tickets")
     void getMovieReport_RankingAndLimits() {
         // Arrange
-        Movie m1 = new Movie();
-        m1.setId(UUID.randomUUID().toString());
-        m1.setTitle("Movie A");
-
-        Movie m2 = new Movie();
-        m2.setId(UUID.randomUUID().toString());
-        m2.setTitle("Movie B");
-
-        Showtime s1 = new Showtime();
-        s1.setMovie(m1);
-        Booking b1 = new Booking();
-        b1.setShowtime(s1);
-        Payment p1 = new Payment();
-        p1.setBooking(b1);
-        p1.setAmount(new BigDecimal("500000.00"));
-
-        Showtime s2 = new Showtime();
-        s2.setMovie(m2);
-        Booking b2 = new Booking();
-        b2.setShowtime(s2);
-        Payment p2 = new Payment();
-        p2.setBooking(b2);
-        p2.setAmount(new BigDecimal("300000.00"));
-
-        when(paymentRepository.findSuccessfulPaymentsBetween(any(), any())).thenReturn(List.of(p1, p2));
-        when(refundRepository.findSuccessfulRefundsBetween(any(), any())).thenReturn(Collections.emptyList());
-        when(ticketRepository.findSoldTicketsBetween(any(), any())).thenReturn(Collections.emptyList());
+        when(paymentRepository.findMovieRevenueReportNative(any(), any()))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{"m-1", "Movie A", null, new BigDecimal("500000.00"), 1L},
+                        new Object[]{"m-2", "Movie B", null, new BigDecimal("300000.00"), 1L}
+                ));
+        when(refundRepository.findMovieRefundReportNative(any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(ticketRepository.findMovieTicketReportNative(any(), any()))
+                .thenReturn(Collections.emptyList());
 
         // Act
         List<MovieReportResponse> report = reportService.getMovieReport(from, to, ReportSortBy.REVENUE, 10);
@@ -192,10 +159,42 @@ class ReportServiceTest {
         assertThat(report.get(0).getMovieTitle()).isEqualTo("Movie A");
         assertThat(report.get(0).getRank()).isEqualTo(1);
         assertThat(report.get(0).getNetRevenue()).isEqualByComparingTo("500000.00");
+        assertThat(report.get(0).getTotalRevenue()).isEqualByComparingTo("500000.00");
+        assertThat(report.get(0).getTicketsSold()).isEqualTo(0L);
+        assertThat(report.get(0).getTotalBookings()).isEqualTo(1L);
 
         assertThat(report.get(1).getMovieTitle()).isEqualTo("Movie B");
         assertThat(report.get(1).getRank()).isEqualTo(2);
         assertThat(report.get(1).getNetRevenue()).isEqualByComparingTo("300000.00");
+        assertThat(report.get(1).getTotalRevenue()).isEqualByComparingTo("300000.00");
+        assertThat(report.get(1).getTicketsSold()).isEqualTo(0L);
+        assertThat(report.get(1).getTotalBookings()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("Cinema Report: Calculates cinema rankings and populates totalRevenue, ticketsSold, totalShowtimes")
+    void getCinemaReport_CalculatesTotalsAndRankings() {
+        // Arrange
+        when(paymentRepository.findCinemaRevenueReportNative(any(), any()))
+                .thenReturn(List.<Object[]>of(
+                        new Object[]{"cin-1", "Cinema Alpha", "Hà Nội", new BigDecimal("1000000.00"), 1L}
+                ));
+        when(refundRepository.findCinemaRefundReportNative(any(), any()))
+                .thenReturn(Collections.emptyList());
+        when(ticketRepository.findCinemaTicketReportNative(any(), any()))
+                .thenReturn(Collections.emptyList());
+
+        // Act
+        List<CinemaReportResponse> report = reportService.getCinemaReport(from, to, ReportSortBy.REVENUE, 10);
+
+        // Assert
+        assertThat(report).hasSize(1);
+        CinemaReportResponse res = report.get(0);
+        assertThat(res.getCinemaName()).isEqualTo("Cinema Alpha");
+        assertThat(res.getCity()).isEqualTo("Hà Nội");
+        assertThat(res.getTotalRevenue()).isEqualByComparingTo("1000000.00");
+        assertThat(res.getTicketsSold()).isEqualTo(0L);
+        assertThat(res.getTotalShowtimes()).isEqualTo(1L);
     }
 
     @Test
@@ -223,26 +222,17 @@ class ReportServiceTest {
         st1.setEndTime(LocalDateTime.of(2026, 8, 15, 21, 30));
         st1.setFormat(ShowtimeFormat.TWO_D);
 
-
-        when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(List.of(st1));
-        when(seatRepository.sumCapacityByAuditoriumIdAndStatus(eq(aud.getId()), eq(SeatStatus.ACTIVE))).thenReturn(100L);
-
-        SeatType stType = new SeatType();
-        stType.setCapacity((short) 1);
-        Seat s1 = new Seat();
-        s1.setSeatType(stType);
-        Seat s2 = new Seat();
-        s2.setSeatType(stType);
-
-        Ticket t1 = new Ticket();
-        t1.setSeat(s1);
-        Ticket t2 = new Ticket();
-        t2.setSeat(s2);
-        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(st1.getId()), any())).thenReturn(List.of(t1, t2));
+        PageRequest pageRequest = PageRequest.of(0, 10);
+        when(showtimeRepository.findActiveShowtimesPageForReport(any(), any(), any(), any(), eq(pageRequest)))
+                .thenReturn(new PageImpl<>(List.of(st1), pageRequest, 1));
+        when(seatRepository.sumCapacityByAuditoriumIds(any()))
+                .thenReturn(List.<Object[]>of(new Object[]{aud.getId(), 100}));
+        when(ticketRepository.sumOccupiedCapacityByShowtimeIds(any()))
+                .thenReturn(List.<Object[]>of(new Object[]{st1.getId(), 2}));
 
         // Act
         PageResponse<ShowtimeOccupancyResponse> page = reportService.getShowtimeOccupancy(
-                from, to, null, null, ReportSortBy.START_TIME, PageRequest.of(0, 10));
+                from, to, null, null, ReportSortBy.START_TIME, pageRequest);
 
         // Assert
         assertThat(page.getContent()).hasSize(1);
@@ -257,69 +247,19 @@ class ReportServiceTest {
     @DisplayName("Occupancy: Capacity-weighted aggregate in getDashboardSummary weights by seat volume")
     void getDashboardSummary_CalculatesCapacityWeightedOccupancyRate() {
         // Arrange
-        Cinema cinema = new Cinema();
-        cinema.setId(UUID.randomUUID().toString());
-        cinema.setName("Cinema Test");
+        when(paymentRepository.findGrossRevenueBetween(any(), any())).thenReturn(BigDecimal.ZERO);
+        when(refundRepository.findTotalRefundAmountBetween(any(), any())).thenReturn(BigDecimal.ZERO);
+        when(ticketRepository.countTicketKpiBetween(any(), any())).thenReturn(new Object[]{0L, 0L});
+        when(bookingRepository.countBookingKpiBetween(any(), any())).thenReturn(new Object[]{0L, 0L, 0L, 0L, 0L});
+        when(userRepository.countUserKpiBetween(any(), any())).thenReturn(new Object[]{0L, 0L, 0L, 0L});
 
-        Auditorium aud1 = new Auditorium();
-        aud1.setId(UUID.randomUUID().toString());
-        aud1.setName("Auditorium Large");
-        aud1.setCinema(cinema);
-
-        Auditorium aud2 = new Auditorium();
-        aud2.setId(UUID.randomUUID().toString());
-        aud2.setName("Auditorium Small");
-        aud2.setCinema(cinema);
-
-        Movie movie = new Movie();
-        movie.setId(UUID.randomUUID().toString());
-        movie.setTitle("Movie 1");
-
-        Showtime st1 = new Showtime();
-        st1.setId(UUID.randomUUID().toString());
-        st1.setAuditorium(aud1);
-        st1.setMovie(movie);
-        st1.setStartTime(LocalDateTime.of(2026, 8, 15, 18, 0));
-        st1.setEndTime(LocalDateTime.of(2026, 8, 15, 20, 0));
-        st1.setFormat(ShowtimeFormat.TWO_D);
-
-        Showtime st2 = new Showtime();
-        st2.setId(UUID.randomUUID().toString());
-        st2.setAuditorium(aud2);
-        st2.setMovie(movie);
-        st2.setStartTime(LocalDateTime.of(2026, 8, 15, 20, 30));
-        st2.setEndTime(LocalDateTime.of(2026, 8, 15, 22, 30));
-        st2.setFormat(ShowtimeFormat.TWO_D);
-
-        when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(List.of(st1, st2));
-        when(seatRepository.sumCapacityByAuditoriumIdAndStatus(eq(aud1.getId()), eq(SeatStatus.ACTIVE))).thenReturn(100L);
-        when(seatRepository.sumCapacityByAuditoriumIdAndStatus(eq(aud2.getId()), eq(SeatStatus.ACTIVE))).thenReturn(10L);
-
-        // aud1 has 80 occupied seats (80%)
-        SeatType stType = new SeatType();
-        stType.setCapacity((short) 1);
-        List<Ticket> tickets1 = Collections.nCopies(80, new Ticket()).stream().map(t -> {
-            Ticket ticket = new Ticket();
-            Seat seat = new Seat();
-            seat.setSeatType(stType);
-            ticket.setSeat(seat);
-            return ticket;
-        }).toList();
-        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(st1.getId()), any())).thenReturn(tickets1);
-
-        // aud2 has 1 occupied seat (10%)
-        Ticket ticket2 = new Ticket();
-        Seat seat2 = new Seat();
-        seat2.setSeatType(stType);
-        ticket2.setSeat(seat2);
-        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(st2.getId()), any())).thenReturn(List.of(ticket2));
+        // 2 showtimes, total capacity 110, total occupied 81: (81 / 110) * 100 = 73.64%
+        when(showtimeRepository.findOperationsKpiNative(any(), any())).thenReturn(new Object[]{2L, 110L, 81L});
 
         // Act
         DashboardResponse response = reportService.getDashboardSummary(from, to);
 
-        // Assert:
-        // Arithmetic average would be (80 + 10) / 2 = 45.00%
-        // Capacity-weighted: (80 + 1) / (100 + 10) * 100 = 81 / 110 * 100 = 73.64%
+        // Assert
         assertThat(response.getOperations().getTotalShowtimes()).isEqualTo(2L);
         assertThat(response.getOperations().getAverageOccupancyRate()).isEqualByComparingTo("73.64");
     }
@@ -348,23 +288,16 @@ class ReportServiceTest {
         st.setEndTime(LocalDateTime.of(2026, 8, 15, 21, 0));
         st.setFormat(ShowtimeFormat.TWO_D);
 
-        when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(List.of(st));
-        when(seatRepository.sumCapacityByAuditoriumIdAndStatus(eq(aud.getId()), eq(SeatStatus.ACTIVE))).thenReturn(10L);
-
-        // 12 tickets for capacity of 10
-        SeatType stType = new SeatType();
-        stType.setCapacity((short) 1);
-        List<Ticket> tickets = Collections.nCopies(12, new Ticket()).stream().map(t -> {
-            Ticket ticket = new Ticket();
-            Seat seat = new Seat();
-            seat.setSeatType(stType);
-            ticket.setSeat(seat);
-            return ticket;
-        }).toList();
-        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(st.getId()), any())).thenReturn(tickets);
+        PageRequest pageRequest = PageRequest.of(0, 10);
+        when(showtimeRepository.findActiveShowtimesPageForReport(any(), any(), any(), any(), eq(pageRequest)))
+                .thenReturn(new PageImpl<>(List.of(st), pageRequest, 1));
+        when(seatRepository.sumCapacityByAuditoriumIds(any()))
+                .thenReturn(List.<Object[]>of(new Object[]{aud.getId(), 10}));
+        when(ticketRepository.sumOccupiedCapacityByShowtimeIds(any()))
+                .thenReturn(List.<Object[]>of(new Object[]{st.getId(), 12}));
 
         PageResponse<ShowtimeOccupancyResponse> page = reportService.getShowtimeOccupancy(
-                from, to, null, null, ReportSortBy.START_TIME, PageRequest.of(0, 10));
+                from, to, null, null, ReportSortBy.START_TIME, pageRequest);
 
         assertThat(page.getContent()).hasSize(1);
         ShowtimeOccupancyResponse occ = page.getContent().get(0);
@@ -398,12 +331,16 @@ class ReportServiceTest {
         st.setEndTime(LocalDateTime.of(2026, 8, 15, 21, 0));
         st.setFormat(ShowtimeFormat.TWO_D);
 
-        when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(List.of(st));
-        when(seatRepository.sumCapacityByAuditoriumIdAndStatus(eq(aud.getId()), eq(SeatStatus.ACTIVE))).thenReturn(0L);
-        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq(st.getId()), any())).thenReturn(Collections.emptyList());
+        PageRequest pageRequest = PageRequest.of(0, 10);
+        when(showtimeRepository.findActiveShowtimesPageForReport(any(), any(), any(), any(), eq(pageRequest)))
+                .thenReturn(new PageImpl<>(List.of(st), pageRequest, 1));
+        when(seatRepository.sumCapacityByAuditoriumIds(any()))
+                .thenReturn(List.<Object[]>of(new Object[]{aud.getId(), 0}));
+        when(ticketRepository.sumOccupiedCapacityByShowtimeIds(any()))
+                .thenReturn(Collections.emptyList());
 
         PageResponse<ShowtimeOccupancyResponse> page = reportService.getShowtimeOccupancy(
-                from, to, null, null, ReportSortBy.START_TIME, PageRequest.of(0, 10));
+                from, to, null, null, ReportSortBy.START_TIME, pageRequest);
 
         assertThat(page.getContent()).hasSize(1);
         ShowtimeOccupancyResponse occ = page.getContent().get(0);
@@ -412,11 +349,73 @@ class ReportServiceTest {
     }
 
     @Test
+    @DisplayName("Occupancy: Sort by OCCUPANCY_RATE queries database directly")
+    void getShowtimeOccupancy_SortByOccupancyRate_QueriesNativeDatabase() {
+        PageRequest pageRequest = PageRequest.of(0, 10);
+        when(showtimeRepository.countActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(1L);
+        when(showtimeRepository.findShowtimeOccupanciesNative(any(), any(), any(), any(), eq(10), eq(0)))
+                .thenReturn(List.<Object[]>of(new Object[]{
+                        "st-1", "m-1", "Top Movie", "cin-1", "Cinema Alpha", "aud-1", "Aud 1",
+                        LocalDateTime.of(2026, 8, 15, 19, 0), LocalDateTime.of(2026, 8, 15, 21, 0),
+                        "TWO_D", 100, 85, 15, new BigDecimal("85.00")
+                }));
+
+        PageResponse<ShowtimeOccupancyResponse> page = reportService.getShowtimeOccupancy(
+                from, to, null, null, ReportSortBy.OCCUPANCY_RATE, pageRequest);
+
+        assertThat(page.getContent()).hasSize(1);
+        ShowtimeOccupancyResponse occ = page.getContent().get(0);
+        assertThat(occ.getShowtimeId()).isEqualTo("st-1");
+        assertThat(occ.getOccupancyRate()).isEqualByComparingTo("85.00");
+    }
+
+    @Test
+    @DisplayName("Top Occupancy: Queries top showtimes with limit directly")
+    void getTopOccupancyShowtimes_QueriesNativeDatabase() {
+        when(showtimeRepository.findShowtimeOccupanciesNative(any(), any(), any(), any(), eq(5), eq(0)))
+                .thenReturn(List.<Object[]>of(new Object[]{
+                        "st-1", "m-1", "Top Movie", "cin-1", "Cinema Alpha", "aud-1", "Aud 1",
+                        LocalDateTime.of(2026, 8, 15, 19, 0), LocalDateTime.of(2026, 8, 15, 21, 0),
+                        "TWO_D", 100, 95, 5, new BigDecimal("95.00")
+                }));
+
+        List<ShowtimeOccupancyResponse> top = reportService.getTopOccupancyShowtimes(from, to, 5);
+
+        assertThat(top).hasSize(1);
+        assertThat(top.get(0).getOccupancyRate()).isEqualByComparingTo("95.00");
+    }
+
+    @Test
+    @DisplayName("Statistics: Booking, User, and Refund statistics return mapped metrics")
+    void getStatistics_ReturnsMappedMetrics() {
+        when(bookingRepository.findBookingStatisticsBetweenNative(any(), any()))
+                .thenReturn(new Object[]{10L, 8L, 1L, 1L, 0L, new BigDecimal("1500000.00")});
+        when(userRepository.countUserKpiBetween(any(), any()))
+                .thenReturn(new Object[]{100L, 20L, 95L, 5L});
+        when(refundRepository.findRefundStatisticsNative(any(), any()))
+                .thenReturn(new Object[]{5L, 4L, 1L, 0L, new BigDecimal("200000.00")});
+
+        BookingStatisticsResponse bookingStats = reportService.getBookingStatistics(from, to);
+        assertThat(bookingStats.getTotalBookings()).isEqualTo(10L);
+        assertThat(bookingStats.getPaidBookings()).isEqualTo(8L);
+        assertThat(bookingStats.getTotalBookingAmount()).isEqualByComparingTo("1500000.00");
+
+        UserStatisticsResponse userStats = reportService.getUserStatistics(from, to);
+        assertThat(userStats.getTotalUsers()).isEqualTo(100L);
+        assertThat(userStats.getNewUsersInPeriod()).isEqualTo(20L);
+
+        RefundStatisticsResponse refundStats = reportService.getRefundStatistics(from, to);
+        assertThat(refundStats.getTotalRefunds()).isEqualTo(5L);
+        assertThat(refundStats.getSuccessfulRefunds()).isEqualTo(4L);
+        assertThat(refundStats.getTotalRefundAmount()).isEqualByComparingTo("200000.00");
+    }
+
+    @Test
     @DisplayName("Export CSV & XLSX: Generates non-empty byte arrays with valid signatures")
     void exportReport_GeneratesCsvAndXlsx() {
-        when(paymentRepository.findSuccessfulPaymentsBetween(any(), any())).thenReturn(Collections.emptyList());
-        when(refundRepository.findSuccessfulRefundsBetween(any(), any())).thenReturn(Collections.emptyList());
-        when(ticketRepository.findSoldTicketsBetween(any(), any())).thenReturn(Collections.emptyList());
+        when(paymentRepository.findGrossRevenueTrendNative(any(), any(), any())).thenReturn(Collections.emptyList());
+        when(refundRepository.findRefundTrendNative(any(), any(), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findTicketTrendNative(any(), any(), any())).thenReturn(Collections.emptyList());
 
         // CSV
         byte[] csv = reportService.exportReport(ReportType.REVENUE, ReportFormat.CSV, from, to, ReportGroupBy.DAY, null, null, null, null);
@@ -437,9 +436,14 @@ class ReportServiceTest {
     @Test
     @DisplayName("Export Movies, Cinemas, Occupancy: Generates valid CSV and XLSX files")
     void exportReport_OtherTypes_GeneratesValidOutputs() {
-        when(paymentRepository.findSuccessfulPaymentsBetween(any(), any())).thenReturn(Collections.emptyList());
-        when(refundRepository.findSuccessfulRefundsBetween(any(), any())).thenReturn(Collections.emptyList());
-        when(ticketRepository.findSoldTicketsBetween(any(), any())).thenReturn(Collections.emptyList());
+        when(paymentRepository.findMovieRevenueReportNative(any(), any())).thenReturn(Collections.emptyList());
+        when(refundRepository.findMovieRefundReportNative(any(), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findMovieTicketReportNative(any(), any())).thenReturn(Collections.emptyList());
+
+        when(paymentRepository.findCinemaRevenueReportNative(any(), any())).thenReturn(Collections.emptyList());
+        when(refundRepository.findCinemaRefundReportNative(any(), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findCinemaTicketReportNative(any(), any())).thenReturn(Collections.emptyList());
+
         when(showtimeRepository.findActiveShowtimesForReport(any(), any(), any(), any())).thenReturn(Collections.emptyList());
 
         // MOVIES (CSV and XLSX)
@@ -480,3 +484,4 @@ class ReportServiceTest {
         assertThat(xlsxName).startsWith("movies-report-").endsWith(".xlsx");
     }
 }
+

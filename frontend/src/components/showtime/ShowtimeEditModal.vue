@@ -51,6 +51,8 @@ const isSaving = ref(false)
 const isDeleting = ref(false)
 const isConfirmingDelete = ref(false)
 const errorMessage = ref('')
+const hasPaidTickets = ref(false)
+const hasBookings = ref(false)
 
 const selectedMovie = computed(() =>
   props.moviesList.find((m) => m.id === editForm.value.movieId)
@@ -90,6 +92,20 @@ watch(
         } catch {
           auditoriumsList.value = []
         }
+      }
+
+      if (st.id) {
+        try {
+          const detail = await showtimeService.getAdminShowtimeDetail(st.id)
+          hasPaidTickets.value = !!detail.hasPaidTickets
+          hasBookings.value = !!detail.hasBookings
+        } catch {
+          hasPaidTickets.value = false
+          hasBookings.value = false
+        }
+      } else {
+        hasPaidTickets.value = false
+        hasBookings.value = false
       }
     }
   },
@@ -201,14 +217,23 @@ function closeModal() {
           </svg>
           {{ t('adminShowtimes.deleteConfirmTitle') }}
         </div>
-        <p class="text-xs text-slate-300 leading-relaxed">
+        <div v-if="hasPaidTickets" class="p-3 rounded-lg bg-rose-950/70 border border-rose-600 text-rose-200 text-xs">
+          ⚠️ {{ t('adminShowtimes.hasPaidTicketsWarning') }}
+        </div>
+        <p v-else class="text-xs text-slate-300 leading-relaxed">
           {{ t('adminShowtimes.deleteConfirmDesc') }}
         </p>
         <div class="flex justify-end gap-2 pt-2">
           <Button variant="secondary" size="sm" @click="isConfirmingDelete = false">
             {{ t('common.cancel') }}
           </Button>
-          <Button variant="danger" size="sm" :loading="isDeleting" @click="handleDelete">
+          <Button
+            variant="danger"
+            size="sm"
+            :disabled="hasPaidTickets"
+            :loading="isDeleting"
+            @click="handleDelete"
+          >
             {{ t('adminShowtimes.confirmDeleteBtn') }}
           </Button>
         </div>
@@ -357,13 +382,22 @@ function closeModal() {
     <!-- Modal Footer -->
     <template #footer>
       <div v-if="!isConfirmingDelete" class="flex items-center justify-between w-full">
-        <Button
-          variant="danger"
-          size="md"
-          @click="isConfirmingDelete = true"
-        >
-          {{ t('adminShowtimes.deleteBtn') }}
-        </Button>
+        <div class="relative group">
+          <Button
+            variant="danger"
+            size="md"
+            :disabled="hasPaidTickets"
+            @click="isConfirmingDelete = true"
+          >
+            {{ t('adminShowtimes.deleteBtn') }}
+          </Button>
+          <div
+            v-if="hasPaidTickets"
+            class="hidden group-hover:block absolute left-0 bottom-full mb-2 w-64 p-2 bg-slate-900 border border-slate-700 text-rose-300 text-xs rounded-lg shadow-lg z-50 pointer-events-none"
+          >
+            {{ t('adminShowtimes.cannotDeletePaidTooltip') }}
+          </div>
+        </div>
 
         <div class="flex items-center gap-2">
           <Button variant="ghost" size="md" @click="closeModal">

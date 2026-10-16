@@ -59,4 +59,16 @@ public interface UserRepository extends JpaRepository<User, String> {
            "AND u.status = com.cinebook.enums.UserStatus.ACTIVE " +
            "AND u.deletedAt IS NULL")
     long countActiveAdmins();
+
+    @Query(value = """
+        SELECT COUNT(*),
+               COALESCE(SUM(CASE WHEN created_at >= :from AND created_at <= :to THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN status = 'ACTIVE' THEN 1 ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN status = 'BLOCKED' THEN 1 ELSE 0 END), 0)
+        FROM users
+    """, nativeQuery = true)
+    Object[] countUserKpiBetween(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to
+    );
 }

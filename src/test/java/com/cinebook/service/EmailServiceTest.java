@@ -80,4 +80,11 @@ class EmailServiceTest {
         assertThatCode(() -> emailService.sendRefundConfirmationEmail("customer@cinebook.com", "Nguyen Van A", booking, refund))
                 .doesNotThrowAnyException();
     }
+
+    @Test
+    @DisplayName("sendVerificationEmail - Executes safely without unhandled exception")
+    void testSendVerificationEmail_Success() {
+        assertThatCode(() -> emailService.sendVerificationEmail("customer@cinebook.com", "Nguyen Van A", "sample-verify-token"))
+                .doesNotThrowAnyException();
+    }
 }

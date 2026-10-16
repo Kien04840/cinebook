@@ -19,6 +19,8 @@ public interface MovieService {
 
     MovieDetailResponse getMovieDetail(String id);
 
+    MovieDetailResponse getAdminMovieDetail(String id);
+
     PageResponse<MovieSummaryResponse> getAdminMovies(
             String keyword,
             String genre,
@@ -34,5 +36,11 @@ public interface MovieService {
     void deleteMovie(String id);
 
     com.cinebook.dto.response.MovieRecommendationResponse getMovieRecommendations(Integer limit);
+
+    int transitionComingSoonMovies();
+
+    int transitionComingSoonMovies(java.time.LocalDate asOfDate);
+
+    java.util.List<com.cinebook.dto.response.MovieSuggestionResponse> getMovieSuggestions(String keyword, Integer limit);
 }
 

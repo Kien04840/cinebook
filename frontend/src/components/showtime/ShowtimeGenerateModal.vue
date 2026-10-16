@@ -49,9 +49,162 @@ const errorMessage = ref('')
 // Step 1: Program State (Multi-movie selection + quota)
 const selectedMovies = ref<SelectedMovieProgram[]>([])
 const movieSearchQuery = ref('')
+
+// Helpers for date formatting and days-in-month calculations
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`
+}
+
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate()
+}
+
+function toDateStr(year: number, month: number, day: number): string {
+  return `${year}-${pad2(month)}-${pad2(day)}`
+}
+
 const dateMode = ref<'single' | 'range'>('single')
-const startDate = ref('')
-const endDate = ref('')
+const isCrossMonth = ref(false)
+
+const currentYear = new Date().getFullYear()
+const yearsList = computed(() => [currentYear - 1, currentYear, currentYear + 1, currentYear + 2])
+
+// Same-month mode state
+const selectedMonth = ref<number>(new Date().getMonth() + 1)
+const selectedYear = ref<number>(currentYear)
+const startDay = ref<number>(new Date().getDate())
+const endDay = ref<number>(new Date().getDate())
+
+// Cross-month mode state
+const crossStartYear = ref<number>(currentYear)
+const crossStartMonth = ref<number>(new Date().getMonth() + 1)
+const crossStartDay = ref<number>(new Date().getDate())
+
+const crossEndYear = ref<number>(currentYear)
+const crossEndMonth = ref<number>(new Date().getMonth() + 1)
+const crossEndDay = ref<number>(new Date().getDate())
+
+// Computed days in month
+const daysInSelectedMonth = computed(() => getDaysInMonth(selectedYear.value, selectedMonth.value))
+const daysInCrossStartMonth = computed(() => getDaysInMonth(crossStartYear.value, crossStartMonth.value))
+const daysInCrossEndMonth = computed(() => getDaysInMonth(crossEndYear.value, crossEndMonth.value))
+
+const startDate = ref(toDateStr(selectedYear.value, selectedMonth.value, startDay.value))
+const endDate = ref(toDateStr(selectedYear.value, selectedMonth.value, endDay.value))
+
+const isDateOrderInvalid = computed(() => {
+  if (dateMode.value !== 'range') return false
+  if (!startDate.value || !endDate.value) return false
+  return endDate.value < startDate.value
+})
+
+function syncSameMonthDates() {
+  const maxDay = getDaysInMonth(selectedYear.value, selectedMonth.value)
+  if (startDay.value > maxDay) startDay.value = maxDay
+  if (endDay.value > maxDay) endDay.value = maxDay
+  if (startDay.value < 1) startDay.value = 1
+  if (endDay.value < 1) endDay.value = 1
+
+  startDate.value = toDateStr(selectedYear.value, selectedMonth.value, startDay.value)
+  if (dateMode.value === 'range') {
+    endDate.value = toDateStr(selectedYear.value, selectedMonth.value, endDay.value)
+  } else {
+    endDate.value = startDate.value
+    endDay.value = startDay.value
+  }
+}
+
+function syncCrossMonthDates() {
+  const maxStart = getDaysInMonth(crossStartYear.value, crossStartMonth.value)
+  if (crossStartDay.value > maxStart) crossStartDay.value = maxStart
+  if (crossStartDay.value < 1) crossStartDay.value = 1
+
+  const maxEnd = getDaysInMonth(crossEndYear.value, crossEndMonth.value)
+  if (crossEndDay.value > maxEnd) crossEndDay.value = maxEnd
+  if (crossEndDay.value < 1) crossEndDay.value = 1
+
+  startDate.value = toDateStr(crossStartYear.value, crossStartMonth.value, crossStartDay.value)
+  endDate.value = toDateStr(crossEndYear.value, crossEndMonth.value, crossEndDay.value)
+}
+
+watch(dateMode, (mode) => {
+  if (mode === 'single') {
+    isCrossMonth.value = false
+    endDate.value = startDate.value
+    endDay.value = startDay.value
+  } else {
+    if (!isCrossMonth.value) {
+      syncSameMonthDates()
+    } else {
+      syncCrossMonthDates()
+    }
+  }
+})
+
+watch(isCrossMonth, (cross) => {
+  if (cross) {
+    crossStartYear.value = selectedYear.value
+    crossStartMonth.value = selectedMonth.value
+    crossStartDay.value = startDay.value
+
+    crossEndYear.value = selectedYear.value
+    crossEndMonth.value = selectedMonth.value
+    crossEndDay.value = endDay.value
+    syncCrossMonthDates()
+  } else {
+    selectedYear.value = crossStartYear.value
+    selectedMonth.value = crossStartMonth.value
+    startDay.value = crossStartDay.value
+    endDay.value = crossEndDay.value
+    syncSameMonthDates()
+  }
+})
+
+watch([selectedYear, selectedMonth, startDay, endDay], () => {
+  if (!isCrossMonth.value) {
+    syncSameMonthDates()
+  }
+})
+
+watch(
+  [crossStartYear, crossStartMonth, crossStartDay, crossEndYear, crossEndMonth, crossEndDay],
+  () => {
+    if (isCrossMonth.value) {
+      syncCrossMonthDates()
+    }
+  }
+)
+
+watch(
+  () => props.modelValue,
+  (isOpen) => {
+    if (isOpen) {
+      currentStep.value = 1
+      const now = new Date()
+      const y = now.getFullYear()
+      const m = now.getMonth() + 1
+      const d = now.getDate()
+
+      selectedYear.value = y
+      selectedMonth.value = m
+      startDay.value = d
+      endDay.value = d
+
+      crossStartYear.value = y
+      crossStartMonth.value = m
+      crossStartDay.value = d
+
+      crossEndYear.value = y
+      crossEndMonth.value = m
+      crossEndDay.value = d
+
+      isCrossMonth.value = false
+      dateMode.value = 'single'
+      syncSameMonthDates()
+    }
+  },
+  { immediate: true }
+)
 
 // Step 2: Resources & Settings State
 const selectedCinemaId = ref('')
@@ -490,60 +643,251 @@ function closeModal() {
         </p>
 
         <!-- Date Range & Mode -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-850 p-3.5 rounded-xl border border-slate-700/60">
-          <div>
-            <label class="block text-xs font-medium text-slate-300 mb-1">
-              {{ t('adminShowtimes.generateModal.dateMode') }}
-            </label>
-            <div class="flex gap-2">
-              <button
-                type="button"
-                class="flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium transition-colors"
-                :class="
-                  dateMode === 'single'
-                    ? 'bg-indigo-600 border-indigo-500 text-white shadow'
-                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
-                "
-                @click="dateMode = 'single'"
-              >
-                {{ t('adminShowtimes.generateModal.singleDay') }}
-              </button>
-              <button
-                type="button"
-                class="flex-1 py-1.5 px-3 rounded-lg border text-xs font-medium transition-colors"
-                :class="
-                  dateMode === 'range'
-                    ? 'bg-indigo-600 border-indigo-500 text-white shadow'
-                    : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
-                "
-                @click="dateMode = 'range'"
-              >
-                {{ t('adminShowtimes.generateModal.dateRange') }}
-              </button>
+        <div class="bg-slate-850 p-3.5 rounded-xl border border-slate-700/60 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">
+                {{ t('adminShowtimes.generateModal.dateMode') }}
+              </label>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  class="py-1.5 px-3 rounded-lg border text-xs font-medium transition-colors"
+                  :class="
+                    dateMode === 'single'
+                      ? 'bg-indigo-600 border-indigo-500 text-white shadow'
+                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
+                  "
+                  @click="dateMode = 'single'"
+                >
+                  {{ t('adminShowtimes.generateModal.singleDay') }}
+                </button>
+                <button
+                  type="button"
+                  class="py-1.5 px-3 rounded-lg border text-xs font-medium transition-colors"
+                  :class="
+                    dateMode === 'range'
+                      ? 'bg-indigo-600 border-indigo-500 text-white shadow'
+                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
+                  "
+                  @click="dateMode = 'range'"
+                >
+                  {{ t('adminShowtimes.generateModal.dateRange') }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Range Scope Toggle (Same Month vs Cross Month) -->
+            <div v-if="dateMode === 'range'">
+              <label class="block text-xs font-medium text-slate-300 mb-1">
+                &nbsp;
+              </label>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  class="py-1.5 px-3 rounded-lg border text-xs font-medium transition-colors"
+                  :class="
+                    !isCrossMonth
+                      ? 'bg-indigo-600 border-indigo-500 text-white shadow'
+                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
+                  "
+                  @click="isCrossMonth = false"
+                >
+                  {{ t('adminShowtimes.generateModal.sameMonth') }}
+                </button>
+                <button
+                  type="button"
+                  class="py-1.5 px-3 rounded-lg border text-xs font-medium transition-colors"
+                  :class="
+                    isCrossMonth
+                      ? 'bg-indigo-600 border-indigo-500 text-white shadow'
+                      : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-slate-600'
+                  "
+                  @click="isCrossMonth = true"
+                >
+                  {{ t('adminShowtimes.generateModal.crossMonth') }}
+                </button>
+              </div>
             </div>
           </div>
 
-          <div>
-            <label class="block text-xs font-medium text-slate-300 mb-1">
-              {{ t('adminShowtimes.generateModal.startDate') }} <span class="text-rose-400">*</span>
-            </label>
-            <input
-              v-model="startDate"
-              type="date"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+          <!-- Same Month / Single Day Date Controls -->
+          <div v-if="dateMode === 'single' || !isCrossMonth" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">
+                {{ t('adminShowtimes.generateModal.month') }} <span class="text-rose-400">*</span>
+              </label>
+              <select
+                v-model.number="selectedMonth"
+                class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                @change="syncSameMonthDates"
+              >
+                <option v-for="m in 12" :key="m" :value="m">
+                  {{ t('adminShowtimes.generateModal.month') }} {{ m }}
+                </option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">
+                {{ t('adminShowtimes.generateModal.year') }} <span class="text-rose-400">*</span>
+              </label>
+              <select
+                v-model.number="selectedYear"
+                class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                @change="syncSameMonthDates"
+              >
+                <option v-for="y in yearsList" :key="y" :value="y">
+                  {{ y }}
+                </option>
+              </select>
+            </div>
+
+            <div v-if="dateMode === 'single'">
+              <label class="block text-xs font-medium text-slate-300 mb-1">
+                {{ t('adminShowtimes.generateModal.day') }} <span class="text-rose-400">*</span>
+              </label>
+              <select
+                v-model.number="startDay"
+                class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                @change="syncSameMonthDates"
+              >
+                <option v-for="d in daysInSelectedMonth" :key="d" :value="d">
+                  {{ t('adminShowtimes.generateModal.day') }} {{ d }}
+                </option>
+              </select>
+            </div>
+
+            <template v-else>
+              <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">
+                  {{ t('adminShowtimes.generateModal.fromDay') }} <span class="text-rose-400">*</span>
+                </label>
+                <select
+                  v-model.number="startDay"
+                  class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  @change="syncSameMonthDates"
+                >
+                  <option v-for="d in daysInSelectedMonth" :key="d" :value="d">
+                    {{ t('adminShowtimes.generateModal.day') }} {{ d }}
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-xs font-medium text-slate-300 mb-1">
+                  {{ t('adminShowtimes.generateModal.toDay') }} <span class="text-rose-400">*</span>
+                </label>
+                <select
+                  v-model.number="endDay"
+                  class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                  @change="syncSameMonthDates"
+                >
+                  <option v-for="d in daysInSelectedMonth" :key="d" :value="d">
+                    {{ t('adminShowtimes.generateModal.day') }} {{ d }}
+                  </option>
+                </select>
+              </div>
+            </template>
           </div>
 
-          <div v-if="dateMode === 'range'">
-            <label class="block text-xs font-medium text-slate-300 mb-1">
-              {{ t('adminShowtimes.generateModal.endDate') }} <span class="text-rose-400">*</span>
-            </label>
-            <input
-              v-model="endDate"
-              type="date"
-              :min="startDate"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+          <!-- Cross Month Date Controls -->
+          <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <!-- Start Date -->
+            <div class="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+              <span class="block text-xs font-semibold text-slate-300 mb-2">
+                {{ t('adminShowtimes.generateModal.startDate') }}
+              </span>
+              <div class="grid grid-cols-3 gap-2">
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">{{ t('adminShowtimes.generateModal.day') }}</label>
+                  <select
+                    v-model.number="crossStartDay"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    @change="syncCrossMonthDates"
+                  >
+                    <option v-for="d in daysInCrossStartMonth" :key="d" :value="d">{{ d }}</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">{{ t('adminShowtimes.generateModal.month') }}</label>
+                  <select
+                    v-model.number="crossStartMonth"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    @change="syncCrossMonthDates"
+                  >
+                    <option v-for="m in 12" :key="m" :value="m">{{ m }}</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">{{ t('adminShowtimes.generateModal.year') }}</label>
+                  <select
+                    v-model.number="crossStartYear"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    @change="syncCrossMonthDates"
+                  >
+                    <option v-for="y in yearsList" :key="y" :value="y">{{ y }}</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- End Date -->
+            <div class="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+              <span class="block text-xs font-semibold text-slate-300 mb-2">
+                {{ t('adminShowtimes.generateModal.endDate') }}
+              </span>
+              <div class="grid grid-cols-3 gap-2">
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">{{ t('adminShowtimes.generateModal.day') }}</label>
+                  <select
+                    v-model.number="crossEndDay"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    @change="syncCrossMonthDates"
+                  >
+                    <option v-for="d in daysInCrossEndMonth" :key="d" :value="d">{{ d }}</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">{{ t('adminShowtimes.generateModal.month') }}</label>
+                  <select
+                    v-model.number="crossEndMonth"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    @change="syncCrossMonthDates"
+                  >
+                    <option v-for="m in 12" :key="m" :value="m">{{ m }}</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[11px] text-slate-400 mb-1">{{ t('adminShowtimes.generateModal.year') }}</label>
+                  <select
+                    v-model.number="crossEndYear"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    @change="syncCrossMonthDates"
+                  >
+                    <option v-for="y in yearsList" :key="y" :value="y">{{ y }}</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Date Preview & In-line Validation Error -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-700/40">
+            <div class="text-xs text-slate-400 flex items-center gap-1.5">
+              <span>{{ t('adminShowtimes.generateModal.dateMode') }}:</span>
+              <span class="font-mono text-indigo-300 font-semibold bg-indigo-950/60 border border-indigo-800/50 px-2 py-0.5 rounded">
+                {{ startDate }}
+                <template v-if="dateMode === 'range'"> → {{ endDate }}</template>
+              </span>
+            </div>
+
+            <div v-if="isDateOrderInvalid" class="text-xs text-rose-400 flex items-center gap-1 bg-rose-950/40 border border-rose-800/40 px-2 py-0.5 rounded">
+              <svg class="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+              </svg>
+              <span>{{ t('adminShowtimes.generateModal.errDateOrder') }}</span>
+            </div>
           </div>
         </div>
 

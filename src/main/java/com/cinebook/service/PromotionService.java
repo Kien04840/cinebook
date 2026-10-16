@@ -32,5 +32,7 @@ public interface PromotionService {
     ValidatePromotionResponse validatePromotionCode(String code, BigDecimal grossAmount);
 
     BigDecimal calculateDiscount(Promotion promotion, BigDecimal grossAmount);
+
+    int transitionPromotionStatuses(java.time.LocalDateTime now);
 }
 

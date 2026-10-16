@@ -345,4 +345,31 @@ class AuditoriumServiceTest {
         assertTrue(ex.getMessage().contains("DECOMMISSIONED"));
         verify(auditoriumRepository, never()).save(any());
     }
+
+    @Test
+    void updateAuditorium_ToMaintenanceWithFutureShowtimes_ThrowsBadRequestException() {
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(showtimeRepository.existsByAuditoriumIdAndStatusAndStartTimeAfter(eq("aud-1"), any(), any(LocalDateTime.class))).thenReturn(true);
+
+        UpdateAuditoriumRequest toMaintenance = UpdateAuditoriumRequest.builder()
+                .name("Hall 1")
+                .type("STANDARD")
+                .status(AuditoriumStatus.MAINTENANCE)
+                .build();
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> auditoriumService.updateAuditorium("aud-1", toMaintenance));
+        assertTrue(ex.getMessage().contains("vẫn còn các suất chiếu sắp tới"));
+        verify(auditoriumRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteAuditorium_WhenHasBookings_ThrowsConflictException() {
+        when(auditoriumRepository.findByIdAndDeletedAtIsNull("aud-1")).thenReturn(Optional.of(sampleAuditorium));
+        when(showtimeRepository.existsByAuditoriumId("aud-1")).thenReturn(false);
+        when(bookingRepository.existsByAuditoriumId("aud-1")).thenReturn(true);
+
+        ConflictException ex = assertThrows(ConflictException.class, () -> auditoriumService.deleteAuditorium("aud-1"));
+        assertTrue(ex.getMessage().contains("existing showtimes or bookings"));
+        verify(auditoriumRepository, never()).save(any());
+    }
 }

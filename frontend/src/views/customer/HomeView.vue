@@ -375,9 +375,6 @@ onUnmounted(() => {
                 <h2 class="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
                   Gợi Ý Dành Riêng Cho Bạn
                 </h2>
-                <span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-600/30 text-indigo-300 border border-indigo-500/40">
-                  AI Recommendation
-                </span>
               </div>
               <p class="text-xs sm:text-sm text-slate-400 mt-1 flex items-center gap-1.5">
                 <span>{{ recommendedData.explanation }}</span>

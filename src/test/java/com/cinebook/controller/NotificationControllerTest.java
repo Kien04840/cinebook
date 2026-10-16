@@ -141,7 +141,7 @@ class NotificationControllerTest {
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value("notif-1"))
-                .andExpect(jsonPath("$.read").value(true));
+                .andExpect(jsonPath("$.isRead").value(true));
     }
 
     @Test

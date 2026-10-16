@@ -28,6 +28,7 @@ public class BookingDetailResponse {
     private BigDecimal foodAmount;
     private LocalDateTime holdExpiresAt;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
     private LocalDateTime cancelledAt;
     private String cancelledReason;
     private ShowtimeDetailResponse showtime;

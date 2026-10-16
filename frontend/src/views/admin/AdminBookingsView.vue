@@ -2,7 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import type { BookingDetailResponse, BookingSummaryResponse, BookingStatus } from '@/types/booking.types'
 import bookingService from '@/services/booking.service'
-import { formatCurrency } from '@/utils/formatters'
+import { formatCurrency, formatStandardDateTime, formatDate, formatTime } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import Card from '@/components/common/Card.vue'
 import Button from '@/components/common/Button.vue'
@@ -68,6 +68,10 @@ function getStatusLabel(status: BookingStatus) {
     default:
       return status
   }
+}
+
+function hasRefundInfo(booking: BookingDetailResponse): boolean {
+  return !!booking.payments?.some((p) => !!p.refund)
 }
 
 async function fetchBookings() {
@@ -264,8 +268,11 @@ onMounted(() => {
               :key="b.id"
               class="hover:bg-slate-750/70 transition-colors"
             >
-              <td class="px-4 py-3.5 font-mono font-bold text-indigo-400 text-xs">
-                {{ b.bookingCode }}
+              <td class="px-4 py-3.5 font-mono text-xs">
+                <span class="font-bold text-indigo-400">{{ b.bookingCode }}</span>
+                <p v-if="b.createdAt" class="text-[11px] text-slate-500 font-sans mt-0.5">
+                  {{ formatStandardDateTime(b.createdAt) }}
+                </p>
               </td>
               <td class="px-4 py-3.5">
                 <div class="flex items-center gap-2.5">
@@ -279,6 +286,9 @@ onMounted(() => {
               <td class="px-4 py-3.5 text-xs">
                 <p class="font-bold text-slate-200 line-clamp-1">{{ b.movieTitle || b.showtime?.movieTitle || '—' }}</p>
                 <p class="text-slate-400 text-[11px] mt-0.5">{{ b.cinemaName || b.showtime?.cinemaName }} • {{ b.showtime?.auditoriumName }}</p>
+                <p v-if="b.showtime?.startTime" class="text-indigo-400/80 text-[11px] mt-0.5 font-mono">
+                  {{ formatDate(b.showtime.startTime) }} {{ formatTime(b.showtime.startTime) }}<template v-if="b.showtime.endTime"> - {{ formatTime(b.showtime.endTime) }}</template>
+                </p>
               </td>
               <td class="px-4 py-3.5 font-mono text-xs text-slate-300">
                 <div v-if="b.seatCodes && b.seatCodes.length > 0" class="flex flex-wrap gap-1 max-w-[160px]">
@@ -336,44 +346,249 @@ onMounted(() => {
     <Modal
       v-model="isDetailModalOpen"
       :title="t('adminBookings.detailModalTitle')"
+      size="lg"
       @close="isDetailModalOpen = false"
     >
       <div v-if="selectedBooking" class="space-y-4 text-xs text-slate-300">
-        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <!-- Header summary -->
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
           <div>
             <span class="text-slate-400">{{ t('adminBookings.colBookingCode') }}:</span>
-            <strong class="font-mono text-sm text-indigo-400 ml-2 font-bold">{{ selectedBooking.bookingCode }}</strong>
+            <strong class="font-mono text-base text-indigo-400 ml-2 font-bold">{{ selectedBooking.bookingCode }}</strong>
+            <span v-if="selectedBooking.checkInCode" class="ml-3 font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs">
+              Check-in: {{ selectedBooking.checkInCode }}
+            </span>
           </div>
           <Badge :variant="getStatusBadgeVariant(selectedBooking.bookingStatus)">
             {{ getStatusLabel(selectedBooking.bookingStatus) }}
           </Badge>
         </div>
 
-        <!-- Showtime & Movie -->
-        <div class="grid grid-cols-2 gap-3 bg-slate-850 p-3 rounded-lg border border-slate-800">
-          <div>
-            <p class="text-slate-400">{{ t('booking.movieInfo') }}</p>
-            <p class="font-bold text-white text-sm mt-0.5">{{ selectedBooking.showtime?.movie?.title }}</p>
-          </div>
-          <div>
-            <p class="text-slate-400">{{ t('booking.cinemaInfo') }}</p>
-            <p class="font-bold text-white mt-0.5">{{ selectedBooking.showtime?.cinema?.name }} ({{ selectedBooking.showtime?.auditorium?.name }})</p>
+        <!-- 1. Thông tin đơn đặt vé -->
+        <div class="bg-slate-850 p-3.5 rounded-lg border border-slate-800 space-y-2.5">
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            Thông tin đơn đặt vé
+          </h4>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div>
+              <p class="text-slate-400">Thời gian đặt vé</p>
+              <p class="font-mono font-medium text-white mt-0.5">
+                {{ formatStandardDateTime(selectedBooking.createdAt) || '—' }}
+              </p>
+            </div>
+            <div v-if="selectedBooking.updatedAt">
+              <p class="text-slate-400">Thời gian cập nhật gần nhất</p>
+              <p class="font-mono font-medium text-white mt-0.5">
+                {{ formatStandardDateTime(selectedBooking.updatedAt) }}
+              </p>
+            </div>
+            <div v-if="selectedBooking.holdExpiresAt && selectedBooking.bookingStatus === 'PENDING_PAYMENT'">
+              <p class="text-slate-400">Thời gian hết hạn giữ chỗ</p>
+              <p class="font-mono font-medium text-amber-400 mt-0.5">
+                {{ formatStandardDateTime(selectedBooking.holdExpiresAt) }}
+              </p>
+            </div>
+            <div>
+              <p class="text-slate-400">Khách hàng</p>
+              <p class="font-medium text-white mt-0.5">
+                {{ selectedBooking.user?.fullName || 'Khách vãng lai' }}
+                <span v-if="selectedBooking.user?.email" class="text-slate-400 font-normal"> ({{ selectedBooking.user.email }})</span>
+              </p>
+            </div>
           </div>
         </div>
 
-        <!-- Seats & Amount -->
-        <div class="flex items-center justify-between bg-slate-850 p-3 rounded-lg border border-slate-800">
-          <div>
-            <p class="text-slate-400">{{ t('adminBookings.colSeats') }}</p>
-            <p class="font-mono font-bold text-indigo-300 mt-0.5">
-              {{ selectedBooking.seats?.map((s) => s.seatCode).join(', ') }}
-            </p>
+        <!-- 2. Thông tin suất chiếu -->
+        <div class="bg-slate-850 p-3.5 rounded-lg border border-slate-800 space-y-2.5">
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            Thông tin suất chiếu
+          </h4>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div>
+              <p class="text-slate-400">Phim</p>
+              <p class="font-bold text-white text-sm mt-0.5">{{ selectedBooking.showtime?.movie?.title || '—' }}</p>
+              <p class="text-[11px] text-slate-400 mt-0.5">
+                {{ selectedBooking.showtime?.cinema?.name }} • {{ selectedBooking.showtime?.auditorium?.name }}
+                <span v-if="selectedBooking.showtime?.format"> ({{ selectedBooking.showtime.format }})</span>
+              </p>
+            </div>
+            <div>
+              <p class="text-slate-400">Thời gian chiếu</p>
+              <p class="font-mono font-bold text-indigo-300 text-sm mt-0.5">
+                {{ formatDate(selectedBooking.showtime?.startTime) }}
+              </p>
+              <p class="font-mono text-slate-300 text-xs mt-0.5" v-if="selectedBooking.showtime?.startTime">
+                {{ formatTime(selectedBooking.showtime.startTime) }}<template v-if="selectedBooking.showtime?.endTime"> - {{ formatTime(selectedBooking.showtime.endTime) }}</template>
+              </p>
+            </div>
           </div>
-          <div class="text-right">
-            <p class="text-slate-400">{{ t('adminBookings.colAmount') }}</p>
-            <p class="font-mono font-black text-emerald-400 text-sm mt-0.5">
-              {{ formatCurrency(selectedBooking.totalAmount) }}
-            </p>
+        </div>
+
+        <!-- 3. Thông tin thanh toán (Nếu có thanh toán) -->
+        <div v-if="selectedBooking.payments && selectedBooking.payments.length > 0" class="bg-slate-850 p-3.5 rounded-lg border border-slate-800 space-y-2.5">
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+            </svg>
+            Thông tin thanh toán
+          </h4>
+          <div
+            v-for="(pm, idx) in selectedBooking.payments"
+            :key="pm.id || idx"
+            class="space-y-2 border-b border-slate-800/80 last:border-b-0 pb-2.5 last:pb-0"
+          >
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <p class="text-slate-400">Phương thức & Mã GD</p>
+                <p class="font-medium text-white mt-0.5">
+                  {{ pm.paymentMethod }} — <span class="font-mono text-indigo-300">{{ pm.paymentCode }}</span>
+                </p>
+                <p v-if="pm.gatewayTransactionId" class="text-[11px] text-slate-400 font-mono mt-0.5">
+                  Mã cổng GD: {{ pm.gatewayTransactionId }}
+                </p>
+              </div>
+              <div>
+                <p class="text-slate-400">Thời gian thanh toán</p>
+                <p v-if="pm.paidAt" class="font-mono font-semibold text-emerald-400 mt-0.5">
+                  {{ formatStandardDateTime(pm.paidAt) }}
+                </p>
+                <p v-else-if="pm.createdAt" class="font-mono text-slate-300 mt-0.5">
+                  Khởi tạo: {{ formatStandardDateTime(pm.createdAt) }} ({{ pm.paymentStatus }})
+                </p>
+                <p v-else class="text-slate-400 mt-0.5">—</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Thông tin hủy / hoàn tiền (Nếu có) -->
+        <div
+          v-if="selectedBooking.cancelledAt || hasRefundInfo(selectedBooking)"
+          class="bg-rose-500/5 p-3.5 rounded-lg border border-rose-500/20 space-y-2.5"
+        >
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-rose-400 flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Thông tin hủy & hoàn tiền
+          </h4>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div v-if="selectedBooking.cancelledAt">
+              <p class="text-slate-400">Thời gian hủy</p>
+              <p class="font-mono font-medium text-rose-300 mt-0.5">
+                {{ formatStandardDateTime(selectedBooking.cancelledAt) }}
+              </p>
+              <p v-if="selectedBooking.cancelledReason" class="text-[11px] text-slate-400 mt-0.5">
+                Lý do: {{ selectedBooking.cancelledReason }}
+              </p>
+            </div>
+            <!-- Refund info from payments -->
+            <template v-for="pm in selectedBooking.payments" :key="'ref-' + pm.id">
+              <div v-if="pm.refund">
+                <p class="text-slate-400">Thời gian xử lý hoàn tiền</p>
+                <p class="font-mono font-medium text-amber-300 mt-0.5">
+                  {{ formatStandardDateTime(pm.refund.processedAt || pm.refund.createdAt) }}
+                </p>
+                <p class="text-[11px] text-slate-400 mt-0.5">
+                  Mã hoàn: <span class="font-mono text-slate-200">{{ pm.refund.refundCode }}</span> • {{ formatCurrency(pm.refund.amount) }} ({{ pm.refund.refundStatus }})
+                </p>
+                <p v-if="pm.refund.refundReason" class="text-[11px] text-slate-400">
+                  Lý do hoàn: {{ pm.refund.refundReason }}
+                </p>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- 5. Thông tin vé & Ghế -->
+        <div class="bg-slate-850 p-3.5 rounded-lg border border-slate-800 space-y-2.5">
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+            <span class="flex items-center gap-1.5">
+              <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+              </svg>
+              Danh sách vé ({{ selectedBooking.tickets?.length || selectedBooking.seats?.length || 0 }})
+            </span>
+          </h4>
+          <!-- If tickets exist with ticket details -->
+          <div v-if="selectedBooking.tickets && selectedBooking.tickets.length > 0" class="divide-y divide-slate-800">
+            <div
+              v-for="t in selectedBooking.tickets"
+              :key="t.id"
+              class="py-2 flex items-center justify-between text-xs"
+            >
+              <div class="flex items-center gap-2.5">
+                <span class="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 font-mono font-bold text-xs border border-indigo-500/20">
+                  {{ t.seatCode }}
+                </span>
+                <span v-if="t.createdAt" class="text-slate-400 text-[11px] font-mono">
+                  Tạo vé: {{ formatStandardDateTime(t.createdAt) }}
+                </span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="font-mono text-slate-300">{{ formatCurrency(t.ticketPrice) }}</span>
+                <Badge size="sm" :variant="t.ticketStatus === 'USED' ? 'neutral' : t.ticketStatus === 'VALID' ? 'success' : 'danger'">
+                  {{ t.ticketStatus }}
+                </Badge>
+              </div>
+            </div>
+          </div>
+          <!-- Fallback to seats if tickets not yet generated (e.g. pending) -->
+          <div v-else-if="selectedBooking.seats && selectedBooking.seats.length > 0" class="divide-y divide-slate-800">
+            <div
+              v-for="s in selectedBooking.seats"
+              :key="s.seatId"
+              class="py-2 flex items-center justify-between text-xs"
+            >
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 font-mono font-bold text-xs border border-indigo-500/20">
+                  {{ s.seatCode }}
+                </span>
+                <span class="text-slate-400 text-[11px]">{{ s.seatTypeName }}</span>
+              </div>
+              <span class="font-mono text-slate-300">{{ formatCurrency(s.price) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6. Bắp nước (F&B) nếu có -->
+        <div v-if="selectedBooking.foods && selectedBooking.foods.length > 0" class="bg-slate-850 p-3.5 rounded-lg border border-slate-800 space-y-2">
+          <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Bắp nước & Combo</h4>
+          <div class="divide-y divide-slate-800">
+            <div
+              v-for="(f, idx) in selectedBooking.foods"
+              :key="f.foodItemId || idx"
+              class="py-1.5 flex items-center justify-between text-xs"
+            >
+              <span class="text-slate-300">{{ f.foodName }} × {{ f.quantity }}</span>
+              <span class="font-mono text-slate-300">{{ formatCurrency(f.subtotal) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 7. Tổng kết thanh toán -->
+        <div class="bg-slate-800/60 p-3.5 rounded-lg border border-slate-700/60 space-y-1.5 text-xs">
+          <div v-if="selectedBooking.grossAmount" class="flex justify-between text-slate-400">
+            <span>Tiền vé:</span>
+            <span class="font-mono">{{ formatCurrency(selectedBooking.grossAmount) }}</span>
+          </div>
+          <div v-if="selectedBooking.foodAmount" class="flex justify-between text-slate-400">
+            <span>Tiền bắp nước:</span>
+            <span class="font-mono">{{ formatCurrency(selectedBooking.foodAmount) }}</span>
+          </div>
+          <div v-if="selectedBooking.discountAmount" class="flex justify-between text-rose-400">
+            <span>Khuyến mãi:</span>
+            <span class="font-mono">-{{ formatCurrency(selectedBooking.discountAmount) }}</span>
+          </div>
+          <div class="flex justify-between items-center pt-2 border-t border-slate-700 font-bold text-sm">
+            <span class="text-white">{{ t('adminBookings.colAmount') }}:</span>
+            <span class="font-mono text-emerald-400 text-base">{{ formatCurrency(selectedBooking.totalAmount) }}</span>
           </div>
         </div>
       </div>

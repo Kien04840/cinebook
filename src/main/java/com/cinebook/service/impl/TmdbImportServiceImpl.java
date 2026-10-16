@@ -286,7 +286,7 @@ public class TmdbImportServiceImpl implements TmdbImportService {
         movie.setReleaseDate(releaseDate);
         movie.setPosterUrl(tmdbProperties.buildPosterUrl(detail.getPosterPath()));
         movie.setBackdropUrl(tmdbProperties.buildBackdropUrl(detail.getBackdropPath()));
-        movie.setTrailerUrl(extractTrailerUrl(detail));
+        movie.setTrailerUrl(resolveTrailer(movie, detail));
     }
 
     // =========================================================
@@ -458,34 +458,82 @@ public class TmdbImportServiceImpl implements TmdbImportService {
     }
 
     /**
-     * Extracts a YouTube trailer URL.
-     *
-     * Priority:
-     * 1. YouTube + Trailer type + official=true
-     * 2. YouTube + Trailer type (any)
-     *
-     * Returns null if no suitable trailer found — does not fail the import.
+     * Resolves trailer URL using TmdbTrailerResolver, combining videos from the primary detail call
+     * and fallback TMDB video queries if needed.
      */
+    private String resolveTrailer(Movie movie, TmdbMovieDetailDto detail) {
+        Long tmdbId = detail != null && detail.getId() != null ? detail.getId() : (movie != null ? movie.getTmdbId() : null);
+        List<TmdbMovieDetailDto.TmdbVideoDto> candidates = collectCandidateVideos(tmdbId, detail);
+        String origLang = detail != null ? detail.getOriginalLanguage() : (movie != null ? movie.getLanguage() : null);
+        return TmdbTrailerResolver.resolveTrailerUrl(movie, origLang, candidates);
+    }
+
+    /**
+     * Collects candidate videos: first from detail.videos, then queries TMDB /movie/{id}/videos
+     * if a Vietnamese trailer was not present in the primary call.
+     */
+    private List<TmdbMovieDetailDto.TmdbVideoDto> collectCandidateVideos(Long tmdbId, TmdbMovieDetailDto detail) {
+        List<TmdbMovieDetailDto.TmdbVideoDto> candidates = new ArrayList<>();
+        if (detail != null && detail.getVideos() != null && detail.getVideos().getResults() != null) {
+            candidates.addAll(detail.getVideos().getResults());
+        }
+
+        boolean hasVietnameseTrailer = candidates.stream()
+                .anyMatch(v -> "YouTube".equalsIgnoreCase(v.getSite())
+                        && "Trailer".equalsIgnoreCase(v.getType())
+                        && v.getIso6391() != null
+                        && v.getIso6391().toLowerCase().startsWith("vi"));
+
+        if (!hasVietnameseTrailer && tmdbId != null) {
+            try {
+                TmdbMovieDetailDto.TmdbVideosResultDto extra = tmdbClient.getMovieVideos(tmdbId, null);
+                if (extra != null && extra.getResults() != null) {
+                    Set<String> existingKeys = candidates.stream()
+                            .map(TmdbMovieDetailDto.TmdbVideoDto::getKey)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toSet());
+
+                    for (TmdbMovieDetailDto.TmdbVideoDto v : extra.getResults()) {
+                        if (v.getKey() != null && !existingKeys.contains(v.getKey())) {
+                            candidates.add(v);
+                            existingKeys.add(v.getKey());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("Could not fetch extra videos for tmdbId={}: {}", tmdbId, e.getMessage());
+            }
+
+            // If still no trailer found, fallback to en-US videos
+            boolean hasAnyTrailer = candidates.stream()
+                    .anyMatch(v -> "YouTube".equalsIgnoreCase(v.getSite()) && "Trailer".equalsIgnoreCase(v.getType()));
+            if (!hasAnyTrailer) {
+                try {
+                    TmdbMovieDetailDto.TmdbVideosResultDto enVideos = tmdbClient.getMovieVideos(tmdbId, "en-US");
+                    if (enVideos != null && enVideos.getResults() != null) {
+                        Set<String> existingKeys = candidates.stream()
+                                .map(TmdbMovieDetailDto.TmdbVideoDto::getKey)
+                                .filter(Objects::nonNull)
+                                .collect(Collectors.toSet());
+
+                        for (TmdbMovieDetailDto.TmdbVideoDto v : enVideos.getResults()) {
+                            if (v.getKey() != null && !existingKeys.contains(v.getKey())) {
+                                candidates.add(v);
+                                existingKeys.add(v.getKey());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.debug("Could not fetch en-US videos for tmdbId={}: {}", tmdbId, e.getMessage());
+                }
+            }
+        }
+
+        return candidates;
+    }
+
     private String extractTrailerUrl(TmdbMovieDetailDto detail) {
-        if (detail.getVideos() == null || detail.getVideos().getResults() == null) {
-            return null;
-        }
-
-        List<TmdbMovieDetailDto.TmdbVideoDto> trailers = detail.getVideos().getResults().stream()
-                .filter(v -> YOUTUBE_SITE.equalsIgnoreCase(v.getSite()) && TRAILER_TYPE.equalsIgnoreCase(v.getType()))
-                .toList();
-
-        if (trailers.isEmpty()) {
-            return null;
-        }
-
-        // Prefer official trailer
-        TmdbMovieDetailDto.TmdbVideoDto chosen = trailers.stream()
-                .filter(v -> Boolean.TRUE.equals(v.getOfficial()))
-                .findFirst()
-                .orElse(trailers.get(0));
-
-        return "https://www.youtube.com/watch?v=" + chosen.getKey();
+        return resolveTrailer(null, detail);
     }
 
     /**

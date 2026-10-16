@@ -46,12 +46,18 @@ const processQueue = (error: Error | null, token: string | null = null) => {
   failedQueue = []
 }
 
-// Request Interceptor: Tự động đính kèm Access Token vào Header Authorization
+// Request Interceptor: Tự động đính kèm Access Token vào Header Authorization và Correlation ID
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = localStorage.getItem('cinebook_access_token')
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`
+    }
+    if (config.headers && !config.headers['X-Correlation-Id']) {
+      const correlationId = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `fe-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+      config.headers['X-Correlation-Id'] = correlationId
     }
     return config
   },
@@ -64,6 +70,16 @@ apiClient.interceptors.response.use(
     return response
   },
   async (error: AxiosError<ApiError>) => {
+    if (error.response) {
+      const backendCorrelationId = (error.response.headers?.['x-correlation-id'] ||
+        error.response.headers?.['X-Correlation-Id']) as string | undefined
+      if (backendCorrelationId && error.response.data && typeof error.response.data === 'object') {
+        if (!error.response.data.correlationId) {
+          error.response.data.correlationId = backendCorrelationId
+        }
+      }
+    }
+
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
 
     // Bắt mã lỗi 401 Unauthorized khi Access Token hết hạn

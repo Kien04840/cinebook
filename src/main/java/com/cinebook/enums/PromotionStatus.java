@@ -2,7 +2,9 @@ package com.cinebook.enums;
 
 public enum PromotionStatus {
 
+    DRAFT,
     ACTIVE,
-    INACTIVE,
-    EXPIRED
+    PAUSED,
+    EXPIRED,
+    INACTIVE
 }

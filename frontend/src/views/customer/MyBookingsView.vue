@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import type { BookingSummaryResponse, BookingDetailResponse, BookingStatus } from '@/types/booking.types'
 import type { RefundResponse } from '@/types/refund.types'
 import bookingService from '@/services/booking.service'
@@ -17,6 +18,7 @@ import ErrorAlert from '@/components/common/ErrorAlert.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ImageWithFallback from '@/components/common/ImageWithFallback.vue'
 
+const route = useRoute()
 const toast = useToast()
 const { t } = useI18n()
 
@@ -271,8 +273,12 @@ function isHoldActive(booking: BookingSummaryResponse): boolean {
   return new Date(booking.holdExpiresAt).getTime() > Date.now()
 }
 
-onMounted(() => {
-  fetchMyBookings()
+onMounted(async () => {
+  await fetchMyBookings()
+  const targetBookingId = route.query.bookingId as string | undefined
+  if (targetBookingId) {
+    openTicketModal(targetBookingId)
+  }
 })
 </script>
 

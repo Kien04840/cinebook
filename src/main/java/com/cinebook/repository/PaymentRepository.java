@@ -88,5 +88,58 @@ public interface PaymentRepository extends JpaRepository<Payment, String> {
             @Param("from") java.time.LocalDateTime from,
             @Param("to") java.time.LocalDateTime to
     );
+
+    @Query(value = """
+        SELECT DATE_FORMAT(p.paid_at, :dateFormat) AS period,
+               COALESCE(SUM(p.amount), 0) AS gross_revenue
+        FROM payments p
+        WHERE p.payment_status IN ('SUCCESS', 'REFUNDED')
+          AND p.paid_at >= :from AND p.paid_at <= :to
+        GROUP BY DATE_FORMAT(p.paid_at, :dateFormat)
+        ORDER BY period ASC
+    """, nativeQuery = true)
+    List<Object[]> findGrossRevenueTrendNative(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to,
+            @Param("dateFormat") String dateFormat
+    );
+
+    @Query(value = """
+        SELECT m.id AS movie_id,
+               m.title AS movie_title,
+               m.poster_url AS poster_url,
+               COALESCE(SUM(p.amount), 0) AS gross_revenue,
+               COUNT(DISTINCT b.id) AS total_bookings
+        FROM payments p
+        JOIN bookings b ON p.booking_id = b.id
+        JOIN showtimes s ON b.showtime_id = s.id
+        JOIN movies m ON s.movie_id = m.id
+        WHERE p.payment_status IN ('SUCCESS', 'REFUNDED')
+          AND p.paid_at >= :from AND p.paid_at <= :to
+        GROUP BY m.id, m.title, m.poster_url
+    """, nativeQuery = true)
+    List<Object[]> findMovieRevenueReportNative(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to
+    );
+
+    @Query(value = """
+        SELECT c.id AS cinema_id,
+               c.name AS cinema_name,
+               c.city AS city,
+               COALESCE(SUM(p.amount), 0) AS gross_revenue,
+               COUNT(DISTINCT s.id) AS total_showtimes
+        FROM payments p
+        JOIN bookings b ON p.booking_id = b.id
+        JOIN showtimes s ON b.showtime_id = s.id
+        JOIN auditoriums a ON s.auditorium_id = a.id
+        JOIN cinemas c ON a.cinema_id = c.id
+        WHERE p.payment_status IN ('SUCCESS', 'REFUNDED')
+          AND p.paid_at >= :from AND p.paid_at <= :to
+        GROUP BY c.id, c.name, c.city
+    """, nativeQuery = true)
+    List<Object[]> findCinemaRevenueReportNative(
+            @Param("from") java.time.LocalDateTime from,
+            @Param("to") java.time.LocalDateTime to
+    );
 }
-

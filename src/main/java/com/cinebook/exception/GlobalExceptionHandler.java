@@ -1,7 +1,9 @@
 package com.cinebook.exception;
 
+import com.cinebook.security.CorrelationIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -43,16 +45,7 @@ public class GlobalExceptionHandler {
     ) {
         HttpStatus status = ex.getStatus();
         String code = ex.getCode() != null ? ex.getCode() : status.name();
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(status.value())
-                .error(status.getReasonPhrase())
-                .code(code)
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .build();
-
-        return new ResponseEntity<>(errorResponse, status);
+        return buildResponseEntity(status, code, ex.getMessage(), request, null);
     }
 
     /**
@@ -78,18 +71,7 @@ public class GlobalExceptionHandler {
                 })
                 .toList();
 
-        HttpStatus status = HttpStatus.BAD_REQUEST;
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(status.value())
-                .error(status.getReasonPhrase())
-                .code(ErrorCode.VALIDATION_FAILED.name())
-                .message("Validation failed")
-                .path(request.getRequestURI())
-                .details(details)
-                .build();
-
-        return new ResponseEntity<>(errorResponse, status);
+        return buildResponseEntity(HttpStatus.BAD_REQUEST, ErrorCode.VALIDATION_FAILED.name(), "Validation failed", request, details);
     }
 
     /**
@@ -102,17 +84,7 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         log.warn("Malformed HTTP request body at {}: {}", request.getRequestURI(), ex.getMessage());
-        HttpStatus status = HttpStatus.BAD_REQUEST;
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(status.value())
-                .error(status.getReasonPhrase())
-                .code(ErrorCode.BAD_REQUEST.name())
-                .message("Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng.")
-                .path(request.getRequestURI())
-                .build();
-
-        return new ResponseEntity<>(errorResponse, status);
+        return buildResponseEntity(HttpStatus.BAD_REQUEST, ErrorCode.BAD_REQUEST.name(), "Dữ liệu yêu cầu không hợp lệ hoặc sai định dạng.", request, null);
     }
 
     @ExceptionHandler(BadCredentialsException.class)
@@ -120,17 +92,7 @@ public class GlobalExceptionHandler {
             BadCredentialsException ex,
             HttpServletRequest request
     ) {
-        HttpStatus status = HttpStatus.UNAUTHORIZED;
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(status.value())
-                .error(status.getReasonPhrase())
-                .code(ErrorCode.AUTH_FAILED.name())
-                .message("Invalid email or password")
-                .path(request.getRequestURI())
-                .build();
-
-        return new ResponseEntity<>(errorResponse, status);
+        return buildResponseEntity(HttpStatus.UNAUTHORIZED, ErrorCode.AUTH_FAILED.name(), "Invalid email or password", request, null);
     }
 
     @ExceptionHandler(AuthenticationException.class)
@@ -138,17 +100,7 @@ public class GlobalExceptionHandler {
             AuthenticationException ex,
             HttpServletRequest request
     ) {
-        HttpStatus status = HttpStatus.UNAUTHORIZED;
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(status.value())
-                .error(status.getReasonPhrase())
-                .code(ErrorCode.UNAUTHORIZED.name())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .build();
-
-        return new ResponseEntity<>(errorResponse, status);
+        return buildResponseEntity(HttpStatus.UNAUTHORIZED, ErrorCode.UNAUTHORIZED.name(), ex.getMessage(), request, null);
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -156,17 +108,7 @@ public class GlobalExceptionHandler {
             AccessDeniedException ex,
             HttpServletRequest request
     ) {
-        HttpStatus status = HttpStatus.FORBIDDEN;
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(status.value())
-                .error(status.getReasonPhrase())
-                .code(ErrorCode.FORBIDDEN.name())
-                .message("Access is denied")
-                .path(request.getRequestURI())
-                .build();
-
-        return new ResponseEntity<>(errorResponse, status);
+        return buildResponseEntity(HttpStatus.FORBIDDEN, ErrorCode.FORBIDDEN.name(), "Access is denied", request, null);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
@@ -174,17 +116,7 @@ public class GlobalExceptionHandler {
             IllegalArgumentException ex,
             HttpServletRequest request
     ) {
-        HttpStatus status = HttpStatus.BAD_REQUEST;
-        ErrorResponse errorResponse = ErrorResponse.builder()
-                .timestamp(LocalDateTime.now())
-                .status(status.value())
-                .error(status.getReasonPhrase())
-                .code(ErrorCode.BAD_REQUEST.name())
-                .message(ex.getMessage())
-                .path(request.getRequestURI())
-                .build();
-
-        return new ResponseEntity<>(errorResponse, status);
+        return buildResponseEntity(HttpStatus.BAD_REQUEST, ErrorCode.BAD_REQUEST.name(), ex.getMessage(), request, null);
     }
 
     @ExceptionHandler(Exception.class)
@@ -193,14 +125,26 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         log.error("Internal server error: ", ex);
-        HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
+        return buildResponseEntity(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.INTERNAL_SERVER_ERROR.name(), "Đã xảy ra lỗi không mong muốn trên hệ thống. Vui lòng thử lại sau.", request, null);
+    }
+
+    private ResponseEntity<ErrorResponse> buildResponseEntity(
+            HttpStatus status,
+            String code,
+            String message,
+            HttpServletRequest request,
+            List<ErrorResponse.FieldErrorDetail> details
+    ) {
+        String correlationId = MDC.get(CorrelationIdFilter.MDC_CORRELATION_ID_KEY);
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .timestamp(LocalDateTime.now())
                 .status(status.value())
                 .error(status.getReasonPhrase())
-                .code(ErrorCode.INTERNAL_SERVER_ERROR.name())
-                .message("Đã xảy ra lỗi không mong muốn trên hệ thống. Vui lòng thử lại sau.")
+                .code(code)
+                .message(message)
                 .path(request.getRequestURI())
+                .correlationId(correlationId)
+                .details(details)
                 .build();
 
         return new ResponseEntity<>(errorResponse, status);

@@ -166,6 +166,7 @@ public class BookingMapper {
                 .foodAmount(foodAmount)
                 .holdExpiresAt(booking.getHoldExpiresAt())
                 .createdAt(booking.getCreatedAt())
+                .updatedAt(booking.getUpdatedAt())
                 .cancelledAt(booking.getCancelledAt())
                 .cancelledReason(booking.getCancelledReason())
                 .showtime(showtimeDetail)

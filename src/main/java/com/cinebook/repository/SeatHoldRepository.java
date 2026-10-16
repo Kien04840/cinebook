@@ -67,6 +67,15 @@ public interface SeatHoldRepository
             @Param("bookingId") String bookingId
     );
 
+    @Modifying
+    @Query("""
+        DELETE FROM SeatHold sh
+        WHERE sh.showtime.id = :showtimeId
+    """)
+    void deleteByShowtimeId(
+            @Param("showtimeId") String showtimeId
+    );
+
     @org.springframework.transaction.annotation.Transactional
     @Modifying
     @Query("""

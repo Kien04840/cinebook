@@ -883,6 +883,26 @@ class BookingServiceTest {
         assertEquals(SeatAvailabilityStatus.SOLD, availability.get(0).getAvailabilityStatus());
     }
 
+    @Test
+    void getShowtimeSeatAvailability_WhenCancelled_ThrowsBadRequest() {
+        sampleShowtime.setStatus(ShowtimeStatus.CANCELLED);
+        when(showtimeRepository.findById("showtime-1")).thenReturn(Optional.of(sampleShowtime));
+
+        BadRequestException ex = assertThrows(BadRequestException.class,
+                () -> bookingService.getShowtimeSeatAvailability("showtime-1"));
+        assertTrue(ex.getMessage().contains("Lịch chiếu đã bị hủy."));
+    }
+
+    @Test
+    void getShowtimeSeatAvailability_WhenPastOrStarted_ThrowsBadRequest() {
+        sampleShowtime.setStartTime(LocalDateTime.now().minusHours(1));
+        when(showtimeRepository.findById("showtime-1")).thenReturn(Optional.of(sampleShowtime));
+
+        BadRequestException ex = assertThrows(BadRequestException.class,
+                () -> bookingService.getShowtimeSeatAvailability("showtime-1"));
+        assertTrue(ex.getMessage().contains("Lịch chiếu đã bắt đầu hoặc đã kết thúc."));
+    }
+
     // ==========================================
     // REFUND TESTS
     // ==========================================

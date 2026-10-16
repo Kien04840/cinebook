@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import type { MovieSummaryResponse, MovieDetailResponse, MovieStatus } from '@/types/movie.types'
 import type { GenreResponse } from '@/types/genre.types'
 import movieService from '@/services/movie.service'
 import genreService from '@/services/genre.service'
 import tmdbService from '@/services/tmdb.service'
 import { formatDate } from '@/utils/formatters'
+import { CANONICAL_AGE_RATINGS } from '@/utils/constants'
 import { useI18n } from '@/composables/useI18n'
 import { useToast } from '@/composables/useToast'
 import Card from '@/components/common/Card.vue'
@@ -85,7 +86,18 @@ const isDeleteModalOpen = ref(false)
 const deletingMovieId = ref('')
 const isDeleting = ref(false)
 
-const ageRatings = ['P', 'K', 'T13', 'T16', 'T18', 'C']
+const displayAgeRatings = computed(() => {
+  const currentVal = movieForm.value.ageRating?.trim()
+  const list = [...CANONICAL_AGE_RATINGS]
+  if (currentVal && !list.some((r) => r.value.toUpperCase() === currentVal.toUpperCase())) {
+    list.unshift({
+      value: currentVal,
+      labelVi: `${currentVal} (Hiện tại)`,
+      labelEn: `${currentVal} (Current)`,
+    })
+  }
+  return list
+})
 
 function getStatusBadgeVariant(status: MovieStatus) {
   switch (status) {
@@ -135,6 +147,7 @@ async function fetchMovies() {
       q: searchQuery.value.trim() || undefined,
       genre: selectedGenre.value || undefined,
       status: selectedStatus.value !== 'ALL' ? selectedStatus.value : undefined,
+      includeDeleted: true,
       page: currentPage.value,
       size: pageSize.value,
     })
@@ -177,7 +190,7 @@ async function openEditModal(movie: MovieSummaryResponse) {
   editingMovieId.value = movie.id
 
   try {
-    const detail: MovieDetailResponse = await movieService.getMovieDetail(movie.id)
+    const detail: MovieDetailResponse = await movieService.getAdminMovieDetail(movie.id).catch(() => movieService.getMovieDetail(movie.id))
     movieForm.value = {
       title: detail.title,
       originalTitle: detail.originalTitle || '',
@@ -608,7 +621,9 @@ onMounted(() => {
               required
               class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              <option v-for="r in ageRatings" :key="r" :value="r">{{ r }}</option>
+              <option v-for="r in displayAgeRatings" :key="r.value" :value="r.value">
+                {{ r.labelVi }}
+              </option>
             </select>
           </div>
           <div>

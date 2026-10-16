@@ -38,6 +38,16 @@ public class MovieController {
         return ResponseEntity.ok(response);
     }
 
+    @Operation(summary = "Get movie search suggestions for autocomplete")
+    @GetMapping("/search/suggestion")
+    public ResponseEntity<java.util.List<com.cinebook.dto.response.MovieSuggestionResponse>> getMovieSuggestions(
+            @RequestParam(name = "keyword", required = false) String keyword,
+            @RequestParam(name = "limit", required = false, defaultValue = "6") Integer limit
+    ) {
+        java.util.List<com.cinebook.dto.response.MovieSuggestionResponse> suggestions = movieService.getMovieSuggestions(keyword, limit);
+        return ResponseEntity.ok(suggestions);
+    }
+
     @Operation(summary = "Get personalized movie recommendations based on user watching history or popular movies")
     @GetMapping("/recommendations")
     public ResponseEntity<com.cinebook.dto.response.MovieRecommendationResponse> getRecommendations(

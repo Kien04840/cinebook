@@ -99,6 +99,9 @@ class PaymentConcurrencyTest {
     @Mock
     private EmailService emailService;
 
+    @Mock
+    private NotificationService notificationService;
+
     private PaymentServiceImpl paymentService;
 
     private User testCustomer;
@@ -121,7 +124,8 @@ class PaymentConcurrencyTest {
                 ticketRepository,
                 bookingMapper,
                 refundMapper,
-                emailService
+                emailService,
+                notificationService
         );
 
 

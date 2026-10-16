@@ -216,7 +216,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
      * @return Đối tượng GenerationPlanningResult chứa toàn bộ danh sách suất chiếu đề xuất và phân tích
      */
     public GenerationPlanningResult planGeneration(ShowtimeGenerationRequest request) {
-        // 1. Normalize and validate movies input
+        // 1. Chuẩn hóa và xác thực danh sách phim cần xếp lịch
         List<MovieGenerationConfigDto> movieConfigs = new ArrayList<>();
         if (request.getMovies() != null && !request.getMovies().isEmpty()) {
             Set<String> seenMovieIds = new HashSet<>();
@@ -233,7 +233,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                 movieConfigs.add(cfg);
             }
         } else if (request.getMovieId() != null && !request.getMovieId().isBlank()) {
-            // Legacy compatibility calculation based on operating window capacity
+            // Tính toán tương thích với phiên bản cũ dựa trên năng lực cửa sổ hoạt động
             Movie legacyMovie = movieRepository.findById(request.getMovieId())
                     .orElseThrow(() -> new ResourceNotFoundException("Movie not found with id: " + request.getMovieId()));
             LocalTime opening = request.getOpeningTime() != null ? request.getOpeningTime() : LocalTime.of(8, 0);
@@ -254,7 +254,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
             throw new BadRequestException("Phải chỉ định danh sách phim (movies) hoặc mã phim (movieId)!");
         }
 
-        // 2. Validate auditorium IDs (duplicates check)
+        // 2. Xác thực danh sách phòng chiếu: loại bỏ trùng lặp, kiểm tra tồn tại và sắp xếp theo Natural Order
         List<String> rawAudIds = request.getAuditoriumIds() != null ? request.getAuditoriumIds() : Collections.emptyList();
         if (rawAudIds.isEmpty()) {
             throw new BadRequestException("Phải chọn ít nhất một phòng chiếu!");
@@ -273,7 +273,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
             throw new BadRequestException("Phải chọn ít nhất một phòng chiếu hợp lệ!");
         }
 
-        // 3. Validate dates
+        // 3. Xác thực khoảng ngày lập lịch (startDate -> endDate)
         LocalDate startDate = request.getStartDate();
         if (startDate == null) {
             throw new BadRequestException("Ngày bắt đầu không được để trống!");
@@ -283,14 +283,14 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
             throw new BadRequestException("Ngày kết thúc không được trước ngày bắt đầu!");
         }
 
-        // 4. Validate operating hours
+        // 4. Xác thực giờ hoạt động
         if (request.getOpeningTime() != null && request.getClosingTime() != null) {
             if (!request.getOpeningTime().isBefore(request.getClosingTime())) {
                 throw new BadRequestException("Giờ mở cửa phải trước giờ đóng cửa!");
             }
         }
 
-        // 5. Fetch auditoriums
+        // 5. Xác thực phòng chiếu tồn tại và sắp xếp theo Natural Order
         List<Auditorium> validAuditoriums = new ArrayList<>();
         List<String> missingAudIds = new ArrayList<>();
         for (String audId : distinctAudIds) {
@@ -303,7 +303,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
         }
         validAuditoriums.sort(AUDITORIUM_NATURAL_ORDER);
 
-        // 6. Fetch and validate movies
+        // 6. Xác thực phim tồn tại và khả dụng
         Map<String, Movie> movieMap = new HashMap<>();
         List<SchedulingConflictResponse> initialConflicts = new ArrayList<>();
         for (MovieGenerationConfigDto cfg : movieConfigs) {
@@ -330,11 +330,11 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
         boolean hadExistingConflict = false;
         boolean hadDurationConstraint = false;
 
-        // 7. Timeline scheduling loop per day
+        // 7. Vòng lặp lập lịch theo thời gian mỗi ngày
         for (LocalDate date = startDate; !date.isAfter(endDate); date = date.plusDays(1)) {
             final LocalDate currentDate = date;
 
-            // Emit conflict records for missing auditoriums
+            // Thêm các phòng chiếu bị thiếu vào danh sách kết quả với trạng thái không hợp lệ
             for (String missingId : missingAudIds) {
                 allCandidateSlots.add(ShowtimeSlotPreviewResponse.builder()
                         .date(currentDate)
@@ -348,7 +348,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                         .build());
             }
 
-            // Filter active auditoriums for today
+            // Lọc các phòng chiếu đang hoạt động cho ngày hôm nay
             List<InternalAuditoriumState> auditoriumStates = new ArrayList<>();
             for (Auditorium aud : validAuditoriums) {
                 if (aud.getStatus() != AuditoriumStatus.ACTIVE) {
@@ -400,7 +400,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                 auditoriumStates.add(new InternalAuditoriumState(aud, startCursor, existing));
             }
 
-            // Fresh daily quota state
+            // Khởi tạo bộ đếm suất chiếu đã xếp cho mỗi phim trong ngày hôm nay
             Map<String, Integer> scheduledToday = new HashMap<>();
             for (MovieGenerationConfigDto cfg : movieConfigs) {
                 scheduledToday.put(cfg.getMovieId(), 0);
@@ -408,7 +408,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
 
             List<ShowtimeSlotPreviewResponse> dateCandidateSlots = new ArrayList<>();
 
-            // Dispatch loop for the day
+            // Vòng lặp chính: Duyệt qua từng phòng chiếu và tìm kiếm các suất chiếu khả thi
             while (true) {
                 boolean anyQuotaRemaining = false;
                 for (MovieGenerationConfigDto cfg : movieConfigs) {
@@ -426,7 +426,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                     break;
                 }
 
-                // Pick auditorium with earliest cursor
+                // Chọn phòng chiếu có con trỏ cursor sớm nhất để xếp suất chiếu tiếp theo
                 InternalAuditoriumState selectedAud = null;
                 for (InternalAuditoriumState a : availableAuds) {
                     if (selectedAud == null || a.getCursor().isBefore(selectedAud.getCursor())) {
@@ -452,7 +452,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                     continue;
                 }
 
-                // Advance cursor past existing showtime if cursor is inside [exStart, exOccupiedUntil)
+                // Kiểm tra xung đột với các suất chiếu đã có sẵn trong phòng chiếu
                 boolean jumpedExisting = false;
                 for (Showtime ex : selectedAud.getExistingShowtimes()) {
                     if (ex.getStatus() == ShowtimeStatus.CANCELLED) continue;
@@ -475,7 +475,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
 
                 cursor = selectedAud.getCursor();
 
-                // Feasibility First: find movies that can fit at cursor
+                // Lọc danh sách phim khả thi tại vị trí cursor hiện tại
                 List<MovieGenerationConfigDto> feasibleMovies = new ArrayList<>();
                 for (MovieGenerationConfigDto cfg : movieConfigs) {
                     if (!movieMap.containsKey(cfg.getMovieId())) continue;
@@ -494,7 +494,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                         continue;
                     }
 
-                    // Check conflict with existing showtimes
+                    // Kiểm tra xung đột với các suất chiếu đã có sẵn trong phòng chiếu
                     boolean conflict = false;
                     for (Showtime ex : selectedAud.getExistingShowtimes()) {
                         if (ex.getStatus() == ShowtimeStatus.CANCELLED) continue;
@@ -502,17 +502,17 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                         LocalDateTime exEnd = ex.getEndTime();
                         LocalDateTime exOccupied = exEnd.plusMinutes(turnaround);
 
-                        // Direct overlap
+                        // Xung đột trực tiếp với suất chiếu hiện có
                         if (candidateStart.isBefore(exEnd) && exStart.isBefore(candidateEnd)) {
                             conflict = true;
                             break;
                         }
-                        // Turnaround before candidate
+                        // Thời gian dọn phòng trước suất chiếu hiện có
                         if ((candidateStart.isEqual(exEnd) || candidateStart.isAfter(exEnd)) && candidateStart.isBefore(exOccupied)) {
                             conflict = true;
                             break;
                         }
-                        // Turnaround after candidate
+                        // Thời gian dọn phòng sau suất chiếu hiện có
                         LocalDateTime candidateOccupied = candidateEnd.plusMinutes(turnaround);
                         if ((exStart.isEqual(candidateEnd) || exStart.isAfter(candidateEnd)) && exStart.isBefore(candidateOccupied)) {
                             conflict = true;
@@ -528,7 +528,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                 }
 
                 if (feasibleMovies.isEmpty()) {
-                    // No movie fits at current cursor. Check if there's a future existing showtime to jump past
+                    // Nếu không còn phim khả thi, tìm kiếm thời điểm tiếp theo sau các suất chiếu hiện có
                     LocalDateTime nextJump = null;
                     for (Showtime ex : selectedAud.getExistingShowtimes()) {
                         if (ex.getStatus() == ShowtimeStatus.CANCELLED) continue;
@@ -547,7 +547,8 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                     continue;
                 }
 
-                // Score feasible movies
+                // Tính điểm các phim ứng viên và chọn phim tốt nhất
+                //Khởi tạo biến để lưu trữ phim tốt nhất và điểm số cao nhất
                 MovieGenerationConfigDto bestMovie = null;
                 double bestScore = -Double.MAX_VALUE;
 
@@ -556,16 +557,17 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                     int scheduled = scheduledToday.getOrDefault(cfg.getMovieId(), 0);
                     int remaining = target - scheduled;
 
+                    //Tính điểm dựa trên tỷ lệ thiếu hụt và trọng số
                     double deficitRatio = (double) remaining / target;
-                    double score = deficitRatio * QUOTA_DEFICIT_WEIGHT;
-                    score += remaining * DISTRIBUTION_WEIGHT;
+                    double score = deficitRatio * QUOTA_DEFICIT_WEIGHT; // Trọng số ưu tiên cho phim còn thiếu nhiều suất chiếu
+                    score += remaining * DISTRIBUTION_WEIGHT; // Trọng số cộng thêm cho số lượng suất chiếu còn lại cần xếp
 
-                    // Anti-consecutive penalty
+                    // Trừ điểm nếu cùng một phòng vừa chiếu phim này trước đó (khuyến khích phân bổ đa dạng)
                     if (cfg.getMovieId().equals(selectedAud.getLastScheduledMovieId())) {
                         score -= CONSECUTIVE_MOVIE_PENALTY;
                     }
 
-                    // Soft penalty for simultaneous start of same movie in another auditorium
+                    // Trừ điểm nếu cùng một phim bắt đầu chiếu cùng một thời điểm ở hai phòng khác nhau (khuyến khích phân bổ đồng đều)
                     final LocalDateTime slotStart = cursor;
                     final String selectedAudId = selectedAud.getAuditorium().getId();
                     boolean simultaneous = dateCandidateSlots.stream().anyMatch(slot ->
@@ -578,7 +580,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                         score -= SIMULTANEOUS_DUPLICATE_PENALTY;
                     }
 
-                    // Concentration penalty
+                    // Trừ điểm nếu cùng một phim được chiếu quá nhiều lần trong cùng một phòng (khuyến khích phân bổ đều)
                     int countInRoom = selectedAud.getMovieCount(cfg.getMovieId());
                     score -= countInRoom * CONCENTRATION_PENALTY;
 
@@ -586,7 +588,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                         bestScore = score;
                         bestMovie = cfg;
                     } else if (Math.abs(score - bestScore) < 1e-6) {
-                        // Stable deterministic tie-breaker by movieId
+                        // Tie-breaker: chọn phim có movieId nhỏ hơn theo thứ tự từ điển khi điểm số bằng nhau (deterministic)
                         if (cfg.getMovieId().compareTo(bestMovie.getMovieId()) < 0) {
                             bestScore = score;
                             bestMovie = cfg;
@@ -594,7 +596,7 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
                     }
                 }
 
-                // Schedule best candidate
+                // Tạo slot ứng viên cho phim tốt nhất và cập nhật trạng thái phòng chiếu
                 Movie movie = movieMap.get(bestMovie.getMovieId());
                 int duration = movie.getDurationMinutes();
                 LocalDateTime candidateStart = cursor;
@@ -632,13 +634,13 @@ public class ShowtimeSchedulingServiceImpl implements ShowtimeSchedulingService 
 
             allCandidateSlots.addAll(dateCandidateSlots);
 
-            // Accumulate daily counts into total
+            // Tổng hợp số lượng suất chiếu đã xếp cho từng phim trong ngày hôm nay
             for (Map.Entry<String, Integer> entry : scheduledToday.entrySet()) {
                 totalScheduledPerMovie.put(entry.getKey(), totalScheduledPerMovie.getOrDefault(entry.getKey(), 0) + entry.getValue());
             }
         }
 
-        // 8. Compile summaries, warnings, and quality indicators
+        // 8. Tổng hợp báo cáo thống kê cuối cùng
         int totalRequested = 0;
         int totalScheduled = 0;
         List<MovieGenerationSummaryDto> movieSummaries = new ArrayList<>();

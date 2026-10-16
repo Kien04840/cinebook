@@ -18,6 +18,10 @@ import java.util.UUID;
         @Index(
             name = "idx_refunds_gateway_id",
             columnList = "gateway_refund_id"
+        ),
+        @Index(
+            name = "idx_refunds_status_processed",
+            columnList = "refund_status, processed_at, amount"
         )
     }
 )

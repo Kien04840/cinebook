@@ -98,4 +98,40 @@ public class TmdbApiClient implements TmdbClient {
             throw new TmdbServiceException("Unexpected error calling TMDB movie detail (tmdbId=" + tmdbId + "): " + e.getMessage(), e);
         }
     }
+
+    @Override
+    public TmdbMovieDetailDto.TmdbVideosResultDto getMovieVideos(Long tmdbId, String language) {
+        log.debug("Fetching TMDB movie videos, tmdbId={}, language={}", tmdbId, language);
+        try {
+            return restClient.get()
+                    .uri(uriBuilder -> {
+                        var builder = uriBuilder.path("/movie/{id}/videos");
+                        if (org.springframework.util.StringUtils.hasText(language)) {
+                            builder.queryParam("language", language);
+                        }
+                        return builder.build(tmdbId);
+                    })
+                    .retrieve()
+                    .onStatus(HttpStatusCode::is4xxClientError, (req, resp) -> {
+                        int status = resp.getStatusCode().value();
+                        if (status == 404) {
+                            throw new TmdbResourceNotFoundException(tmdbId);
+                        }
+                        if (status == 401 || status == 403) {
+                            throw new TmdbAuthException("HTTP " + status);
+                        }
+                        throw new TmdbServiceException("TMDB movie videos returned HTTP " + status);
+                    })
+                    .onStatus(HttpStatusCode::is5xxServerError, (req, resp) -> {
+                        throw new TmdbServiceException("TMDB returned HTTP " + resp.getStatusCode().value());
+                    })
+                    .body(TmdbMovieDetailDto.TmdbVideosResultDto.class);
+        } catch (TmdbResourceNotFoundException | TmdbAuthException | TmdbServiceException e) {
+            throw e;
+        } catch (ResourceAccessException e) {
+            throw new TmdbServiceException("Network error calling TMDB movie videos (tmdbId=" + tmdbId + "): " + e.getMessage(), e);
+        } catch (Exception e) {
+            throw new TmdbServiceException("Unexpected error calling TMDB movie videos (tmdbId=" + tmdbId + "): " + e.getMessage(), e);
+        }
+    }
 }

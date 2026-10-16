@@ -6,6 +6,7 @@ import com.cinebook.entity.Auditorium;
 import com.cinebook.entity.Seat;
 import com.cinebook.entity.SeatType;
 import com.cinebook.enums.SeatStatus;
+import com.cinebook.enums.ShowtimeStatus;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.ResourceNotFoundException;
 import com.cinebook.mapper.SeatMapper;
@@ -14,6 +15,7 @@ import com.cinebook.repository.BookingRepository;
 import com.cinebook.repository.SeatHoldRepository;
 import com.cinebook.repository.SeatRepository;
 import com.cinebook.repository.SeatTypeRepository;
+import com.cinebook.repository.ShowtimeRepository;
 import com.cinebook.repository.TicketRepository;
 import com.cinebook.service.SeatService;
 import lombok.RequiredArgsConstructor;
@@ -58,6 +60,7 @@ public class SeatServiceImpl implements SeatService {
     private final BookingRepository bookingRepository;
     private final TicketRepository ticketRepository;
     private final SeatHoldRepository seatHoldRepository;
+    private final ShowtimeRepository showtimeRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -94,6 +97,10 @@ public class SeatServiceImpl implements SeatService {
             throw new ConflictException("Không thể thay đổi loại ghế vì phòng chiếu đang có ghế được giữ chỗ.");
         }
 
+        if (showtimeRepository != null && showtimeRepository.existsByAuditoriumIdAndStatusAndStartTimeAfter(auditorium.getId(), ShowtimeStatus.SCHEDULED, now)) {
+            throw new ConflictException("Không thể thay đổi loại ghế của phòng chiếu đang có lịch chiếu sắp diễn ra.");
+        }
+
         List<Seat> targetSeats = new ArrayList<>(List.of(seat));
         handleCoupleSeatAssignmentAndRemoveOverlaps(auditorium, targetSeats, seatType);
 
@@ -117,6 +124,10 @@ public class SeatServiceImpl implements SeatService {
 
         if (seatHoldRepository.existsActiveHoldByAuditoriumId(auditorium.getId(), now)) {
             throw new ConflictException("Không thể thay đổi loại ghế vì phòng chiếu đang có ghế được giữ chỗ.");
+        }
+
+        if (showtimeRepository != null && showtimeRepository.existsByAuditoriumIdAndStatusAndStartTimeAfter(auditorium.getId(), ShowtimeStatus.SCHEDULED, now)) {
+            throw new ConflictException("Không thể thay đổi loại ghế của phòng chiếu đang có lịch chiếu sắp diễn ra.");
         }
 
         SeatType seatType = seatTypeRepository.findById(seatTypeId)

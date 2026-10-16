@@ -44,7 +44,10 @@ async function fetchNotifications() {
   errorMessage.value = null
   try {
     const res = await notificationService.getNotifications(0, 10)
-    notifications.value = res.content || []
+    notifications.value = (res.content || []).map((n) => ({
+      ...n,
+      isRead: n.isRead !== undefined ? n.isRead : Boolean((n as any).read),
+    }))
   } catch (err) {
     console.error('Failed to load notifications', err)
     errorMessage.value = t('notifications.loadError')
@@ -84,8 +87,9 @@ async function handleNotificationClick(item: NotificationResponse) {
 
   closeDropdown()
 
-  if (item.bookingId) {
-    router.push('/my-bookings')
+  const bookingId = item.bookingId || (item.referenceType === 'BOOKING' ? item.referenceId : undefined)
+  if (bookingId) {
+    router.push({ path: '/my-bookings', query: { bookingId } })
   }
 }
 
@@ -128,12 +132,17 @@ function formatRelativeTime(dateStr: string): string {
 
 function getNotificationBadgeClass(type: NotificationType) {
   switch (type) {
+    case 'BOOKING_SUCCESS':
     case 'PAYMENT_SUCCESS':
       return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
     case 'BOOKING_CANCELLED':
-      return 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+    case 'PAYMENT_FAILED':
+      return 'bg-rose-500/10 text-rose-400 border-rose-500/30'
     case 'REFUND_COMPLETED':
+    case 'REFUND_SUCCESS':
       return 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+    case 'UPCOMING_SHOWTIME':
+      return 'bg-amber-500/10 text-amber-400 border-amber-500/30'
     default:
       return 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30'
   }
@@ -220,10 +229,10 @@ onUnmounted(() => {
     >
       <div
         v-if="isOpen"
-        class="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-slate-900/98 backdrop-blur-xl border border-slate-800 shadow-2xl shadow-black/60 z-50 overflow-hidden text-slate-200"
+        class="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl shadow-black/90 z-50 overflow-hidden text-slate-200"
       >
         <!-- Header -->
-        <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-900/60">
+        <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-900">
           <div class="flex items-center gap-2">
             <h3 class="text-sm font-bold text-white tracking-wide">
               {{ t('notifications.title') }}
@@ -282,66 +291,75 @@ onUnmounted(() => {
           </div>
 
           <!-- Notification Items List -->
-          <div
-            v-for="item in notifications"
-            v-else
-            :key="item.id"
-            class="p-3.5 hover:bg-slate-800/60 transition-colors cursor-pointer flex items-start gap-3 text-left relative group"
-            :class="{ 'bg-indigo-950/20': !item.isRead }"
-            @click="handleNotificationClick(item)"
-          >
-            <!-- Type Icon Indicator -->
+          <template v-else>
             <div
-              class="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 mt-0.5 shadow-sm"
-              :class="getNotificationBadgeClass(item.type)"
+              v-for="item in notifications"
+              :key="item.id"
+              class="p-3.5 hover:bg-slate-800/60 transition-colors cursor-pointer flex items-start gap-3 text-left relative group"
+              :class="{ 'bg-indigo-950/20': !item.isRead }"
+              @click="handleNotificationClick(item)"
             >
-              <!-- Payment Success Icon -->
-              <svg v-if="item.type === 'PAYMENT_SUCCESS'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
-              </svg>
-              <!-- Booking Cancelled Icon -->
-              <svg v-else-if="item.type === 'BOOKING_CANCELLED'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              <!-- Refund Completed Icon -->
-              <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-              </svg>
-            </div>
+              <!-- Type Icon Indicator -->
+              <div
+                class="w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 mt-0.5 shadow-sm"
+                :class="getNotificationBadgeClass(item.type)"
+              >
+                <!-- Success Icon -->
+                <svg v-if="item.type === 'PAYMENT_SUCCESS' || item.type === 'BOOKING_SUCCESS'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7" />
+                </svg>
+                <!-- Cancelled / Failed Icon -->
+                <svg v-else-if="item.type === 'BOOKING_CANCELLED' || item.type === 'PAYMENT_FAILED'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <!-- Upcoming Showtime Reminder Icon -->
+                <svg v-else-if="item.type === 'UPCOMING_SHOWTIME'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <!-- Refund Icon -->
+                <svg v-else-if="item.type === 'REFUND_COMPLETED' || item.type === 'REFUND_SUCCESS'" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+                <!-- Default Info Icon -->
+                <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
 
-            <!-- Content -->
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center justify-between gap-2 mb-0.5">
-                <p
-                  class="text-xs font-semibold truncate"
-                  :class="item.isRead ? 'text-slate-300' : 'text-white font-bold'"
-                >
-                  {{ item.title }}
+              <!-- Content -->
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-2 mb-0.5">
+                  <p
+                    class="text-xs font-semibold truncate"
+                    :class="item.isRead ? 'text-slate-300' : 'text-white font-bold'"
+                  >
+                    {{ item.title }}
+                  </p>
+                  <span class="text-[10px] text-slate-500 whitespace-nowrap shrink-0">
+                    {{ formatRelativeTime(item.createdAt) }}
+                  </span>
+                </div>
+
+                <p class="text-xs text-slate-400 line-clamp-2 leading-relaxed">
+                  {{ item.message }}
                 </p>
-                <span class="text-[10px] text-slate-500 whitespace-nowrap shrink-0">
-                  {{ formatRelativeTime(item.createdAt) }}
-                </span>
+
+                <!-- Optional Booking reference tag -->
+                <div v-if="item.bookingCode" class="mt-1 flex items-center gap-1.5 text-[10px] text-indigo-400 font-medium">
+                  <span>#{{ item.bookingCode }}</span>
+                  <span class="text-slate-600">•</span>
+                  <span class="text-slate-400 group-hover:text-indigo-300 transition-colors">{{ t('notifications.viewBooking') }} &rarr;</span>
+                </div>
               </div>
 
-              <p class="text-xs text-slate-400 line-clamp-2 leading-relaxed">
-                {{ item.message }}
-              </p>
-
-              <!-- Optional Booking reference tag -->
-              <div v-if="item.bookingCode" class="mt-1 flex items-center gap-1.5 text-[10px] text-indigo-400 font-medium">
-                <span>#{{ item.bookingCode }}</span>
-                <span class="text-slate-600">•</span>
-                <span class="text-slate-400 group-hover:text-indigo-300 transition-colors">{{ t('notifications.viewBooking') }} &rarr;</span>
-              </div>
+              <!-- Unread Status Dot -->
+              <span
+                v-if="!item.isRead"
+                class="w-2 h-2 rounded-full bg-indigo-500 mt-1.5 shrink-0 shadow-sm shadow-indigo-500/50"
+                :title="t('notifications.markAsRead')"
+              ></span>
             </div>
-
-            <!-- Unread Status Dot -->
-            <span
-              v-if="!item.isRead"
-              class="w-2 h-2 rounded-full bg-indigo-500 mt-1.5 shrink-0 shadow-sm shadow-indigo-500/50"
-              :title="t('notifications.markAsRead')"
-            ></span>
-          </div>
+          </template>
         </div>
 
         <!-- Footer -->

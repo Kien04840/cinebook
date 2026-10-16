@@ -10,6 +10,7 @@ export interface ApiError {
   message: string
   path?: string
   timestamp?: string
+  correlationId?: string
   details?: FieldErrorDetail[]
 }
 

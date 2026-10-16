@@ -18,7 +18,6 @@ const isProfileDropdownOpen = ref(false)
 const avatarLoadError = ref(false)
 
 const navLinks = computed(() => [
-  { name: t('nav.home'), path: '/' },
   { name: t('nav.movies'), path: '/movies' },
   { name: t('nav.showtimes'), path: '/showtimes' },
   { name: t('nav.cinemas'), path: '/cinemas' },
@@ -207,6 +206,7 @@ async function handleLogout() {
 
           <!-- Mobile Hamburger & Language -->
           <div class="flex items-center gap-2 sm:hidden">
+            <NotificationBell v-if="authStore.isAuthenticated" />
             <div class="flex items-center bg-slate-800 p-0.5 rounded border border-slate-700 text-[11px] font-semibold">
               <button
                 type="button"

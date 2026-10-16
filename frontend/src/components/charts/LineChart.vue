@@ -15,18 +15,72 @@ const props = withDefaults(
     height?: number
     yAxisFormat?: (v: number) => string
     yAxisRightFormat?: (v: number) => string
+    xAxisFormat?: (label: string, index: number, total: number) => string
+    tooltipFormat?: (v: number) => string
+    tooltipRightFormat?: (v: number) => string
     emptyText?: string
   }>(),
   {
     height: 280,
     yAxisFormat: (v: number) => v.toLocaleString(),
     yAxisRightFormat: (v: number) => v.toLocaleString(),
-    emptyText: 'Chua co du lieu thong ke.',
+    emptyText: 'Chưa có dữ liệu thống kê.',
   }
 )
 
 const hoveredIndex = ref<number | null>(null)
 const mousePos = ref<{ x: number; y: number }>({ x: 0, y: 0 })
+
+// Sample X-axis ticks to prevent overlapping when there are many days (e.g., 30 days)
+const visibleTickIndices = computed(() => {
+  const n = props.labels.length
+  if (n <= 8) {
+    return Array.from({ length: n }, (_, i) => i)
+  }
+  const maxTicks = 7
+  const step = (n - 1) / (maxTicks - 1)
+  const indices = new Set<number>()
+  for (let i = 0; i < maxTicks; i++) {
+    indices.add(Math.round(i * step))
+  }
+  return Array.from(indices).sort((a, b) => a - b)
+})
+
+function formatXAxisLabel(label: string, index: number): string {
+  if (props.xAxisFormat) {
+    return props.xAxisFormat(label, index, props.labels.length)
+  }
+  const n = props.labels.length
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(label)
+  if (dateMatch) {
+    const [, yyyy, mm, dd] = dateMatch
+    if (n <= 31) {
+      return `${dd}/${mm}`
+    } else {
+      return `${mm}/${yyyy}`
+    }
+  }
+  const monthMatch = /^(\d{4})-(\d{2})$/.exec(label)
+  if (monthMatch) {
+    const [, yyyy, mm] = monthMatch
+    return `${mm}/${yyyy}`
+  }
+  return label
+}
+
+function formatTooltipLabel(label: string): string {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(label)
+  if (dateMatch) {
+    const [, yyyy, mm, dd] = dateMatch
+    return `${dd}/${mm}/${yyyy}`
+  }
+  const monthMatch = /^(\d{4})-(\d{2})$/.exec(label)
+  if (monthMatch) {
+    const [, yyyy, mm] = monthMatch
+    return `Tháng ${mm}/${yyyy}`
+  }
+  return label
+}
 
 const padding = { top: 20, right: 55, bottom: 35, left: 65 }
 const width = 700
@@ -196,14 +250,14 @@ function handleMouseLeave() {
 
         <g>
           <text
-            v-for="(label, idx) in labels"
+            v-for="idx in visibleTickIndices"
             :key="idx"
             :x="getX(idx)"
             :y="height - 8"
             text-anchor="middle"
-            class="text-[10px] fill-slate-400 font-medium"
+            class="text-[10px] fill-slate-400 font-medium font-mono"
           >
-            {{ label }}
+            {{ formatXAxisLabel(labels[idx], idx) }}
           </text>
         </g>
 
@@ -258,7 +312,7 @@ function handleMouseLeave() {
         }"
       >
         <div class="font-bold text-white mb-1.5 pb-1 border-b border-slate-800">
-          {{ labels[hoveredIndex] }}
+          {{ formatTooltipLabel(labels[hoveredIndex]) }}
         </div>
         <div v-for="s in series" :key="s.name" class="flex items-center justify-between gap-4 py-0.5">
           <span class="flex items-center gap-1.5 text-slate-300">
@@ -266,7 +320,10 @@ function handleMouseLeave() {
             <span>{{ s.name }}:</span>
           </span>
           <span class="font-bold font-mono text-white">
-            {{ s.yAxisIndex === 1 ? yAxisRightFormat(s.data[hoveredIndex] ?? 0) : yAxisFormat(s.data[hoveredIndex] ?? 0) }}
+            {{ s.yAxisIndex === 1
+                ? (tooltipRightFormat || yAxisRightFormat)(s.data[hoveredIndex] ?? 0)
+                : (tooltipFormat || yAxisFormat)(s.data[hoveredIndex] ?? 0)
+            }}
           </span>
         </div>
       </div>

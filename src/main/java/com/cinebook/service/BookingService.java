@@ -36,6 +36,7 @@ public interface BookingService {
 
     Booking expireBookingIfHoldExpired(Booking booking);
     int cleanupExpiredSeatHolds(LocalDateTime now);
+    int expirePastTickets(LocalDateTime now);
 }
 
 

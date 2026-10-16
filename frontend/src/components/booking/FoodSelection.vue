@@ -33,6 +33,7 @@ const emit = defineEmits<Emits>()
 const foods = ref<FoodItemResponse[]>([])
 const isLoading = ref<boolean>(true)
 const loadError = ref<string>('')
+const isExpanded = ref<boolean>(true)
 
 /**
  * Tải danh sách bắp nước đang hoạt động (Public API)
@@ -104,41 +105,85 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="rounded-2xl bg-slate-800/80 border border-slate-700/80 p-5 sm:p-6 space-y-4 shadow-xl">
-    <!-- Header -->
-    <div class="flex items-center justify-between pb-3 border-b border-slate-700/60">
-      <div class="flex items-center gap-2.5">
-        <span class="text-2xl">🍿</span>
-        <div>
-          <h3 class="text-base sm:text-lg font-bold text-white tracking-tight">
-            {{ t('food.title') }}
-          </h3>
-          <p class="text-xs text-slate-400">
+  <div class="rounded-2xl bg-slate-800/80 border border-slate-700/80 p-5 sm:p-6 space-y-4 shadow-xl transition-all">
+    <!-- Header with interactive collapse/expand toggle -->
+    <div
+      class="flex items-center justify-between cursor-pointer select-none pb-2 border-b border-slate-700/60"
+      @click="isExpanded = !isExpanded"
+    >
+      <div class="flex items-center gap-3 min-w-0">
+        <span class="text-2xl sm:text-3xl shrink-0">🍿</span>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h3 class="text-base sm:text-lg font-bold text-white tracking-tight">
+              {{ t('food.title') }}
+            </h3>
+            <span class="px-2 py-0.5 text-[11px] font-medium rounded-full bg-slate-700/80 text-slate-300 border border-slate-600/60">
+              {{ t('food.optional') }}
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 mt-0.5 line-clamp-1">
             {{ t('food.subtitle') }}
           </p>
         </div>
       </div>
 
-      <div v-if="totalQuantity > 0" class="text-right">
-        <span class="text-xs text-slate-400 block">{{ t('food.selectedCount', { count: totalQuantity }) }}</span>
-        <span class="text-sm font-bold text-emerald-400 font-mono">{{ formatCurrency(foodSubtotal) }}</span>
+      <div class="flex items-center gap-3 shrink-0">
+        <!-- Selected badge summary -->
+        <div v-if="totalQuantity > 0" class="text-right hidden sm:block">
+          <span class="text-xs font-bold text-amber-400 block font-mono">
+            {{ totalQuantity }} món • {{ formatCurrency(foodSubtotal) }}
+          </span>
+          <span class="text-[11px] text-slate-400">{{ t('food.selectedSummary', { count: totalQuantity }) }}</span>
+        </div>
+
+        <!-- Chevron Toggle Button -->
+        <button
+          type="button"
+          class="p-2 rounded-xl bg-slate-700/60 hover:bg-slate-700 text-slate-300 hover:text-white transition-all flex items-center gap-1.5 text-xs font-semibold"
+          :aria-expanded="isExpanded"
+          :title="isExpanded ? t('food.collapse') : t('food.expand')"
+          @click.stop="isExpanded = !isExpanded"
+        >
+          <span class="hidden md:inline text-xs text-slate-400">{{ isExpanded ? t('food.collapse') : t('food.expand') }}</span>
+          <svg
+            :class="['w-4 h-4 transition-transform duration-200', isExpanded ? 'rotate-180' : '']"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
       </div>
     </div>
 
-    <!-- Loading Skeleton -->
-    <div v-if="isLoading" class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
-      <div v-for="i in 4" :key="i" class="h-24 rounded-xl bg-slate-850 border border-slate-700/50 animate-pulse"></div>
+    <!-- Mobile compact summary when collapsed -->
+    <div
+      v-if="!isExpanded && totalQuantity > 0"
+      class="pt-1 flex items-center justify-between text-xs sm:hidden border-t border-slate-700/40"
+      @click="isExpanded = true"
+    >
+      <span class="text-slate-400">Đã chọn:</span>
+      <span class="font-bold text-amber-400 font-mono">{{ totalQuantity }} món • {{ formatCurrency(foodSubtotal) }}</span>
     </div>
 
-    <!-- Error State -->
-    <div v-else-if="loadError" class="p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-200 text-xs text-center">
-      {{ loadError }}
-    </div>
+    <!-- Collapsible Body Section -->
+    <div v-show="isExpanded" class="space-y-4">
+      <!-- Loading Skeleton -->
+      <div v-if="isLoading" class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+        <div v-for="i in 4" :key="i" class="h-24 rounded-xl bg-slate-850 border border-slate-700/50 animate-pulse"></div>
+      </div>
 
-    <!-- Empty State -->
-    <div v-else-if="foods.length === 0" class="p-6 text-center text-xs text-slate-500">
-      {{ t('food.empty') }}
-    </div>
+      <!-- Error State -->
+      <div v-else-if="loadError" class="p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-200 text-xs text-center">
+        {{ loadError }}
+      </div>
+
+      <!-- Empty State -->
+      <div v-else-if="foods.length === 0" class="p-6 text-center text-xs text-slate-500">
+        {{ t('food.empty') }}
+      </div>
 
     <!-- Food Items Grid -->
     <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
@@ -208,6 +253,7 @@ onMounted(() => {
           </button>
         </div>
       </div>
+    </div>
     </div>
   </div>
 </template>

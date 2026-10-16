@@ -120,17 +120,35 @@ public class TmdbMovieDetailDto {
     @Setter
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class TmdbVideoDto {
+        @JsonProperty("id")
+        private String id;
+
+        @JsonProperty("name")
+        private String name;
+
         @JsonProperty("key")
         private String key;
 
         @JsonProperty("site")
         private String site;
 
+        @JsonProperty("size")
+        private Integer size;
+
         @JsonProperty("type")
         private String type;
 
         @JsonProperty("official")
         private Boolean official;
+
+        @JsonProperty("iso_639_1")
+        private String iso6391;
+
+        @JsonProperty("iso_3166_1")
+        private String iso31661;
+
+        @JsonProperty("published_at")
+        private String publishedAt;
     }
 
     @Getter

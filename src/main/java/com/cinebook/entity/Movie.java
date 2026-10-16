@@ -93,6 +93,7 @@ public class Movie {
     @Column(nullable = false)
     private Long version;
 
+    @org.hibernate.annotations.BatchSize(size = 50)
     @OneToMany(
         mappedBy = "movie",
         cascade = CascadeType.ALL,

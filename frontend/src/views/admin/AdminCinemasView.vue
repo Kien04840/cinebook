@@ -22,7 +22,7 @@ import type { SeatTypeResponse } from '@/types/seatType.types'
 import cinemaService from '@/services/cinema.service'
 import auditoriumService from '@/services/auditorium.service'
 import seatTypeService from '@/services/seatType.service'
-import { formatStatus } from '@/utils/formatters'
+import { formatStatus, formatCurrency } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import { useToast } from '@/composables/useToast'
 import { CANONICAL_CITIES, getCityLabel } from '@/utils/constants'
@@ -1454,7 +1454,7 @@ onMounted(() => {
               <div class="flex-1 min-w-0">
                 <div class="font-medium truncate">{{ st.name }}</div>
                 <div class="text-[10px] text-slate-400">
-                  Phụ thu: {{ st.priceModifier ? Number(st.priceModifier).toLocaleString('vi-VN') + ' đ' : '0 đ' }}
+                  Phụ thu: {{ formatCurrency(st.priceModifier) }}
                 </div>
               </div>
             </label>

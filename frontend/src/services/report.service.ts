@@ -12,16 +12,18 @@ import type {
 } from '@/types/report.types'
 
 export const reportService = {
-  async getDashboardSummary(from?: string, to?: string): Promise<DashboardResponse> {
+  async getDashboardSummary(from?: string, to?: string, signal?: AbortSignal): Promise<DashboardResponse> {
     const response = await apiClient.get<DashboardResponse>('/api/v1/admin/reports/dashboard', {
       params: { from, to },
+      signal,
     })
     return response.data
   },
 
-  async getUserStatistics(from?: string, to?: string): Promise<UserStatisticsResponse> {
+  async getUserStatistics(from?: string, to?: string, signal?: AbortSignal): Promise<UserStatisticsResponse> {
     const response = await apiClient.get<UserStatisticsResponse>('/api/v1/admin/reports/users', {
       params: { from, to },
+      signal,
     })
     return response.data
   },
@@ -29,10 +31,12 @@ export const reportService = {
   async getRevenueTrend(
     from?: string,
     to?: string,
-    groupBy: 'DAY' | 'MONTH' | 'YEAR' = 'DAY'
+    groupBy: 'DAY' | 'MONTH' | 'YEAR' = 'DAY',
+    signal?: AbortSignal
   ): Promise<RevenueTrendResponse[]> {
     const response = await apiClient.get<RevenueTrendResponse[]>('/api/v1/admin/reports/revenue', {
       params: { from, to, groupBy },
+      signal,
     })
     return response.data
   },
@@ -41,10 +45,12 @@ export const reportService = {
     from?: string,
     to?: string,
     sortBy: 'REVENUE' | 'TICKETS' = 'REVENUE',
-    limit?: number
+    limit?: number,
+    signal?: AbortSignal
   ): Promise<MovieReportResponse[]> {
     const response = await apiClient.get<MovieReportResponse[]>('/api/v1/admin/reports/movies', {
       params: { from, to, sortBy, limit },
+      signal,
     })
     return response.data
   },
@@ -53,25 +59,30 @@ export const reportService = {
     from?: string,
     to?: string,
     sortBy: 'REVENUE' | 'TICKETS' = 'REVENUE',
-    limit?: number
+    limit?: number,
+    signal?: AbortSignal
   ): Promise<CinemaReportResponse[]> {
     const response = await apiClient.get<CinemaReportResponse[]>('/api/v1/admin/reports/cinemas', {
       params: { from, to, sortBy, limit },
+      signal,
     })
     return response.data
   },
 
-  async getShowtimeOccupancy(params?: {
-    from?: string
-    to?: string
-    cinemaId?: string
-    movieId?: string
-    page?: number
-    size?: number
-  }): Promise<PageResponse<ShowtimeOccupancyResponse>> {
+  async getShowtimeOccupancy(
+    params?: {
+      from?: string
+      to?: string
+      cinemaId?: string
+      movieId?: string
+      page?: number
+      size?: number
+    },
+    signal?: AbortSignal
+  ): Promise<PageResponse<ShowtimeOccupancyResponse>> {
     const response = await apiClient.get<PageResponse<ShowtimeOccupancyResponse>>(
       '/api/v1/admin/reports/showtimes/occupancy',
-      { params }
+      { params, signal }
     )
     return response.data
   },
@@ -87,7 +98,8 @@ export const reportService = {
       cinemaId?: string
       movieId?: string
       limit?: number
-    }
+    },
+    signal?: AbortSignal
   ): Promise<{ data: Blob; filename: string }> {
     const response = await apiClient.get<Blob>('/api/v1/admin/reports/export', {
       params: {
@@ -98,6 +110,7 @@ export const reportService = {
         ...extraParams,
       },
       responseType: 'blob',
+      signal,
     })
 
     let filename = ''

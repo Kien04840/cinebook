@@ -8,8 +8,12 @@ package com.cinebook.enums;
  * - REFUND_COMPLETED: Hoàn tiền đơn vé thành công.
  */
 public enum NotificationType {
+    BOOKING_SUCCESS,
     PAYMENT_SUCCESS,
+    PAYMENT_FAILED,
     BOOKING_CANCELLED,
-    REFUND_COMPLETED
+    REFUND_SUCCESS,
+    REFUND_COMPLETED,
+    UPCOMING_SHOWTIME
 }
 

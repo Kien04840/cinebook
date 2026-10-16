@@ -88,7 +88,11 @@ async function fetchShowtimes() {
 // Available formats present in current showtimes
 const availableFormats = computed<ShowtimeFormat[]>(() => {
   const set = new Set<ShowtimeFormat>()
+  const now = new Date()
   showtimes.value.forEach((s) => {
+    if (selectedDate.value === getTodayIso() && new Date(s.startTime) <= now) {
+      return
+    }
     if (s.format) set.add(s.format)
   })
   return Array.from(set)
@@ -96,10 +100,15 @@ const availableFormats = computed<ShowtimeFormat[]>(() => {
 
 // Filter showtimes by selected format (client-side)
 const filteredShowtimes = computed<ShowtimeSummaryResponse[]>(() => {
-  if (selectedFormat.value === 'ALL') {
-    return showtimes.value
+  const now = new Date()
+  let list = showtimes.value
+  if (selectedDate.value === getTodayIso()) {
+    list = list.filter((s) => new Date(s.startTime) > now)
   }
-  return showtimes.value.filter((s) => s.format === selectedFormat.value)
+  if (selectedFormat.value === 'ALL') {
+    return list
+  }
+  return list.filter((s) => s.format === selectedFormat.value)
 })
 
 // Group filtered showtimes by Cinema -> Format

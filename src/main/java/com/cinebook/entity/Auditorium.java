@@ -69,6 +69,7 @@ public class Auditorium {
     @Column(nullable = false)
     private Long version;
 
+    @org.hibernate.annotations.BatchSize(size = 50)
     @OneToMany(
         mappedBy = "auditorium",
         cascade = CascadeType.ALL,

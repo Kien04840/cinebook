@@ -23,6 +23,10 @@ import java.util.UUID;
         @Index(
             name = "idx_payments_gateway_transaction",
             columnList = "gateway_transaction_id"
+        ),
+        @Index(
+            name = "idx_payments_status_paid",
+            columnList = "payment_status, paid_at, amount"
         )
     }
 )

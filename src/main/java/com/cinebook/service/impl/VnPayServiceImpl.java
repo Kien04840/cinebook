@@ -198,6 +198,7 @@ public class VnPayServiceImpl implements VnPayService {
         for (String fieldName : fieldNames) {
             String fieldValue = params.get(fieldName);
             if (StringUtils.hasText(fieldValue)
+                    && fieldName.startsWith("vnp_")
                     && !"vnp_SecureHash".equals(fieldName)
                     && !"vnp_SecureHashType".equals(fieldName)) {
                 try {
@@ -315,7 +316,7 @@ public class VnPayServiceImpl implements VnPayService {
                     .build();
 
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            log.info("Mã trạng thái phản hồi VNPay Refund API {}: {}", response.statusCode(), response.body());
+            log.info("Mã trạng thái phản hồi VNPay Refund API: HTTP {}", response.statusCode());
 
             if (response.statusCode() == 200 && StringUtils.hasText(response.body())) {
                 @SuppressWarnings("unchecked")
@@ -323,6 +324,7 @@ public class VnPayServiceImpl implements VnPayService {
                 String responseCode = respMap.get("vnp_ResponseCode") != null ? String.valueOf(respMap.get("vnp_ResponseCode")) : "";
                 String responseId = respMap.get("vnp_ResponseId") != null ? String.valueOf(respMap.get("vnp_ResponseId")) : "";
                 String message = respMap.get("vnp_Message") != null ? String.valueOf(respMap.get("vnp_Message")) : "";
+                log.info("Kết quả phản hồi VNPay Refund API: responseCode={}, responseId={}", responseCode, responseId);
 
                 result.put("vnp_ResponseCode", responseCode);
                 result.put("vnp_ResponseId", responseId);

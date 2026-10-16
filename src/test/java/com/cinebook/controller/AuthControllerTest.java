@@ -130,7 +130,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Email has been verified successfully"));
+                .andExpect(jsonPath("$.message").value("Xác thực email thành công."));
     }
 
     @Test
@@ -152,7 +152,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("If your email is registered and eligible, a verification link has been sent"));
+                .andExpect(jsonPath("$.message").value("Nếu email đã được đăng ký và đủ điều kiện, liên kết xác thực đã được gửi đến hộp thư của bạn."));
     }
 
     @Test

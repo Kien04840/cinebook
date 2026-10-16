@@ -45,4 +45,12 @@ public interface PromotionRepository extends JpaRepository<Promotion, String> {
 
     @Query("SELECT p FROM Promotion p WHERE p.status = com.cinebook.enums.PromotionStatus.ACTIVE AND p.startAt <= :now AND p.endAt >= :now AND (p.usageLimit IS NULL OR p.usedCount < p.usageLimit) ORDER BY p.endAt ASC")
     List<Promotion> findAvailablePromotions(@Param("now") LocalDateTime now);
-}
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE Promotion p SET p.status = com.cinebook.enums.PromotionStatus.EXPIRED, p.updatedAt = :now WHERE p.status IN (com.cinebook.enums.PromotionStatus.ACTIVE, com.cinebook.enums.PromotionStatus.PAUSED) AND p.endAt < :now")
+    int expirePastPromotions(@Param("now") LocalDateTime now);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE Promotion p SET p.status = com.cinebook.enums.PromotionStatus.PAUSED, p.updatedAt = :now WHERE p.status = com.cinebook.enums.PromotionStatus.ACTIVE AND p.usageLimit IS NOT NULL AND p.usedCount >= p.usageLimit")
+    int pauseExhaustedPromotions(@Param("now") LocalDateTime now);
+}

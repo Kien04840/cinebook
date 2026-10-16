@@ -13,6 +13,7 @@ import com.cinebook.repository.BookingRepository;
 import com.cinebook.repository.SeatHoldRepository;
 import com.cinebook.repository.SeatRepository;
 import com.cinebook.repository.SeatTypeRepository;
+import com.cinebook.repository.ShowtimeRepository;
 import com.cinebook.repository.TicketRepository;
 import com.cinebook.service.impl.SeatServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,6 +53,9 @@ class SeatServiceTest {
 
     @Mock
     private SeatHoldRepository seatHoldRepository;
+
+    @Mock
+    private ShowtimeRepository showtimeRepository;
 
     @Spy
     private SeatMapper seatMapper = new SeatMapper();
@@ -343,6 +347,20 @@ class SeatServiceTest {
         ConflictException ex = assertThrows(ConflictException.class, () ->
                 seatService.updateSeatType("seat-1", "st-vip"));
         assertTrue(ex.getMessage().contains("Không thể thay đổi loại ghế"));
+    }
+
+    @Test
+    void updateSeatType_WhenAuditoriumHasFutureShowtimes_ThrowsConflict() {
+        when(seatRepository.findById("seat-1")).thenReturn(Optional.of(sampleSeat));
+        when(seatTypeRepository.findById("st-vip")).thenReturn(Optional.of(vipType));
+        when(bookingRepository.existsByAuditoriumId("aud-1")).thenReturn(false);
+        when(ticketRepository.existsByAuditoriumId("aud-1")).thenReturn(false);
+        when(seatHoldRepository.existsActiveHoldByAuditoriumId(eq("aud-1"), any(LocalDateTime.class))).thenReturn(false);
+        when(showtimeRepository.existsByAuditoriumIdAndStatusAndStartTimeAfter(eq("aud-1"), any(), any(LocalDateTime.class))).thenReturn(true);
+
+        ConflictException ex = assertThrows(ConflictException.class, () ->
+                seatService.updateSeatType("seat-1", "st-vip"));
+        assertTrue(ex.getMessage().contains("Không thể thay đổi loại ghế của phòng chiếu đang có lịch chiếu sắp diễn ra"));
     }
 
     @Test

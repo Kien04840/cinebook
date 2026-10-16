@@ -12,6 +12,7 @@ import java.util.UUID;
 @Setter
 @Entity
 @Table(name = "genres")
+@org.hibernate.annotations.BatchSize(size = 50)
 public class Genre {
 
     @Id

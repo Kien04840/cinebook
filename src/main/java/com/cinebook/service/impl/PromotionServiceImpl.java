@@ -239,5 +239,17 @@ public class PromotionServiceImpl implements PromotionService {
 
         return discount.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int transitionPromotionStatuses(LocalDateTime now) {
+        int expiredCount = promotionRepository.expirePastPromotions(now);
+        int pausedCount = promotionRepository.pauseExhaustedPromotions(now);
+        int total = expiredCount + pausedCount;
+        if (total > 0) {
+            log.info("Transitioned promotion lifecycle at {}: {} expired, {} paused", now, expiredCount, pausedCount);
+        }
+        return total;
+    }
 }
 

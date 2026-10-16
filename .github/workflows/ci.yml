@@ -18,6 +18,16 @@ jobs:
     name: Backend Test & Build
     runs-on: ubuntu-latest
 
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: cinebook_test
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping -h localhost -u root -proot" --health-interval=10s --health-timeout=5s --health-retries=5
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,9 +46,12 @@ jobs:
         run: ./mvnw clean test -B
         env:
           SPRING_PROFILES_ACTIVE: test
-          JWT_SECRET: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
-          VNPAY_TMN_CODE: 2QXUI4J4
-          VNPAY_HASH_SECRET: RAIUBACKMSUTTBDXGSZLGXDTZUXISGEX
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/cinebook_test?useSSL=false&serverTimezone=Asia/Ho_Chi_Minh&allowPublicKeyRetrieval=true
+          SPRING_DATASOURCE_USERNAME: root
+          SPRING_DATASOURCE_PASSWORD: root
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'CineBookTestJwtSecretKeyForTestingPurposesOnly2026Min32Chars' }}
+          VNPAY_TMN_CODE: ${{ secrets.VNPAY_TMN_CODE || 'TEST_TMN_CODE' }}
+          VNPAY_HASH_SECRET: ${{ secrets.VNPAY_HASH_SECRET || 'TEST_VNPAY_HASH_SECRET_KEY_FOR_UNIT_TESTING_ONLY' }}
 
       - name: Package JAR Artifact
         run: ./mvnw package -DskipTests -B

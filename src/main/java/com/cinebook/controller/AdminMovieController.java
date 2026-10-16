@@ -42,10 +42,17 @@ public class AdminMovieController {
             @RequestParam(name = "q", required = false) String q,
             @RequestParam(name = "genre", required = false) String genre,
             @RequestParam(name = "status", required = false) MovieStatus status,
-            @RequestParam(name = "includeDeleted", required = false, defaultValue = "false") Boolean includeDeleted,
+            @RequestParam(name = "includeDeleted", required = false, defaultValue = "true") Boolean includeDeleted,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable
     ) {
         PageResponse<MovieSummaryResponse> response = movieService.getAdminMovies(q, genre, status, includeDeleted, pageable);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Get movie details for administration")
+    @GetMapping("/{id}")
+    public ResponseEntity<MovieDetailResponse> getAdminMovieDetail(@PathVariable String id) {
+        MovieDetailResponse response = movieService.getAdminMovieDetail(id);
         return ResponseEntity.ok(response);
     }
 

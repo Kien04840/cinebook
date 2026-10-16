@@ -86,6 +86,9 @@ class PaymentRefundIntegrationTest {
     @Mock
     private EmailService emailService;
 
+    @Mock
+    private NotificationService notificationService;
+
     private RefundMapper refundMapper;
     private BookingMapper bookingMapper;
     private BookingServiceImpl bookingService;
@@ -132,7 +135,8 @@ class PaymentRefundIntegrationTest {
                 ticketRepository,
                 bookingMapper,
                 refundMapper,
-                emailService
+                emailService,
+                notificationService
         );
 
         testCustomer = new User();

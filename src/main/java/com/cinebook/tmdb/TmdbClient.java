@@ -28,7 +28,17 @@ public interface TmdbClient {
      * @return detailed movie DTO
      * @throws com.cinebook.exception.TmdbResourceNotFoundException if movie does not exist on TMDB
      * @throws com.cinebook.exception.TmdbAuthException             if API key is invalid
-     * @throws com.cinebook.exception.TmdbServiceException          if TMDB is unreachable or returns 5xx
      */
     TmdbMovieDetailDto getMovieDetail(Long tmdbId, String language);
+
+    /**
+     * Fetches movie videos directly from /movie/{id}/videos.
+     *
+     * @param tmdbId   TMDB movie id
+     * @param language TMDB language code (optional, null to omit language filter)
+     * @return videos result DTO
+     */
+    default TmdbMovieDetailDto.TmdbVideosResultDto getMovieVideos(Long tmdbId, String language) {
+        return null;
+    }
 }

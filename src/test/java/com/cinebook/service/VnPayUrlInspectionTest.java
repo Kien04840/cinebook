@@ -7,6 +7,7 @@ import com.cinebook.enums.BookingStatus;
 import com.cinebook.enums.PaymentMethod;
 import com.cinebook.enums.PaymentStatus;
 import com.cinebook.service.impl.VnPayServiceImpl;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -23,6 +24,7 @@ import java.util.TreeMap;
 public class VnPayUrlInspectionTest {
 
     @Test
+    @Disabled("Live network test to VNPay Sandbox - excluded from automated unit tests when external sandbox is unreachable")
     void inspectVariations() throws Exception {
         // Test 1: Amount nhỏ (10,000 VND = 1,000,000)
         System.out.println("\n--- VAR 1: Small Amount 10,000 VND ---");

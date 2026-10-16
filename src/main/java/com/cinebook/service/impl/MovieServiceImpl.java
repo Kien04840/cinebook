@@ -3,6 +3,7 @@ package com.cinebook.service.impl;
 import com.cinebook.dto.request.CreateMovieRequest;
 import com.cinebook.dto.request.UpdateMovieRequest;
 import com.cinebook.dto.response.MovieDetailResponse;
+import com.cinebook.dto.response.MovieSuggestionResponse;
 import com.cinebook.dto.response.MovieSummaryResponse;
 import com.cinebook.dto.response.PageResponse;
 import com.cinebook.entity.Genre;
@@ -10,23 +11,30 @@ import com.cinebook.entity.Movie;
 import com.cinebook.entity.MovieGenre;
 import com.cinebook.entity.MovieGenreId;
 import com.cinebook.enums.MovieStatus;
+import com.cinebook.enums.ShowtimeStatus;
 import com.cinebook.exception.BadRequestException;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.ResourceNotFoundException;
 import com.cinebook.mapper.MovieMapper;
 import com.cinebook.repository.GenreRepository;
 import com.cinebook.repository.MovieRepository;
+import com.cinebook.repository.ShowtimeRepository;
 import com.cinebook.repository.specification.MovieSpecification;
 import com.cinebook.service.MovieService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -48,6 +56,7 @@ import java.util.stream.Collectors;
  * 3. Tra cứu động bằng JPA Specification:
  *    - Hỗ trợ lọc đa điều kiện linh hoạt: từ khóa tìm kiếm (tiêu đề/đạo diễn/diễn viên), thể loại, trạng thái.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class MovieServiceImpl implements MovieService {
@@ -55,6 +64,7 @@ public class MovieServiceImpl implements MovieService {
     private final MovieRepository movieRepository;
     private final GenreRepository genreRepository;
     private final com.cinebook.repository.BookingRepository bookingRepository;
+    private final ShowtimeRepository showtimeRepository;
     private final MovieMapper movieMapper;
 
     /**
@@ -102,6 +112,15 @@ public class MovieServiceImpl implements MovieService {
 
     @Override
     @Transactional(readOnly = true)
+    public MovieDetailResponse getAdminMovieDetail(String id) {
+        Movie movie = movieRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Movie not found with id: " + id));
+
+        return movieMapper.toMovieDetailResponse(movie);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public PageResponse<MovieSummaryResponse> getAdminMovies(
             String keyword,
             String genre,
@@ -112,7 +131,9 @@ public class MovieServiceImpl implements MovieService {
         Specification<Movie> spec = (root, query, cb) -> cb.conjunction();
 
         if (includeDeleted == null || !includeDeleted) {
-            spec = spec.and(MovieSpecification.isNotDeleted());
+            if (status != MovieStatus.HIDDEN) {
+                spec = spec.and(MovieSpecification.isNotDeleted());
+            }
         }
 
         if (status != null) {
@@ -240,6 +261,11 @@ public class MovieServiceImpl implements MovieService {
         movie.setPosterUrl(request.getPosterUrl());
         movie.setBackdropUrl(request.getBackdropUrl());
         movie.setTrailerUrl(request.getTrailerUrl());
+
+        if (request.getStatus() == MovieStatus.HIDDEN || request.getStatus() == MovieStatus.ENDED) {
+            ensureNoUpcomingScheduledShowtimes(id, "Không thể ẩn hoặc kết thúc phim vì vẫn còn các suất chiếu sắp tới chưa diễn ra.");
+        }
+
         movie.setStatus(request.getStatus());
 
         Movie updatedMovie = movieRepository.save(movie);
@@ -252,9 +278,12 @@ public class MovieServiceImpl implements MovieService {
         Movie movie = movieRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Movie not found with id: " + id));
 
+        ensureNoUpcomingScheduledShowtimes(id, "Không thể xóa hoặc ẩn phim vì vẫn còn các suất chiếu sắp tới chưa diễn ra.");
+
         movie.setDeletedAt(LocalDateTime.now());
         movie.setStatus(MovieStatus.HIDDEN);
         movieRepository.save(movie);
+        log.info("Soft-deleted movie: id={}, title='{}'", id, movie.getTitle());
     }
 
     @Override
@@ -388,5 +417,60 @@ public class MovieServiceImpl implements MovieService {
                 .favoriteGenres(topFavoriteGenres)
                 .movies(recommended)
                 .build();
+    }
+
+    private static final ZoneId VIETNAM_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+
+    @Override
+    @Transactional
+    public int transitionComingSoonMovies() {
+        return transitionComingSoonMovies(LocalDate.now(VIETNAM_ZONE));
+    }
+
+    @Override
+    @Transactional
+    public int transitionComingSoonMovies(LocalDate asOfDate) {
+        if (asOfDate == null) {
+            asOfDate = LocalDate.now(VIETNAM_ZONE);
+        }
+        List<Movie> movies = movieRepository.findComingSoonMoviesToTransition(MovieStatus.COMING_SOON, asOfDate);
+        if (movies == null || movies.isEmpty()) {
+            return 0;
+        }
+
+        LocalDateTime now = LocalDateTime.now(VIETNAM_ZONE);
+        for (Movie movie : movies) {
+            movie.setStatus(MovieStatus.NOW_SHOWING);
+            movie.setUpdatedAt(now);
+        }
+        movieRepository.saveAll(movies);
+        log.info("Transitioned {} movies from COMING_SOON to NOW_SHOWING as of {}", movies.size(), asOfDate);
+        return movies.size();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MovieSuggestionResponse> getMovieSuggestions(String keyword, Integer limit) {
+        if (!StringUtils.hasText(keyword)) {
+            return Collections.emptyList();
+        }
+        int max = (limit != null && limit > 0 && limit <= 20) ? limit : 6;
+        Pageable pageable = PageRequest.of(0, max);
+        List<Movie> movies = movieRepository.findSuggestions(keyword.trim(), pageable);
+        return movies.stream().map(m -> MovieSuggestionResponse.builder()
+                .id(m.getId())
+                .title(m.getTitle())
+                .posterUrl(m.getPosterUrl())
+                .durationMinutes(m.getDurationMinutes() != null ? m.getDurationMinutes().intValue() : null)
+                .releaseDate(m.getReleaseDate())
+                .build()
+        ).toList();
+    }
+
+    private void ensureNoUpcomingScheduledShowtimes(String movieId, String errorMessage) {
+        if (showtimeRepository != null && showtimeRepository.existsByMovieIdAndStatusAndStartTimeAfter(
+                movieId, ShowtimeStatus.SCHEDULED, LocalDateTime.now())) {
+            throw new BadRequestException(errorMessage);
+        }
     }
 }

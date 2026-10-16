@@ -2,7 +2,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import type { UserProfileResponse } from '@/types/auth.types'
 import userService from '@/services/user.service'
-import { formatDateTime } from '@/utils/formatters'
+import { formatDateTime, formatRole } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import { useAuthStore } from '@/stores/auth'
 import Card from '@/components/common/Card.vue'
@@ -362,7 +362,7 @@ onMounted(() => {
                         : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30',
                     ]"
                   >
-                    {{ role }}
+                    {{ formatRole(role) }}
                   </span>
                 </div>
               </td>

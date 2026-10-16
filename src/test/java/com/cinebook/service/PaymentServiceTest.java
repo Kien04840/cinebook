@@ -640,6 +640,45 @@ class PaymentServiceTest {
                 .hasMessageContaining("Chữ ký phản hồi không hợp lệ");
     }
 
+    @Test
+    @DisplayName("processReturn - Missing payment code (vnp_TxnRef) throws 400 Bad Request")
+    void testProcessReturn_MissingPaymentCode_ThrowsBadRequest() {
+        Map<String, String> params = new HashMap<>();
+        params.put("vnp_ResponseCode", "00");
+        params.put("vnp_SecureHash", "valid_hash");
+
+        when(vnPayService.verifySignature(params, "valid_hash")).thenReturn(true);
+
+        assertThatThrownBy(() -> paymentService.processReturn(params))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("Thiếu mã giao dịch thanh toán");
+    }
+
+    @Test
+    @DisplayName("processReturn - Duplicate callback on already SUCCESS payment is idempotent and does not confirm booking again")
+    void testProcessReturn_DuplicateCallback_IdempotentAlreadySuccess() {
+        testPayment.setPaymentStatus(PaymentStatus.SUCCESS);
+
+        Map<String, String> params = new HashMap<>();
+        params.put("vnp_TxnRef", "PAY-20260901-ABC12345");
+        params.put("vnp_ResponseCode", "00");
+        params.put("vnp_TransactionStatus", "00");
+        params.put("vnp_SecureHash", "valid_hash");
+
+        when(vnPayService.verifySignature(params, "valid_hash")).thenReturn(true);
+        when(paymentRepository.findByPaymentCode("PAY-20260901-ABC12345")).thenReturn(Optional.of(testPayment));
+
+        PaymentResultResponse response = paymentService.processReturn(params);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getPaymentStatus()).isEqualTo(PaymentStatus.SUCCESS);
+        assertThat(response.getResponseCode()).isEqualTo("00");
+
+        // Must never re-confirm booking or modify records
+        verify(bookingService, never()).confirmPaidBooking(anyString(), anyString());
+        verify(paymentRepository, never()).saveAndFlush(any());
+    }
+
     // ==========================================
     // 4. GET PAYMENT DETAIL TESTS
     // ==========================================

@@ -180,20 +180,94 @@ class BookingServiceSeatAdjacencyTest {
         return seat;
     }
 
+    private void mockBookingSave() {
+        when(bookingRepository.saveAndFlush(any(Booking.class))).thenAnswer(inv -> {
+            Booking b = inv.getArgument(0);
+            b.setId("booking-new");
+            b.setCreatedAt(LocalDateTime.now());
+            return b;
+        });
+    }
+
     @Test
-    @DisplayName("Adjacency: Selecting middle seat leaving 2 single orphan seats throws BadRequestException")
-    void testCreateBooking_LeavingOrphanSeats_ThrowsException() {
-        // Row A has A1, A2, A3 (all active, all available)
+    @DisplayName("Case A: Single selection that does not increase orphan count is allowed")
+    void testCaseA_SingleSelection_NoNewOrphan_Success() {
+        // Row A: A1 (available), A2 (sold), A3 (sold), A4 (sold), A5 (sold)
         Seat a1 = createSeat("s-a1", "A", (short) 1, standardType);
         Seat a2 = createSeat("s-a2", "A", (short) 2, standardType);
         Seat a3 = createSeat("s-a3", "A", (short) 3, standardType);
+        Seat a4 = createSeat("s-a4", "A", (short) 4, standardType);
+        Seat a5 = createSeat("s-a5", "A", (short) 5, standardType);
+
+        Ticket t2 = new Ticket(); t2.setSeat(a2);
+        Ticket t3 = new Ticket(); t3.setSeat(a3);
+        Ticket t4 = new Ticket(); t4.setSeat(a4);
+        Ticket t5 = new Ticket(); t5.setSeat(a5);
+
+        when(seatRepository.findByIdIn(Set.of("s-a1"))).thenReturn(List.of(a1));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "A"))
+                .thenReturn(List.of(a1, a2, a3, a4, a5));
+        when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(List.of(t2, t3, t4, t5));
+        mockBookingSave();
+
+        // Customer selects A1. Before: A1 orphan (1). After: 0 orphan. orphanAfter <= orphanBefore -> ALLOW
+        CreateBookingRequest req = CreateBookingRequest.builder()
+                .showtimeId("showtime-1")
+                .seatIds(List.of("s-a1"))
+                .build();
+
+        BookingDetailResponse res = bookingService.createBooking(req);
+        assertThat(res).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Case B: Single selection next to occupied seat leaving capacity >= 2 is allowed")
+    void testCaseB_SingleSelection_NextToOccupied_Success() {
+        // Row A: A1 (sold), A2 (available), A3 (available), A4 (available)
+        Seat a1 = createSeat("s-a1", "A", (short) 1, standardType);
+        Seat a2 = createSeat("s-a2", "A", (short) 2, standardType);
+        Seat a3 = createSeat("s-a3", "A", (short) 3, standardType);
+        Seat a4 = createSeat("s-a4", "A", (short) 4, standardType);
+
+        Ticket t1 = new Ticket(); t1.setSeat(a1);
 
         when(seatRepository.findByIdIn(Set.of("s-a2"))).thenReturn(List.of(a2));
         when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "A"))
-                .thenReturn(List.of(a1, a2, a3));
+                .thenReturn(List.of(a1, a2, a3, a4));
         when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
-        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(List.of(t1));
+        mockBookingSave();
 
+        // Customer selects A2. Remaining: A3, A4 (capacity 2). orphanBefore = 0, orphanAfter = 0 -> ALLOW
+        CreateBookingRequest req = CreateBookingRequest.builder()
+                .showtimeId("showtime-1")
+                .seatIds(List.of("s-a2"))
+                .build();
+
+        BookingDetailResponse res = bookingService.createBooking(req);
+        assertThat(res).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Case C: Selection creates a new single orphan seat in the middle -> REJECT")
+    void testCaseC_MiddleSelection_CreatesSingleOrphan_ThrowsException() {
+        // Row A: A1 (sold), A2 (available), A3 (available), A4 (sold)
+        Seat a1 = createSeat("s-a1", "A", (short) 1, standardType);
+        Seat a2 = createSeat("s-a2", "A", (short) 2, standardType);
+        Seat a3 = createSeat("s-a3", "A", (short) 3, standardType);
+        Seat a4 = createSeat("s-a4", "A", (short) 4, standardType);
+
+        Ticket t1 = new Ticket(); t1.setSeat(a1);
+        Ticket t4 = new Ticket(); t4.setSeat(a4);
+
+        when(seatRepository.findByIdIn(Set.of("s-a2"))).thenReturn(List.of(a2));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "A"))
+                .thenReturn(List.of(a1, a2, a3, a4));
+        when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(List.of(t1, t4));
+
+        // Customer selects A2, leaving A3 isolated between A2 and A4. orphanBefore = 0, orphanAfter = 1 -> REJECT
         CreateBookingRequest req = CreateBookingRequest.builder()
                 .showtimeId("showtime-1")
                 .seatIds(List.of("s-a2"))
@@ -206,9 +280,9 @@ class BookingServiceSeatAdjacencyTest {
     }
 
     @Test
-    @DisplayName("Adjacency: Selecting contiguous pair leaving 2 seats does NOT violate adjacency")
-    void testCreateBooking_ContiguousSelection_Success() {
-        // Row A has A1, A2, A3, A4
+    @DisplayName("Case D: Selecting consecutive seats leaving >= 2 seats is allowed")
+    void testCaseD_ConsecutiveSeats_NoNewOrphan_Success() {
+        // Row A: A1, A2, A3, A4 (all available)
         Seat a1 = createSeat("s-a1", "A", (short) 1, standardType);
         Seat a2 = createSeat("s-a2", "A", (short) 2, standardType);
         Seat a3 = createSeat("s-a3", "A", (short) 3, standardType);
@@ -219,14 +293,9 @@ class BookingServiceSeatAdjacencyTest {
                 .thenReturn(List.of(a1, a2, a3, a4));
         when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
         when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        mockBookingSave();
 
-        when(bookingRepository.saveAndFlush(any(Booking.class))).thenAnswer(inv -> {
-            Booking b = inv.getArgument(0);
-            b.setId("booking-new");
-            b.setCreatedAt(LocalDateTime.now());
-            return b;
-        });
-
+        // Customer selects A1, A2. Remaining: A3, A4 (capacity 2). orphanBefore = 0, orphanAfter = 0 -> ALLOW
         CreateBookingRequest req = CreateBookingRequest.builder()
                 .showtimeId("showtime-1")
                 .seatIds(List.of("s-a1", "s-a2"))
@@ -234,38 +303,115 @@ class BookingServiceSeatAdjacencyTest {
 
         BookingDetailResponse res = bookingService.createBooking(req);
         assertThat(res).isNotNull();
-        verify(seatHoldRepository, times(1)).saveAllAndFlush(anyList());
     }
 
     @Test
-    @DisplayName("Adjacency: Pre-existing orphan seat is not penalized if user does not create a new one")
-    void testCreateBooking_PreExistingOrphan_Success() {
-        // Row A: A1 (sold), A2 (available - isolated between sold A1 and sold A3!), A3 (sold), A4 (available), A5 (available)
+    @DisplayName("Case E: Booking multiple NON-adjacent seats that do not create orphans is allowed")
+    void testCaseE_NonAdjacentSeats_NoNewOrphan_Success() {
+        // Row A: A1, A2, A3, A4, A5, A6 (all available)
+        Seat a1 = createSeat("s-a1", "A", (short) 1, standardType);
+        Seat a2 = createSeat("s-a2", "A", (short) 2, standardType);
+        Seat a3 = createSeat("s-a3", "A", (short) 3, standardType);
+        Seat a4 = createSeat("s-a4", "A", (short) 4, standardType);
+        Seat a5 = createSeat("s-a5", "A", (short) 5, standardType);
+        Seat a6 = createSeat("s-a6", "A", (short) 6, standardType);
+
+        when(seatRepository.findByIdIn(Set.of("s-a1", "s-a6"))).thenReturn(List.of(a1, a6));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "A"))
+                .thenReturn(List.of(a1, a2, a3, a4, a5, a6));
+        when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        mockBookingSave();
+
+        // Customer selects A1 and A6 (NOT adjacent). Remaining: A2..A5 (continuous run of 4 seats). orphanBefore = 0, orphanAfter = 0 -> ALLOW
+        CreateBookingRequest req = CreateBookingRequest.builder()
+                .showtimeId("showtime-1")
+                .seatIds(List.of("s-a1", "s-a6"))
+                .build();
+
+        BookingDetailResponse res = bookingService.createBooking(req);
+        assertThat(res).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Case F: Selection leaves a single orphan at the end of the block -> REJECT")
+    void testCaseF_EndSelection_LeavesOrphanAtRowEnd_ThrowsException() {
+        // Row A: A1 (sold), A2 (available), A3 (available), A4 (available)
+        Seat a1 = createSeat("s-a1", "A", (short) 1, standardType);
+        Seat a2 = createSeat("s-a2", "A", (short) 2, standardType);
+        Seat a3 = createSeat("s-a3", "A", (short) 3, standardType);
+        Seat a4 = createSeat("s-a4", "A", (short) 4, standardType);
+
+        Ticket t1 = new Ticket(); t1.setSeat(a1);
+
+        when(seatRepository.findByIdIn(Set.of("s-a2", "s-a3"))).thenReturn(List.of(a2, a3));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "A"))
+                .thenReturn(List.of(a1, a2, a3, a4));
+        when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(List.of(t1));
+
+        // Customer selects A2, A3, leaving A4 alone at the end of row. orphanBefore = 0, orphanAfter = 1 -> REJECT
+        CreateBookingRequest req = CreateBookingRequest.builder()
+                .showtimeId("showtime-1")
+                .seatIds(List.of("s-a2", "s-a3"))
+                .build();
+
+        assertThatThrownBy(() -> bookingService.createBooking(req))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("ghế trống đơn lẻ")
+                .hasMessageContaining("hàng A");
+    }
+
+    @Test
+    @DisplayName("Case G: Selection leaves a single orphan at the start of the block -> REJECT")
+    void testCaseG_StartSelection_LeavesOrphanAtRowStart_ThrowsException() {
+        // Row A: A1 (available), A2 (available), A3 (available), A4 (sold)
+        Seat a1 = createSeat("s-a1", "A", (short) 1, standardType);
+        Seat a2 = createSeat("s-a2", "A", (short) 2, standardType);
+        Seat a3 = createSeat("s-a3", "A", (short) 3, standardType);
+        Seat a4 = createSeat("s-a4", "A", (short) 4, standardType);
+
+        Ticket t4 = new Ticket(); t4.setSeat(a4);
+
+        when(seatRepository.findByIdIn(Set.of("s-a2", "s-a3"))).thenReturn(List.of(a2, a3));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "A"))
+                .thenReturn(List.of(a1, a2, a3, a4));
+        when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(List.of(t4));
+
+        // Customer selects A2, A3, leaving A1 alone at the start of row. orphanBefore = 0, orphanAfter = 1 -> REJECT
+        CreateBookingRequest req = CreateBookingRequest.builder()
+                .showtimeId("showtime-1")
+                .seatIds(List.of("s-a2", "s-a3"))
+                .build();
+
+        assertThatThrownBy(() -> bookingService.createBooking(req))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("ghế trống đơn lẻ")
+                .hasMessageContaining("hàng A");
+    }
+
+    @Test
+    @DisplayName("Case H: Pre-existing orphan seat is tolerated when selection does not create new orphans -> ALLOW")
+    void testCaseH_PreExistingOrphan_Tolerated_Success() {
+        // Row A: A1 (sold), A2 (available - isolated), A3 (sold), A4 (available), A5 (available)
         Seat a1 = createSeat("s-a1", "A", (short) 1, standardType);
         Seat a2 = createSeat("s-a2", "A", (short) 2, standardType);
         Seat a3 = createSeat("s-a3", "A", (short) 3, standardType);
         Seat a4 = createSeat("s-a4", "A", (short) 4, standardType);
         Seat a5 = createSeat("s-a5", "A", (short) 5, standardType);
 
-        Ticket soldTicket1 = new Ticket();
-        soldTicket1.setSeat(a1);
-        Ticket soldTicket3 = new Ticket();
-        soldTicket3.setSeat(a3);
+        Ticket t1 = new Ticket(); t1.setSeat(a1);
+        Ticket t3 = new Ticket(); t3.setSeat(a3);
 
         when(seatRepository.findByIdIn(Set.of("s-a4", "s-a5"))).thenReturn(List.of(a4, a5));
         when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "A"))
                 .thenReturn(List.of(a1, a2, a3, a4, a5));
         when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
-        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(List.of(soldTicket1, soldTicket3));
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(List.of(t1, t3));
+        mockBookingSave();
 
-        when(bookingRepository.saveAndFlush(any(Booking.class))).thenAnswer(inv -> {
-            Booking b = inv.getArgument(0);
-            b.setId("booking-new");
-            b.setCreatedAt(LocalDateTime.now());
-            return b;
-        });
-
-        // User books A4 and A5. Before: A2 was already orphan (count=1). After: A2 is still orphan (count=1). No new orphan!
+        // Customer books A4, A5. orphanBefore = 1 (A2), orphanAfter = 1 (A2). No new orphan -> ALLOW
         CreateBookingRequest req = CreateBookingRequest.builder()
                 .showtimeId("showtime-1")
                 .seatIds(List.of("s-a4", "s-a5"))
@@ -276,8 +422,8 @@ class BookingServiceSeatAdjacencyTest {
     }
 
     @Test
-    @DisplayName("Adjacency: Couple seat (capacity 2) remaining alone does NOT count as a single orphan seat")
-    void testCreateBooking_CoupleSeatRemaining_Success() {
+    @DisplayName("Case I: Empty Couple seat (capacity 2) remaining does NOT count as a single orphan seat -> ALLOW")
+    void testCaseI_CoupleSeat_RemainingCapacityTwo_NotOrphan_Success() {
         // Row C: C1 (seatNumber 1, cap 2), C2 (seatNumber 3, cap 2)
         Seat c1 = createSeat("s-c1", "C", (short) 1, coupleType);
         Seat c2 = createSeat("s-c2", "C", (short) 3, coupleType);
@@ -287,18 +433,67 @@ class BookingServiceSeatAdjacencyTest {
                 .thenReturn(List.of(c1, c2));
         when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
         when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        mockBookingSave();
 
-        when(bookingRepository.saveAndFlush(any(Booking.class))).thenAnswer(inv -> {
-            Booking b = inv.getArgument(0);
-            b.setId("booking-new");
-            b.setCreatedAt(LocalDateTime.now());
-            return b;
-        });
-
-        // User books C1. C2 remains available (capacity 2). No single orphan seat!
+        // Customer books C1. Remaining: C2 (capacity 2). orphanBefore = 0, orphanAfter = 0 -> ALLOW
         CreateBookingRequest req = CreateBookingRequest.builder()
                 .showtimeId("showtime-1")
                 .seatIds(List.of("s-c1"))
+                .build();
+
+        BookingDetailResponse res = bookingService.createBooking(req);
+        assertThat(res).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Case J: Aisle boundary partitions row into independent blocks")
+    void testCaseJ_AisleBoundary_EvaluatedIndependently() {
+        // Row A: A1 (seat 1), A2 (seat 2) | aisle (gap to 5) | A5 (seat 5), A6 (seat 6)
+        Seat a1 = createSeat("s-a1", "A", (short) 1, standardType);
+        Seat a2 = createSeat("s-a2", "A", (short) 2, standardType);
+        Seat a5 = createSeat("s-a5", "A", (short) 5, standardType);
+        Seat a6 = createSeat("s-a6", "A", (short) 6, standardType);
+
+        when(seatRepository.findByIdIn(Set.of("s-a2"))).thenReturn(List.of(a2));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "A"))
+                .thenReturn(List.of(a1, a2, a5, a6));
+        when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+
+        // In Block 1 (A1, A2), booking A2 leaves A1 as an orphan! Even though A5 is in row A, aisle separates them.
+        CreateBookingRequest req = CreateBookingRequest.builder()
+                .showtimeId("showtime-1")
+                .seatIds(List.of("s-a2"))
+                .build();
+
+        assertThatThrownBy(() -> bookingService.createBooking(req))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("ghế trống đơn lẻ")
+                .hasMessageContaining("hàng A");
+    }
+
+    @Test
+    @DisplayName("Case K: Broken/non-active seat creates block boundary and is not counted as sellable seat")
+    void testCaseK_BrokenSeatBoundary_NotCountedAsSellable() {
+        // Row A: A1 (ACTIVE), A2 (BROKEN - non-active), A3 (ACTIVE), A4 (ACTIVE)
+        Seat a1 = createSeat("s-a1", "A", (short) 1, standardType);
+        Seat a2 = createSeat("s-a2", "A", (short) 2, standardType);
+        a2.setStatus(SeatStatus.BROKEN);
+        Seat a3 = createSeat("s-a3", "A", (short) 3, standardType);
+        Seat a4 = createSeat("s-a4", "A", (short) 4, standardType);
+
+        when(seatRepository.findByIdIn(Set.of("s-a3", "s-a4"))).thenReturn(List.of(a3, a4));
+        when(seatRepository.findByAuditoriumIdAndRowLabelOrderBySeatNumberAsc("aud-1", "A"))
+                .thenReturn(List.of(a1, a2, a3, a4));
+        when(seatHoldRepository.findByShowtimeIdAndExpiresAtAfter(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        when(ticketRepository.findTicketsByShowtimeIdAndStatuses(eq("showtime-1"), any())).thenReturn(Collections.emptyList());
+        mockBookingSave();
+
+        // Customer books A3, A4. Block 1 (A1) has pre-existing orphan A1. Block 2 has A3, A4 which are fully booked.
+        // orphanBefore = 1 (A1), orphanAfter = 1 (A1). No new orphan -> ALLOW
+        CreateBookingRequest req = CreateBookingRequest.builder()
+                .showtimeId("showtime-1")
+                .seatIds(List.of("s-a3", "s-a4"))
                 .build();
 
         BookingDetailResponse res = bookingService.createBooking(req);

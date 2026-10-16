@@ -57,6 +57,8 @@ export interface ShowtimeDetailResponse {
   timeSlotModifier?: number
   pricingBreakdown?: import('./pricing.types').TicketPricingBreakdown
   status: ShowtimeStatus
+  hasBookings?: boolean
+  hasPaidTickets?: boolean
   createdAt: string
   updatedAt?: string
 }

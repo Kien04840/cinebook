@@ -32,6 +32,8 @@ public class ShowtimeDetailResponse {
     private BigDecimal timeSlotModifier;
     private TicketPricingBreakdown pricingBreakdown;
     private ShowtimeStatus status;
+    private Boolean hasBookings;
+    private Boolean hasPaidTickets;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

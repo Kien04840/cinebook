@@ -6,7 +6,7 @@ import { useI18n } from '@/composables/useI18n'
 import userService from '@/services/user.service'
 import authService from '@/services/auth.service'
 import type { UserProfileResponse } from '@/types/auth.types'
-import { formatDate } from '@/utils/formatters'
+import { formatDate, formatRole } from '@/utils/formatters'
 import Card from '@/components/common/Card.vue'
 import Badge from '@/components/common/Badge.vue'
 import Button from '@/components/common/Button.vue'
@@ -286,7 +286,7 @@ onUnmounted(() => {
                     : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30',
                 ]"
               >
-                {{ role }}
+                {{ formatRole(role) }}
               </span>
             </div>
           </div>

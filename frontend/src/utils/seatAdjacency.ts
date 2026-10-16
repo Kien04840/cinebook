@@ -53,7 +53,7 @@ export function validateSeatAdjacency(
     let currentBlock: ShowtimeSeatStatusResponse[] = []
 
     for (const seat of seatsInRow) {
-      const isBroken = seat.availabilityStatus === 'BLOCKED'
+      const isBroken = seat.availabilityStatus === 'BLOCKED' || (seat.seatStatus && seat.seatStatus !== 'ACTIVE')
       if (isBroken) {
         if (currentBlock.length > 0) {
           blocks.push(currentBlock)

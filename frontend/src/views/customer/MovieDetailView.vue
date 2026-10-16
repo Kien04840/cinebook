@@ -3,7 +3,7 @@ import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MovieDetailResponse } from '@/types/movie.types'
 import movieService from '@/services/movie.service'
-import { formatDuration, formatDate } from '@/utils/formatters'
+import { formatDuration, formatDate, formatLanguage } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import Badge from '@/components/common/Badge.vue'
 import Button from '@/components/common/Button.vue'
@@ -276,7 +276,7 @@ onMounted(() => {
 
                 <div v-if="movie.language">
                   <span class="block text-[11px] uppercase font-semibold text-slate-400">{{ t('movieDetail.language') }}</span>
-                  <span class="font-medium text-slate-200">{{ movie.language }}</span>
+                  <span class="font-medium text-slate-200">{{ formatLanguage(movie.language) }}</span>
                 </div>
               </div>
 

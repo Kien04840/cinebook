@@ -1,0 +1,58 @@
+warning: in the working copy of '.env.example', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.github/workflows/ci.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docker-compose.yml', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/booking/FoodSelection.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/common/NotificationBell.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/showtime/ShowtimeBrowser.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/showtime/ShowtimeEditModal.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/showtime/ShowtimeGenerateModal.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/layouts/DefaultLayout.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/locales/en.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/locales/vi.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/services/api.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/services/movie.service.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/services/report.service.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/api.types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/booking.types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/movie.types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/notification.types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/promotion.types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/report.types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/types/showtime.types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/utils/constants.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/utils/formatters.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/utils/seatAdjacency.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/views/admin/AdminPromotionsView.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/views/admin/AdminRefundsView.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/views/customer/HomeView.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/views/customer/MovieDetailView.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/views/customer/MyBookingsView.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/views/customer/PaymentResultView.vue', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/main/java/com/cinebook/dto/response/NotificationResponse.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/main/java/com/cinebook/enums/NotificationType.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/main/java/com/cinebook/service/impl/EmailServiceImpl.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/main/java/com/cinebook/service/impl/ShowtimeSchedulingServiceImpl.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/test/java/com/cinebook/controller/NotificationControllerTest.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/test/java/com/cinebook/exception/GlobalExceptionHandlerTest.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/test/java/com/cinebook/service/AuditoriumNormalizationLiveIntegrationTest.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/test/java/com/cinebook/service/BookingFoodIntegrationTest.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/test/java/com/cinebook/service/BookingPaymentResumeIntegrationTest.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/test/java/com/cinebook/service/BookingServiceSeatAdjacencyTest.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/test/java/com/cinebook/service/EmailServiceTest.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/test/java/com/cinebook/service/ReportServiceTest.java', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/test/java/com/cinebook/service/VnPayUrlInspectionTest.java', LF will be replaced by CRLF the next time Git touches it
+docs/database.md:400: trailing whitespace.
+[32m+[m[32m**Cardinality**: One payment has at most one refund (`uk_refunds_payment`).[m[41m  [m
+src/main/java/com/cinebook/repository/BookingRepository.java:63: trailing whitespace.
+[32m+[m[41m [m
+src/main/java/com/cinebook/repository/ShowtimeRepository.java:193: trailing whitespace.
+[32m+[m[32m        SELECT[m[41m [m
+src/main/java/com/cinebook/repository/ShowtimeRepository.java:225: trailing whitespace.
+[32m+[m[32m        SELECT[m[41m [m
+src/main/java/com/cinebook/service/impl/ShowtimeServiceImpl.java:342: trailing whitespace.
+[32m+[m[32m     *[m[41m [m
+src/main/java/com/cinebook/service/impl/ShowtimeServiceImpl.java:346: trailing whitespace.
+[32m+[m[32m     *[m[41m [m
+src/main/java/com/cinebook/service/impl/ShowtimeServiceImpl.java:352: trailing whitespace.
+[32m+[m[32m     *[m[41m [m
+src/test/java/com/cinebook/service/ReportServiceTest.java:487: new blank line at EOF.

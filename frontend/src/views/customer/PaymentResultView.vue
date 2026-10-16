@@ -118,8 +118,14 @@ async function processPaymentReturn() {
   errorMessage.value = ''
 
   try {
-    // 1. Process Return parameters from VNPay redirect
-    const returnParams = { ...route.query }
+    // 1. Process Return parameters from VNPay redirect (only include vnp_ prefixed parameters)
+    const returnParams: Record<string, string> = {}
+    for (const [key, val] of Object.entries(route.query)) {
+      if (key.startsWith('vnp_') && typeof val === 'string') {
+        returnParams[key] = val
+      }
+    }
+
     if (Object.keys(returnParams).length === 0) {
       errorMessage.value = t('paymentResult.missingParamsError')
       isLoading.value = false
@@ -134,8 +140,12 @@ async function processPaymentReturn() {
       await fetchBookingDetail(res.bookingId)
     }
   } catch (err: any) {
-    errorMessage.value =
-      err.response?.data?.message || t('paymentResult.invalidSignatureError')
+    if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+      errorMessage.value = t('paymentResult.timeoutError')
+    } else {
+      errorMessage.value =
+        err.response?.data?.message || t('paymentResult.invalidSignatureError')
+    }
   } finally {
     isLoading.value = false
   }

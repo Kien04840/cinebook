@@ -227,4 +227,21 @@ class GlobalExceptionHandlerTest {
         assertEquals("FORBIDDEN", forbidden.getCode());
         assertEquals(HttpStatus.FORBIDDEN, forbidden.getStatus());
     }
+
+    @Test
+    @DisplayName("ErrorResponse binds correlationId from SLF4J MDC when present")
+    void handleException_PopulatesCorrelationIdFromMdc() {
+        String testCorrelationId = "cid-test-456-789";
+        org.slf4j.MDC.put(com.cinebook.security.CorrelationIdFilter.MDC_CORRELATION_ID_KEY, testCorrelationId);
+        try {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/test/bad-credentials");
+            BadCredentialsException ex = new BadCredentialsException("Bad password");
+            ResponseEntity<ErrorResponse> response = exceptionHandler.handleBadCredentialsException(ex, request);
+
+            assertNotNull(response.getBody());
+            assertEquals(testCorrelationId, response.getBody().getCorrelationId());
+        } finally {
+            org.slf4j.MDC.clear();
+        }
+    }
 }

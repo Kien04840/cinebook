@@ -218,5 +218,80 @@ class VnPayServiceTest {
         params.put("vnp_SecureHash", hash);
         assertThat(vnPayService.verifySignature(params, hash)).isTrue();
     }
+
+    @Test
+    @DisplayName("verifySignature - Full VNPay Sandbox Return dataset with ResponseCode=00 and TransactionStatus=00")
+    void testVerifySignature_VnPaySandboxReturn_ResponseCode00_TransactionStatus00() {
+        Map<String, String> params = new HashMap<>();
+        params.put("vnp_Amount", "62000000");
+        params.put("vnp_BankCode", "NCB");
+        params.put("vnp_BankTranNo", "VNP14987654");
+        params.put("vnp_CardType", "ATM");
+        params.put("vnp_OrderInfo", "Thanh toan ve xem phim CB-20261002-157573");
+        params.put("vnp_PayDate", "20261002195804");
+        params.put("vnp_ResponseCode", "00");
+        params.put("vnp_TmnCode", TEST_TMN_CODE);
+        params.put("vnp_TransactionNo", "14987654");
+        params.put("vnp_TransactionStatus", "00");
+        params.put("vnp_TxnRef", "PAY-20261002-151238");
+        params.put("vnp_SecureHashType", "HMACSHA512");
+
+        String secureHash = vnPayService.calculateHmacSha512(params, TEST_HASH_SECRET);
+        params.put("vnp_SecureHash", secureHash);
+
+        assertThat(vnPayService.verifySignature(params, secureHash)).isTrue();
+    }
+
+    @Test
+    @DisplayName("verifySignature - Non-vnp parameters from browser/query are ignored and do not corrupt signature")
+    void testVerifySignature_IgnoresNonVnpParameters() {
+        Map<String, String> params = new HashMap<>();
+        params.put("vnp_Amount", "62000000");
+        params.put("vnp_BankCode", "NCB");
+        params.put("vnp_OrderInfo", "Thanh toan ve xem phim");
+        params.put("vnp_ResponseCode", "00");
+        params.put("vnp_TransactionStatus", "00");
+        params.put("vnp_TmnCode", TEST_TMN_CODE);
+        params.put("vnp_TxnRef", "PAY-20261002-151238");
+
+        String secureHash = vnPayService.calculateHmacSha512(params, TEST_HASH_SECRET);
+        params.put("vnp_SecureHash", secureHash);
+
+        // Add non-vnp query parameters that might come from frontend/router/analytics
+        params.put("utm_source", "facebook");
+        params.put("redirect_uri", "/payment/result");
+        params.put("t", "1727838000");
+
+        assertThat(vnPayService.verifySignature(params, secureHash)).isTrue();
+    }
+
+    @Test
+    @DisplayName("verifySignature - Tampered/invalid hash returns false")
+    void testVerifySignature_TamperedHash_ReturnsFalse() {
+        Map<String, String> params = new HashMap<>();
+        params.put("vnp_Amount", "62000000");
+        params.put("vnp_ResponseCode", "00");
+        params.put("vnp_TransactionStatus", "00");
+        params.put("vnp_TmnCode", TEST_TMN_CODE);
+        params.put("vnp_TxnRef", "PAY-20261002-151238");
+
+        String validHash = vnPayService.calculateHmacSha512(params, TEST_HASH_SECRET);
+        String corruptedHash = validHash.substring(0, validHash.length() - 2) + "00";
+
+        assertThat(vnPayService.verifySignature(params, corruptedHash)).isFalse();
+    }
+
+    @Test
+    @DisplayName("verifySignature - Missing/null hash returns false safely without throwing exception")
+    void testVerifySignature_NullOrEmptyHash_ReturnsFalse() {
+        Map<String, String> params = new HashMap<>();
+        params.put("vnp_Amount", "62000000");
+        params.put("vnp_TxnRef", "PAY-20261002-151238");
+
+        assertThat(vnPayService.verifySignature(params, null)).isFalse();
+        assertThat(vnPayService.verifySignature(params, "")).isFalse();
+        assertThat(vnPayService.verifySignature(params, "   ")).isFalse();
+        assertThat(vnPayService.verifySignature(null, "some_hash")).isFalse();
+    }
 }
 

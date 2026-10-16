@@ -91,7 +91,7 @@ public class AuthController {
             @Valid @RequestBody PasswordResetRequest request
     ) {
         authService.requestPasswordReset(request);
-        return ResponseEntity.ok(new MessageResponse("If the account exists, a password reset email has been sent"));
+        return ResponseEntity.ok(new MessageResponse("Nếu tài khoản tồn tại, hướng dẫn đặt lại mật khẩu đã được gửi đến email của bạn."));
     }
 
     /**
@@ -103,7 +103,7 @@ public class AuthController {
             @Valid @RequestBody PasswordResetConfirmRequest request
     ) {
         authService.confirmPasswordReset(request);
-        return ResponseEntity.ok(new MessageResponse("Password has been reset successfully"));
+        return ResponseEntity.ok(new MessageResponse("Đặt lại mật khẩu thành công."));
     }
 
     /**
@@ -115,7 +115,7 @@ public class AuthController {
             @Valid @RequestBody VerifyEmailRequest request
     ) {
         authService.verifyEmail(request.getToken());
-        return ResponseEntity.ok(new MessageResponse("Email has been verified successfully"));
+        return ResponseEntity.ok(new MessageResponse("Xác thực email thành công."));
     }
 
     /**
@@ -127,7 +127,7 @@ public class AuthController {
             @Valid @RequestBody ResendVerificationRequest request
     ) {
         authService.resendVerificationEmail(request.getEmail());
-        return ResponseEntity.ok(new MessageResponse("If your email is registered and eligible, a verification link has been sent"));
+        return ResponseEntity.ok(new MessageResponse("Nếu email đã được đăng ký và đủ điều kiện, liên kết xác thực đã được gửi đến hộp thư của bạn."));
     }
 }
 

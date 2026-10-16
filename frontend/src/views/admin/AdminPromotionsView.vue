@@ -250,10 +250,14 @@ async function handleToggleStatus(promo: PromotionResponse) {
   }
 }
 
-function getStatusBadgeVariant(status: PromotionStatus): 'success' | 'danger' | 'neutral' {
+function getStatusBadgeVariant(status: PromotionStatus): 'success' | 'danger' | 'warning' | 'info' | 'neutral' {
   switch (status) {
     case 'ACTIVE':
       return 'success'
+    case 'PAUSED':
+      return 'warning'
+    case 'DRAFT':
+      return 'info'
     case 'INACTIVE':
       return 'danger'
     case 'EXPIRED':
@@ -310,7 +314,7 @@ onMounted(() => {
       <!-- Status Filter Tabs -->
       <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
         <button
-          v-for="status in ['ALL', 'ACTIVE', 'INACTIVE', 'EXPIRED']"
+          v-for="status in ['ALL', 'ACTIVE', 'PAUSED', 'DRAFT', 'EXPIRED', 'INACTIVE']"
           :key="status"
           type="button"
           :class="[
@@ -321,7 +325,7 @@ onMounted(() => {
           ]"
           @click="handleStatusFilter(status)"
         >
-          {{ status === 'ALL' ? 'Tất cả' : status }}
+          {{ status === 'ALL' ? 'Tất cả' : formatStatus(status) }}
         </button>
       </div>
     </div>

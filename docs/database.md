@@ -327,7 +327,7 @@ Managed authoritatively by `PricingService`. Time slot rules match half-open int
 | updated_at           | datetime       | NOT NULL                           |
 | version              | bigint         | optimistic lock                    |
 
-**Indexes**: user+created, showtime+status, hold_expires_at, `uk_bookings_check_in_code` (check_in_code)
+**Indexes**: user+created, showtime+status, hold_expires_at, idx_bookings_created_status (created_at, booking_status), `uk_bookings_check_in_code` (check_in_code)
 
 #### `seat_holds`
 | Column      | Type               | Notes                              |
@@ -382,6 +382,8 @@ Managed authoritatively by `PricingService`. Time slot rules match half-open int
 | created_at             | datetime       | NOT NULL                           |
 | updated_at             | datetime       | NOT NULL                           |
 
+**Indexes**: `uk_payments_payment_code`, `idx_payments_booking_id`, `idx_payments_status_paid` (payment_status, paid_at, amount)
+
 #### `refunds`
 | Column            | Type           | Notes                              |
 |-------------------|----------------|------------------------------------|
@@ -395,7 +397,8 @@ Managed authoritatively by `PricingService`. Time slot rules match half-open int
 | processed_at      | datetime       |                                    |
 | created_at        | datetime       | NOT NULL                           |
 
-**Cardinality**: One payment has at most one refund (`uk_refunds_payment`).
+**Cardinality**: One payment has at most one refund (`uk_refunds_payment`).  
+**Indexes**: `uk_refunds_payment`, `uk_refunds_refund_code`, `idx_refunds_status_processed` (refund_status, processed_at, amount)
 
 ---
 
@@ -604,10 +607,14 @@ From `AGENTS.md`:
 
 Non-destructive additive changes required by a feature may be implemented when consistent with the existing design.
 
-### 9.1 Phase 4 Schema Impact (Business Analytics & Reporting)
+### 9.1 Reporting & Analytics Performance Optimization (Migration V1.5)
 
-Phase 4 (4.1 Report Export XLSX/CSV & 4.2 Final System Audit) introduces **zero database schema modifications** (no new tables, columns, constraints, or indexes).
-All analytics, dashboard aggregates, and report exports operate strictly as read-only projections and native SQL aggregations over the existing 29 JPA entities (`payments`, `refunds`, `bookings`, `tickets`, `showtimes`, `auditoriums`, `cinemas`, `seats`, `movies`, `users`, etc.).
+Migration `V1_5__add_reporting_performance_indexes.sql` introduces non-destructive composite covering indexes to accelerate analytical range filtering and aggregation across large historical datasets (50,000+ bookings, 100,000+ tickets, 50,000+ payments):
+- `idx_payments_status_paid`: `payments(payment_status, paid_at, amount)` — Enables index-only scans for revenue calculations and date grouping without accessing table data pages.
+- `idx_refunds_status_processed`: `refunds(refund_status, processed_at, amount)` — Optimizes refund deductions for net financial metrics.
+- `idx_bookings_created_status`: `bookings(created_at, booking_status)` — Accelerates booking volume time-series queries and status distribution breakdowns.
+
+All analytics, dashboard aggregates, and report exports operate strictly as read-only projections and native SQL aggregations over the existing 29 JPA entities.
 
 ---
 

@@ -1,6 +1,6 @@
 import apiClient from './api'
 import type { PageResponse } from '@/types/api.types'
-import type { MovieSummaryResponse, MovieDetailResponse, MovieQuery, MovieRecommendationResponse } from '@/types/movie.types'
+import type { MovieSummaryResponse, MovieDetailResponse, MovieQuery, MovieRecommendationResponse, MovieSuggestionResponse } from '@/types/movie.types'
 
 export const movieService = {
   async getPublicMovies(query: MovieQuery = {}): Promise<PageResponse<MovieSummaryResponse>> {
@@ -43,6 +43,14 @@ export const movieService = {
     return response.data
   },
 
+  async getSuggestions(keyword: string, limit = 6): Promise<MovieSuggestionResponse[]> {
+    if (!keyword || !keyword.trim()) return []
+    const response = await apiClient.get<MovieSuggestionResponse[]>('/api/v1/movies/search/suggestion', {
+      params: { keyword: keyword.trim(), limit },
+    })
+    return response.data
+  },
+
   // Admin
   async getAdminMovies(params?: {
     q?: string
@@ -56,6 +64,11 @@ export const movieService = {
     const response = await apiClient.get<PageResponse<MovieSummaryResponse>>('/api/v1/admin/movies', {
       params,
     })
+    return response.data
+  },
+
+  async getAdminMovieDetail(id: string): Promise<MovieDetailResponse> {
+    const response = await apiClient.get<MovieDetailResponse>(`/api/v1/admin/movies/${id}`)
     return response.data
   },
 

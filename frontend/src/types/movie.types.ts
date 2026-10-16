@@ -53,4 +53,12 @@ export interface MovieRecommendationResponse {
   movies: MovieSummaryResponse[]
 }
 
+export interface MovieSuggestionResponse {
+  id: string
+  title: string
+  posterUrl?: string | null
+  durationMinutes?: number | null
+  releaseDate?: string | null
+}
+
 

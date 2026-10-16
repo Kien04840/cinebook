@@ -64,6 +64,9 @@ class DemoPaymentIntegrationTest {
     private EmailService emailService;
 
     @Mock
+    private NotificationService notificationService;
+
+    @Mock
     private BookingService bookingService;
 
     private VnPayConfig vnPayConfig;
@@ -104,7 +107,8 @@ class DemoPaymentIntegrationTest {
                 ticketRepository,
                 bookingMapper,
                 refundMapper,
-                emailService
+                emailService,
+                notificationService
         );
 
         demoPaymentController = new DemoPaymentController(

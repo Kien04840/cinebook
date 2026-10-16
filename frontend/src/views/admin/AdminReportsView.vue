@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import reportService from '@/services/report.service'
 import type {
   DashboardResponse,
@@ -12,7 +12,7 @@ import type {
   ReportFormat,
   DateFilterPreset,
 } from '@/types/report.types'
-import { formatCurrency, formatNumber, formatPercent, formatDateTime } from '@/utils/formatters'
+import { formatCurrency, formatCompactCurrency, formatNumber, formatPercent, formatDateTime } from '@/utils/formatters'
 import { useI18n } from '@/composables/useI18n'
 import Card from '@/components/common/Card.vue'
 import Button from '@/components/common/Button.vue'
@@ -95,16 +95,24 @@ function setPeriod(preset: DateFilterPreset) {
       customToDate.value = formatDateToYMD(now)
     }
   }
+
+  if (preset !== 'custom') {
+    loadAllReports()
+  }
 }
 
-function onCustomDateChange() {
+let activeAbortController: AbortController | null = null
+
+function applyCustomDateFilter() {
   dateValidationError.value = ''
-  if (customFromDate.value && customToDate.value) {
-    if (customFromDate.value > customToDate.value) {
-      dateValidationError.value = t('adminReports.dateRangeError')
-      toast.warning(t('adminReports.dateRangeError'))
-      return
-    }
+  if (!customFromDate.value || !customToDate.value) {
+    dateValidationError.value = 'Vui lòng chọn đầy đủ ngày bắt đầu và kết thúc.'
+    return
+  }
+  if (customFromDate.value > customToDate.value) {
+    dateValidationError.value = t('adminReports.dateRangeError')
+    toast.warning(t('adminReports.dateRangeError'))
+    return
   }
   loadAllReports()
 }
@@ -116,6 +124,15 @@ function calculateDateRange() {
   }
 }
 
+function isAbortError(err: any): boolean {
+  return (
+    err?.name === 'CanceledError' ||
+    err?.name === 'AbortError' ||
+    err?.code === 'ERR_CANCELED' ||
+    err?.message === 'canceled'
+  )
+}
+
 async function loadAllReports() {
   if (selectedPeriod.value === 'custom') {
     if (customFromDate.value && customToDate.value && customFromDate.value > customToDate.value) {
@@ -124,6 +141,14 @@ async function loadAllReports() {
     }
   }
 
+  // Cancel prior in-flight batch
+  if (activeAbortController) {
+    activeAbortController.abort()
+  }
+  const controller = new AbortController()
+  activeAbortController = controller
+  const signal = controller.signal
+
   isLoading.value = true
   errorMessage.value = ''
 
@@ -131,13 +156,33 @@ async function loadAllReports() {
 
   try {
     const [dash, rev, mov, cin, uStats, occ] = await Promise.all([
-      reportService.getDashboardSummary(from, to).catch(() => null),
-      reportService.getRevenueTrend(from, to, groupBy.value).catch(() => []),
-      reportService.getMovieReport(from, to, movieSortBy.value, 10).catch(() => []),
-      reportService.getCinemaReport(from, to, 'REVENUE', 10).catch(() => []),
-      reportService.getUserStatistics(from, to).catch(() => null),
-      reportService.getShowtimeOccupancy({ from, to, page: occupancyPage.value, size: 10 }).catch(() => ({ content: [], totalPages: 0 })),
+      reportService.getDashboardSummary(from, to, signal).catch((err) => {
+        if (!isAbortError(err)) console.error(err)
+        return null
+      }),
+      reportService.getRevenueTrend(from, to, groupBy.value, signal).catch((err) => {
+        if (!isAbortError(err)) console.error(err)
+        return []
+      }),
+      reportService.getMovieReport(from, to, movieSortBy.value, 10, signal).catch((err) => {
+        if (!isAbortError(err)) console.error(err)
+        return []
+      }),
+      reportService.getCinemaReport(from, to, 'REVENUE', 10, signal).catch((err) => {
+        if (!isAbortError(err)) console.error(err)
+        return []
+      }),
+      reportService.getUserStatistics(from, to, signal).catch((err) => {
+        if (!isAbortError(err)) console.error(err)
+        return null
+      }),
+      reportService.getShowtimeOccupancy({ from, to, page: occupancyPage.value, size: 10 }, signal).catch((err) => {
+        if (!isAbortError(err)) console.error(err)
+        return { content: [], totalPages: 0 }
+      }),
     ])
+
+    if (signal.aborted) return
 
     dashboardData.value = dash
     revenueData.value = rev || []
@@ -147,9 +192,37 @@ async function loadAllReports() {
     occupancyData.value = occ?.content || []
     occupancyTotalPages.value = occ?.totalPages || 0
   } catch (err: any) {
-    errorMessage.value = err.response?.data?.message || t('common.errorTitle')
+    if (!isAbortError(err)) {
+      errorMessage.value = err.response?.data?.message || t('common.errorTitle')
+    }
   } finally {
-    isLoading.value = false
+    if (activeAbortController === controller) {
+      isLoading.value = false
+    }
+  }
+}
+
+async function loadRevenueOnly() {
+  const { from, to } = calculateDateRange()
+  try {
+    const rev = await reportService.getRevenueTrend(from, to, groupBy.value)
+    revenueData.value = rev || []
+  } catch (err: any) {
+    if (!isAbortError(err)) {
+      toast.error(err.response?.data?.message || t('common.errorTitle'))
+    }
+  }
+}
+
+async function loadMoviesOnly() {
+  const { from, to } = calculateDateRange()
+  try {
+    const mov = await reportService.getMovieReport(from, to, movieSortBy.value, 10)
+    moviesData.value = mov || []
+  } catch (err: any) {
+    if (!isAbortError(err)) {
+      toast.error(err.response?.data?.message || t('common.errorTitle'))
+    }
   }
 }
 
@@ -162,9 +235,17 @@ async function loadOccupancyPage(page: number) {
     occupancyData.value = occ?.content || []
     occupancyTotalPages.value = occ?.totalPages || 0
   } catch (err: any) {
-    toast.error(err.response?.data?.message || t('common.errorTitle'))
+    if (!isAbortError(err)) {
+      toast.error(err.response?.data?.message || t('common.errorTitle'))
+    }
   }
 }
+
+onBeforeUnmount(() => {
+  if (activeAbortController) {
+    activeAbortController.abort()
+  }
+})
 
 // Chart computed properties
 const revenueChartLabels = ref<string[]>([])
@@ -190,21 +271,25 @@ watch(revenueData, (data) => {
 
 const movieBarItems = ref<any[]>([])
 watch([moviesData, movieSortBy], () => {
-  movieBarItems.value = moviesData.value.map((m) => ({
-    label: m.movieTitle,
-    value: movieSortBy.value === 'REVENUE' ? m.totalRevenue : m.ticketsSold,
-    subValue: movieSortBy.value === 'REVENUE'
-      ? `${formatNumber(m.ticketsSold)} ${t('adminReports.unitTickets')}`
-      : formatCurrency(m.totalRevenue),
-    color: '#6366f1',
-  }))
+  movieBarItems.value = moviesData.value.map((m) => {
+    const rev = m.totalRevenue ?? m.netRevenue ?? 0
+    const tix = m.ticketsSold ?? m.netTicketsSold ?? 0
+    return {
+      label: m.movieTitle,
+      value: movieSortBy.value === 'REVENUE' ? rev : tix,
+      subValue: movieSortBy.value === 'REVENUE'
+        ? `${formatNumber(tix)} ${t('adminReports.unitTickets')}`
+        : formatCurrency(rev),
+      color: '#6366f1',
+    }
+  })
 }, { immediate: true })
 
 const cinemaChartLabels = ref<string[]>([])
 const cinemaChartValues = ref<number[]>([])
 watch(cinemasData, (data) => {
   cinemaChartLabels.value = data.map((c) => c.cinemaName)
-  cinemaChartValues.value = data.map((c) => c.totalRevenue)
+  cinemaChartValues.value = data.map((c) => c.totalRevenue ?? c.netRevenue ?? 0)
 }, { immediate: true })
 
 const bookingStatusSegments = ref<any[]>([])
@@ -251,15 +336,16 @@ async function handleExport(format: ReportFormat) {
   }
 }
 
-watch([selectedPeriod, groupBy, movieSortBy], () => {
-  if (selectedPeriod.value !== 'custom') {
-    loadAllReports()
-  }
+watch(groupBy, () => {
+  loadRevenueOnly()
+})
+
+watch(movieSortBy, () => {
+  loadMoviesOnly()
 })
 
 onMounted(() => {
   setPeriod('7d')
-  loadAllReports()
 })
 </script>
 
@@ -545,7 +631,7 @@ onMounted(() => {
                 type="date"
                 class="px-2.5 py-1 rounded-md bg-slate-900 border text-white focus:outline-none focus:border-indigo-500 font-mono text-xs"
                 :class="dateValidationError ? 'border-rose-500 focus:border-rose-500' : 'border-slate-800'"
-                @change="onCustomDateChange"
+                @keyup.enter="applyCustomDateFilter"
               />
               <span class="text-slate-400 font-medium">{{ t('adminReports.toDate') }}:</span>
               <input
@@ -553,8 +639,17 @@ onMounted(() => {
                 type="date"
                 class="px-2.5 py-1 rounded-md bg-slate-900 border text-white focus:outline-none focus:border-indigo-500 font-mono text-xs"
                 :class="dateValidationError ? 'border-rose-500 focus:border-rose-500' : 'border-slate-800'"
-                @change="onCustomDateChange"
+                @keyup.enter="applyCustomDateFilter"
               />
+              <Button
+                variant="primary"
+                size="sm"
+                :loading="isLoading"
+                :disabled="isLoading"
+                @click="applyCustomDateFilter"
+              >
+                {{ t('Áp dụng') || 'Áp dụng' }}
+              </Button>
             </div>
             <span v-if="dateValidationError" class="text-xs text-rose-400 font-medium">
               {{ dateValidationError }}
@@ -598,8 +693,10 @@ onMounted(() => {
           :labels="revenueChartLabels"
           :series="revenueChartSeries"
           :height="300"
-          :y-axis-format="formatCurrency"
+          :y-axis-format="formatCompactCurrency"
           :y-axis-right-format="formatNumber"
+          :tooltip-format="formatCurrency"
+          :tooltip-right-format="formatNumber"
           :empty-text="t('adminReports.emptyDataPeriod')"
         />
       </Card>
@@ -689,8 +786,8 @@ onMounted(() => {
                 <tr v-for="(m, idx) in moviesData" :key="m.movieId" class="hover:bg-slate-900/30 transition-colors">
                   <td class="px-4 py-3 font-mono font-bold text-indigo-400">#{{ idx + 1 }}</td>
                   <td class="px-4 py-3 font-medium text-white">{{ m.movieTitle }}</td>
-                  <td class="px-4 py-3 text-right font-mono">{{ formatNumber(m.ticketsSold) }}</td>
-                  <td class="px-4 py-3 text-right font-mono font-semibold text-emerald-400">{{ formatCurrency(m.totalRevenue) }}</td>
+                  <td class="px-4 py-3 text-right font-mono">{{ formatNumber(m.ticketsSold ?? m.netTicketsSold ?? 0) }}</td>
+                  <td class="px-4 py-3 text-right font-mono font-semibold text-emerald-400">{{ formatCurrency(m.totalRevenue ?? m.netRevenue ?? 0) }}</td>
                 </tr>
                 <tr v-if="moviesData.length === 0">
                   <td colspan="4" class="px-4 py-8 text-center text-slate-500">
@@ -726,8 +823,9 @@ onMounted(() => {
           v-else
           :labels="cinemaChartLabels"
           :values="cinemaChartValues"
-          :height="280"
-          :value-format="formatCurrency"
+          :height="290"
+          :value-format="formatCompactCurrency"
+          :tooltip-format="formatCurrency"
           :empty-text="t('adminReports.emptyDataPeriod')"
         />
       </Card>
@@ -762,9 +860,9 @@ onMounted(() => {
                   <td class="px-4 py-3 font-mono font-bold text-indigo-400">#{{ idx + 1 }}</td>
                   <td class="px-4 py-3 font-medium text-white">{{ c.cinemaName }}</td>
                   <td class="px-4 py-3 text-slate-400">{{ c.city }}</td>
-                  <td class="px-4 py-3 text-right font-mono">{{ formatNumber(c.totalShowtimes) }}</td>
-                  <td class="px-4 py-3 text-right font-mono">{{ formatNumber(c.ticketsSold) }}</td>
-                  <td class="px-4 py-3 text-right font-mono font-semibold text-emerald-400">{{ formatCurrency(c.totalRevenue) }}</td>
+                  <td class="px-4 py-3 text-right font-mono">{{ formatNumber(c.totalShowtimes ?? 0) }}</td>
+                  <td class="px-4 py-3 text-right font-mono">{{ formatNumber(c.ticketsSold ?? c.netTicketsSold ?? 0) }}</td>
+                  <td class="px-4 py-3 text-right font-mono font-semibold text-emerald-400">{{ formatCurrency(c.totalRevenue ?? c.netRevenue ?? 0) }}</td>
                 </tr>
                 <tr v-if="cinemasData.length === 0">
                   <td colspan="6" class="px-4 py-8 text-center text-slate-500">

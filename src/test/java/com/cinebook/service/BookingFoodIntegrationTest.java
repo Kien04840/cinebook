@@ -282,4 +282,49 @@ class BookingFoodIntegrationTest {
         assertThrows(BadRequestException.class, () -> bookingService.createBooking(request));
         verify(bookingRepository, never()).saveAndFlush(any());
     }
+
+    @Test
+    @DisplayName("Booking entity defensive setters and helpers should mutate collections without replacing references")
+    void bookingEntity_DefensiveCollectionSetters_PreservesCollectionReference() {
+        Booking booking = new Booking();
+        List<BookingFood> originalFoods = booking.getBookingFoods();
+        assertNotNull(originalFoods);
+
+        BookingFood bf1 = new BookingFood();
+        bf1.setId("bf-1");
+        bf1.setQuantity(2);
+
+        // Test setBookingFoods clears and addsAll rather than replacing reference
+        booking.setBookingFoods(List.of(bf1));
+        assertSame(originalFoods, booking.getBookingFoods());
+        assertEquals(1, booking.getBookingFoods().size());
+
+        // Test addBookingFood
+        BookingFood bf2 = new BookingFood();
+        bf2.setId("bf-2");
+        booking.addBookingFood(bf2);
+        assertEquals(2, booking.getBookingFoods().size());
+        assertSame(booking, bf2.getBooking());
+
+        // Test removeBookingFood
+        booking.removeBookingFood(bf1);
+        assertEquals(1, booking.getBookingFoods().size());
+        assertNull(bf1.getBooking());
+
+        // Test setTickets preserves reference
+        List<Ticket> originalTickets = booking.getTickets();
+        Ticket t1 = new Ticket();
+        t1.setId("ticket-1");
+        booking.setTickets(List.of(t1));
+        assertSame(originalTickets, booking.getTickets());
+        assertEquals(1, booking.getTickets().size());
+
+        // Test setSeatHolds preserves reference
+        List<SeatHold> originalHolds = booking.getSeatHolds();
+        SeatHold sh1 = new SeatHold();
+        sh1.setId(1L);
+        booking.setSeatHolds(List.of(sh1));
+        assertSame(originalHolds, booking.getSeatHolds());
+        assertEquals(1, booking.getSeatHolds().size());
+    }
 }

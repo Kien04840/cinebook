@@ -286,88 +286,29 @@ public class BookingServiceImpl implements BookingService {
         User user = userRepository.findById(currentUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + currentUserId));
 
-        if (request.getSeatIds() == null || request.getSeatIds().isEmpty()) {
-            throw new BadRequestException("Danh sách ghế không được để trống.");
-        }
-
-        if (request.getSeatIds().size() > MAX_SEATS_PER_BOOKING) {
-            throw new BadRequestException("Không thể đặt quá " + MAX_SEATS_PER_BOOKING + " ghế trong một lần đặt vé.");
-        }
-
-        Set<String> uniqueSeatIds = new LinkedHashSet<>(request.getSeatIds());
-        if (uniqueSeatIds.size() != request.getSeatIds().size()) {
-            throw new BadRequestException("Danh sách ghế không được chứa ghế trùng lặp.");
-        }
+        Set<String> uniqueSeatIds = request.getSeatIds() != null
+                ? new LinkedHashSet<>(request.getSeatIds())
+                : Collections.emptySet();
+        validateSeatIds(request.getSeatIds(), uniqueSeatIds);
 
         Showtime showtime = showtimeRepository.findById(request.getShowtimeId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy lịch chiếu với id: " + request.getShowtimeId()));
 
         LocalDateTime now = LocalDateTime.now();
-
-        if (showtime.getStatus() != ShowtimeStatus.SCHEDULED) {
-            if (showtime.getStatus() == ShowtimeStatus.CANCELLED) {
-                throw new BadRequestException("Lịch chiếu đã bị hủy.");
-            }
-            if (showtime.getStatus() == ShowtimeStatus.FINISHED) {
-                throw new BadRequestException("Lịch chiếu đã kết thúc.");
-            }
-            throw new BadRequestException("Lịch chiếu hiện không khả dụng để đặt vé.");
-        }
-
-        if (showtime.getStartTime().isBefore(now)) {
-            throw new BadRequestException("Lịch chiếu đã bắt đầu hoặc đã qua.");
-        }
-
-        if (showtime.getEndTime() != null && (now.isAfter(showtime.getEndTime()) || now.isEqual(showtime.getEndTime()))) {
-            throw new BadRequestException("Lịch chiếu đã kết thúc.");
-        }
+        validateShowtimeForBooking(showtime, now);
 
         Auditorium auditorium = showtime.getAuditorium();
-        if (auditorium == null || auditorium.getStatus() != AuditoriumStatus.ACTIVE || auditorium.getDeletedAt() != null) {
-            throw new ConflictException("Phòng chiếu hiện không hoạt động hoặc đang bảo trì.");
-        }
-
-        Cinema cinema = auditorium.getCinema();
-        if (cinema == null || cinema.getStatus() != CinemaStatus.ACTIVE || cinema.getDeletedAt() != null) {
-            throw new ConflictException("Rạp chiếu phim hiện không hoạt động.");
-        }
-
-        Movie movie = showtime.getMovie();
-        if (movie == null || movie.getDeletedAt() != null) {
-            throw new BadRequestException("Phim của lịch chiếu này không khả dụng.");
-        }
+        validateAuditoriumAndCinema(auditorium);
 
         List<Seat> seats = seatRepository.findByIdIn(uniqueSeatIds);
-        if (seats.size() != uniqueSeatIds.size()) {
-            throw new ResourceNotFoundException("Một hoặc nhiều ghế không tồn tại.");
-        }
-
-        for (Seat seat : seats) {
-            if (!seat.getAuditorium().getId().equals(auditorium.getId())) {
-                throw new BadRequestException("Ghế " + seat.getSeatCode() + " không thuộc phòng chiếu của lịch chiếu này.");
-            }
-            if (seat.getStatus() != SeatStatus.ACTIVE) {
-                throw new BadRequestException("Ghế " + seat.getSeatCode() + " đang gặp sự cố (BROKEN) và không thể đặt.");
-            }
-        }
+        validateSeatsForShowtime(seats, uniqueSeatIds, auditorium);
 
         // Kiểm tra xem khách hàng này đã có đơn PENDING_PAYMENT cho đúng tập ghế này trong suất chiếu chưa (Idempotency)
-        List<Booking> activeUserBookings = bookingRepository.findActiveBookingsByUserAndShowtime(user.getId(), showtime.getId(), now);
-        for (Booking activeB : activeUserBookings) {
-            List<SeatHold> userHolds = seatHoldRepository.findByBookingId(activeB.getId());
-            Set<String> userHeldSeatIds = userHolds.stream().map(h -> h.getSeat().getId()).collect(Collectors.toSet());
-            if (userHeldSeatIds.equals(uniqueSeatIds)) {
-                log.info("Người dùng {} đang yêu cầu đặt lại đơn giữ chỗ hiện có {}. Trả về đơn giữ chỗ sẵn có.", user.getId(), activeB.getId());
-                List<BookingSeatResponse> existingSeatResponses = buildBookingSeatResponses(activeB);
-                List<PaymentSummaryResponse> existingPaymentResponses = paymentRepository.findByBookingId(activeB.getId())
-                        .stream()
-                        .map(bookingMapper::toPaymentSummaryResponse)
-                        .toList();
-                BookingPromotionResponse existingPromoResponse = bookingPromotionRepository.findFirstByBookingId(activeB.getId())
-                        .map(promotionMapper::toBookingPromotionResponse)
-                        .orElse(null);
-                return bookingMapper.toBookingDetailResponse(activeB, existingSeatResponses, Collections.emptyList(), existingPaymentResponses, existingPromoResponse);
-            }
+        Optional<Booking> idempotentBooking = findIdempotentActiveBooking(user.getId(), showtime.getId(), uniqueSeatIds, now);
+        if (idempotentBooking.isPresent()) {
+            Booking activeB = idempotentBooking.get();
+            log.info("Người dùng {} đang yêu cầu đặt lại đơn giữ chỗ hiện có {}. Trả về đơn giữ chỗ sẵn có.", user.getId(), activeB.getId());
+            return buildFullBookingDetailResponse(activeB);
         }
 
         // Kiểm tra quy tắc không để lại ghế trống đơn lẻ (No Single Orphan Seat Rule)
@@ -516,7 +457,8 @@ public class BookingServiceImpl implements BookingService {
                     bf.setBooking(savedBooking);
                 }
                 List<BookingFood> savedBfs = bookingFoodRepository.saveAllAndFlush(bookingFoodsToSave);
-                savedBooking.setBookingFoods(savedBfs);
+                savedBooking.getBookingFoods().clear();
+                savedBooking.getBookingFoods().addAll(savedBfs);
                 if (foodItemMapper != null) {
                     foodResponses = foodItemMapper.toBookingFoodResponseList(savedBfs);
                 }
@@ -534,6 +476,7 @@ public class BookingServiceImpl implements BookingService {
             seatHoldRepository.saveAllAndFlush(seatHoldsToSave);
         } catch (DataIntegrityViolationException ex) {
             log.warn("Concurrency conflict while holding seats or applying promotion for showtime {}: {}", showtime.getId(), ex.getMessage());
+            // Nếu xảy ra xung đột dữ liệu (ghế đã được giữ bởi người khác hoặc mã khuyến mãi hết lượt), ném ngoại lệ ConflictException
             throw new ConflictException("Một hoặc nhiều ghế đã được người khác giữ chỗ hoặc phát sinh xung đột dữ liệu.");
         }
 
@@ -628,6 +571,14 @@ public class BookingServiceImpl implements BookingService {
             Promotion promo = promotionRepository.findByIdWithLock(bp.getPromotion().getId()).orElse(null);
             if (promo != null && promo.getUsedCount() > 0) {
                 promo.setUsedCount(promo.getUsedCount() - 1);
+                if (promo.getStatus() == PromotionStatus.PAUSED
+                        && promo.getUsageLimit() != null
+                        && promo.getUsedCount() < promo.getUsageLimit()
+                        && promo.getEndAt() != null
+                        && LocalDateTime.now().isBefore(promo.getEndAt())) {
+                    promo.setStatus(PromotionStatus.ACTIVE);
+                    log.info("Mã khuyến mãi {} được tự động kích hoạt lại (ACTIVE) do còn quota và chưa hết hạn.", promo.getCode());
+                }
                 promotionRepository.save(promo);
                 log.info("Đã hoàn trả 1 lượt dùng mã khuyến mãi {}: lượt dùng mới = {}", promo.getCode(), promo.getUsedCount());
             }
@@ -714,24 +665,7 @@ public class BookingServiceImpl implements BookingService {
             booking = expireBookingIfHoldExpired(booking);
         }
 
-        List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(booking);
-        List<TicketResponse> ticketResponses = ticketRepository.findByBookingId(booking.getId())
-                .stream()
-                .map(bookingMapper::toTicketResponse)
-                .toList();
-        List<PaymentSummaryResponse> paymentResponses = paymentRepository.findByBookingId(booking.getId())
-                .stream()
-                .map(bookingMapper::toPaymentSummaryResponse)
-                .toList();
-        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(booking.getId())
-                .map(promotionMapper::toBookingPromotionResponse)
-                .orElse(null);
-
-        List<BookingFoodResponse> foodResponses = (bookingFoodRepository != null && foodItemMapper != null)
-                ? foodItemMapper.toBookingFoodResponseList(bookingFoodRepository.findByBookingId(booking.getId()))
-                : Collections.emptyList();
-
-        return bookingMapper.toBookingDetailResponse(booking, seatResponses, ticketResponses, paymentResponses, promoResponse, foodResponses);
+        return buildFullBookingDetailResponse(booking);
     }
 
     /**
@@ -852,20 +786,7 @@ public class BookingServiceImpl implements BookingService {
             log.error("Không thể tạo thông báo hủy đơn đặt vé {}: {}", updatedBooking.getBookingCode(), e.getMessage());
         }
 
-        List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(booking);
-        List<TicketResponse> ticketResponses = ticketRepository.findByBookingId(booking.getId())
-                .stream()
-                .map(bookingMapper::toTicketResponse)
-                .toList();
-        List<PaymentSummaryResponse> paymentResponses = paymentRepository.findByBookingId(booking.getId())
-                .stream()
-                .map(bookingMapper::toPaymentSummaryResponse)
-                .toList();
-        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(booking.getId())
-                .map(promotionMapper::toBookingPromotionResponse)
-                .orElse(null);
-
-        return bookingMapper.toBookingDetailResponse(booking, seatResponses, ticketResponses, paymentResponses, promoResponse);
+        return buildFullBookingDetailResponse(updatedBooking);
     }
 
     /**
@@ -971,34 +892,29 @@ public class BookingServiceImpl implements BookingService {
             log.error("Lỗi khi gửi email xác nhận đặt vé {}: {}", updatedBooking.getBookingCode(), e.getMessage());
         }
 
-        // 7. Tạo thông báo thanh toán thành công (In-App Notification)
+        // 7. Tạo thông báo thanh toán và đặt vé thành công (In-App Notification)
         try {
             if (notificationService != null && updatedBooking.getUser() != null) {
                 notificationService.createNotification(
                         updatedBooking.getUser(),
                         updatedBooking,
+                        NotificationType.BOOKING_SUCCESS,
+                        "Đặt vé thành công",
+                        "Đơn đặt vé #" + updatedBooking.getBookingCode() + " đã được xác nhận thành công. Chúc bạn xem phim vui vẻ!"
+                );
+                notificationService.createNotification(
+                        updatedBooking.getUser(),
+                        updatedBooking,
                         NotificationType.PAYMENT_SUCCESS,
                         "Thanh toán thành công",
-                        "Đơn đặt vé #" + updatedBooking.getBookingCode() + " đã được thanh toán thành công. Chúc bạn xem phim vui vẻ!"
+                        "Đơn đặt vé #" + updatedBooking.getBookingCode() + " đã được thanh toán thành công."
                 );
             }
         } catch (Exception e) {
-            log.error("Không thể tạo thông báo thanh toán thành công cho đơn vé {}: {}", updatedBooking.getBookingCode(), e.getMessage());
+            log.error("Không thể tạo thông báo thanh toán/đặt vé thành công cho đơn vé {}: {}", updatedBooking.getBookingCode(), e.getMessage());
         }
 
-        List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(updatedBooking);
-        List<TicketResponse> ticketResponses = createdTickets.stream()
-                .map(bookingMapper::toTicketResponse)
-                .toList();
-        List<PaymentSummaryResponse> paymentResponses = paymentRepository.findByBookingId(booking.getId())
-                .stream()
-                .map(bookingMapper::toPaymentSummaryResponse)
-                .toList();
-        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(updatedBooking.getId())
-                .map(promotionMapper::toBookingPromotionResponse)
-                .orElse(null);
-
-        return bookingMapper.toBookingDetailResponse(updatedBooking, seatResponses, ticketResponses, paymentResponses, promoResponse);
+        return buildFullBookingDetailResponse(updatedBooking);
     }
 
     /**
@@ -1066,28 +982,23 @@ public class BookingServiceImpl implements BookingService {
                 notificationService.createNotification(
                         updatedBooking.getUser(),
                         updatedBooking,
-                        NotificationType.REFUND_COMPLETED,
+                        NotificationType.REFUND_SUCCESS,
                         "Hoàn tiền thành công",
                         "Đơn đặt vé #" + updatedBooking.getBookingCode() + " đã được hoàn tiền thành công."
+                );
+                notificationService.createNotification(
+                        updatedBooking.getUser(),
+                        updatedBooking,
+                        NotificationType.REFUND_COMPLETED,
+                        "Hoàn tiền thành công",
+                        "Đơn đặt vé #" + updatedBooking.getBookingCode() + " đã được xử lý hoàn tiền."
                 );
             }
         } catch (Exception e) {
             log.error("Không thể tạo thông báo hoàn tiền thành công cho đơn vé {}: {}", updatedBooking.getBookingCode(), e.getMessage());
         }
 
-        List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(updatedBooking);
-        List<TicketResponse> ticketResponses = tickets.stream()
-                .map(bookingMapper::toTicketResponse)
-                .toList();
-        List<PaymentSummaryResponse> paymentResponses = paymentRepository.findByBookingId(booking.getId())
-                .stream()
-                .map(bookingMapper::toPaymentSummaryResponse)
-                .toList();
-        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(updatedBooking.getId())
-                .map(promotionMapper::toBookingPromotionResponse)
-                .orElse(null);
-
-        return bookingMapper.toBookingDetailResponse(updatedBooking, seatResponses, ticketResponses, paymentResponses, promoResponse);
+        return buildFullBookingDetailResponse(updatedBooking, tickets);
     }
 
 
@@ -1115,9 +1026,19 @@ public class BookingServiceImpl implements BookingService {
         Showtime showtime = showtimeRepository.findById(showtimeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy lịch chiếu với id: " + showtimeId));
 
+        LocalDateTime now = LocalDateTime.now();
+        if (showtime.getStatus() != ShowtimeStatus.SCHEDULED || !showtime.getStartTime().isAfter(now)) {
+            if (showtime.getStatus() == ShowtimeStatus.CANCELLED) {
+                throw new BadRequestException("Lịch chiếu đã bị hủy.");
+            }
+            if (showtime.getStatus() == ShowtimeStatus.FINISHED || !showtime.getStartTime().isAfter(now)) {
+                throw new BadRequestException("Lịch chiếu đã bắt đầu hoặc đã kết thúc.");
+            }
+            throw new BadRequestException("Lịch chiếu hiện không khả dụng để chọn ghế.");
+        }
+
         Auditorium auditorium = showtime.getAuditorium();
         List<Seat> seats = seatRepository.findByAuditoriumIdOrderByRowLabelAscSeatNumberAsc(auditorium.getId());
-        LocalDateTime now = LocalDateTime.now();
 
         Optional<UserDetailsImpl> currentUserOpt = SecurityUtils.getCurrentUserDetails();
         String currentUserId = currentUserOpt.map(UserDetailsImpl::getId).orElse(null);
@@ -1203,16 +1124,7 @@ public class BookingServiceImpl implements BookingService {
         }
 
         Booking activeBooking = activeBookings.get(0);
-        List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(activeBooking);
-        List<PaymentSummaryResponse> paymentResponses = paymentRepository.findByBookingId(activeBooking.getId())
-                .stream()
-                .map(bookingMapper::toPaymentSummaryResponse)
-                .toList();
-        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(activeBooking.getId())
-                .map(promotionMapper::toBookingPromotionResponse)
-                .orElse(null);
-
-        return bookingMapper.toBookingDetailResponse(activeBooking, seatResponses, Collections.emptyList(), paymentResponses, promoResponse);
+        return buildFullBookingDetailResponse(activeBooking);
     }
 
     /**
@@ -1235,6 +1147,51 @@ public class BookingServiceImpl implements BookingService {
     }
 
     /**
+     * Lắp ráp đối tượng BookingDetailResponse hoàn chỉnh bao gồm danh sách ghế, vé, thanh toán, khuyến mãi và đồ ăn.
+     * Tái sử dụng đồng nhất cho các luồng tra cứu chi tiết, hủy vé, xác nhận thanh toán, hoàn tiền và đặt vé.
+     *
+     * @param booking Đơn đặt vé cần đóng gói
+     * @return BookingDetailResponse chi tiết toàn diện
+     */
+    private BookingDetailResponse buildFullBookingDetailResponse(Booking booking) {
+        return buildFullBookingDetailResponse(booking, null);
+    }
+
+    /**
+     * Lắp ráp BookingDetailResponse với danh sách vé đã nạp sẵn trong bộ nhớ (nếu có) để tránh truy vấn CSDL dư thừa.
+     *
+     * @param booking Đơn đặt vé cần đóng gói
+     * @param preloadedTickets Danh sách vé đã nạp sẵn (tùy chọn)
+     * @return BookingDetailResponse chi tiết toàn diện
+     */
+    private BookingDetailResponse buildFullBookingDetailResponse(Booking booking, List<Ticket> preloadedTickets) {
+        List<Ticket> tickets = (preloadedTickets != null)
+                ? preloadedTickets
+                : ticketRepository.findByBookingId(booking.getId());
+
+        List<BookingSeatResponse> seatResponses = buildBookingSeatResponses(booking, tickets);
+
+        List<TicketResponse> ticketResponses = tickets.stream()
+                .map(bookingMapper::toTicketResponse)
+                .toList();
+
+        List<PaymentSummaryResponse> paymentResponses = paymentRepository.findByBookingId(booking.getId())
+                .stream()
+                .map(bookingMapper::toPaymentSummaryResponse)
+                .toList();
+
+        BookingPromotionResponse promoResponse = bookingPromotionRepository.findFirstByBookingId(booking.getId())
+                .map(promotionMapper::toBookingPromotionResponse)
+                .orElse(null);
+
+        List<BookingFoodResponse> foodResponses = (bookingFoodRepository != null && foodItemMapper != null)
+                ? foodItemMapper.toBookingFoodResponseList(bookingFoodRepository.findByBookingId(booking.getId()))
+                : Collections.emptyList();
+
+        return bookingMapper.toBookingDetailResponse(booking, seatResponses, ticketResponses, paymentResponses, promoResponse, foodResponses);
+    }
+
+    /**
      * Chuyển đổi danh sách ghế thành đối tượng phản hồi BookingSeatResponse:
      * - Nếu đơn đã phát hành vé (Ticket): Lấy thông tin ghế và giá vé từ bảng Ticket.
      * - Nếu đơn đang trong giai đoạn giữ chỗ (SeatHold): Tính toán giá vé tương ứng theo SeatType và Showtime Base Breakdown.
@@ -1243,8 +1200,15 @@ public class BookingServiceImpl implements BookingService {
      * @return Danh sách BookingSeatResponse
      */
     private List<BookingSeatResponse> buildBookingSeatResponses(Booking booking) {
-        List<Ticket> tickets = ticketRepository.findByBookingId(booking.getId());
-        if (!tickets.isEmpty()) {
+        return buildBookingSeatResponses(booking, null);
+    }
+
+    private List<BookingSeatResponse> buildBookingSeatResponses(Booking booking, List<Ticket> preloadedTickets) {
+        List<Ticket> tickets = (preloadedTickets != null)
+                ? preloadedTickets
+                : ticketRepository.findByBookingId(booking.getId());
+
+        if (tickets != null && !tickets.isEmpty()) {
             return tickets.stream()
                     .map(t -> bookingMapper.toBookingSeatResponse(t.getSeat(), t.getTicketPrice()))
                     .toList();
@@ -1343,9 +1307,12 @@ public class BookingServiceImpl implements BookingService {
         } else {
             long validCount = tickets.stream().filter(t -> t.getTicketStatus() == TicketStatus.VALID).count();
             long usedCount = tickets.stream().filter(t -> t.getTicketStatus() == TicketStatus.USED).count();
+            long expiredCount = tickets.stream().filter(t -> t.getTicketStatus() == TicketStatus.EXPIRED).count();
             if (validCount == 0) {
                 isEligible = false;
-                if (usedCount > 0) {
+                if (expiredCount > 0) {
+                    ineligibleReason = "Vé đã hết hạn sử dụng do suất chiếu đã kết thúc.";
+                } else if (usedCount > 0) {
                     ineligibleReason = "Tất cả các vé trong đơn hàng đã được sử dụng trước đó.";
                 } else {
                     ineligibleReason = "Không có vé hợp lệ để soát trong đơn hàng này.";
@@ -1457,6 +1424,12 @@ public class BookingServiceImpl implements BookingService {
                 .count();
 
         if (validTickets.isEmpty()) {
+            long expiredCount = tickets.stream()
+                    .filter(t -> t.getTicketStatus() == TicketStatus.EXPIRED)
+                    .count();
+            if (expiredCount > 0) {
+                throw new BadRequestException("Vé trong đơn đặt này đã hết hạn sử dụng do suất chiếu đã kết thúc.");
+            }
             if (alreadyUsedCount > 0) {
                 throw new ConflictException("Tất cả các vé trong đơn đặt này đã được soát trước đó. Không thể soát lại!");
             }
@@ -1516,6 +1489,97 @@ public class BookingServiceImpl implements BookingService {
                 .checkedInCount(validTickets.size())
                 .alreadyUsedCount((int) alreadyUsedCount)
                 .build();
+    }
+
+    /**
+     * Xác thực tính hợp lệ của danh sách ID ghế từ yêu cầu đặt vé:
+     * không được null, rỗng, vượt quá giới hạn hoặc trùng lặp.
+     */
+    private void validateSeatIds(List<String> seatIds, Set<String> uniqueSeatIds) {
+        if (seatIds == null || seatIds.isEmpty()) {
+            throw new BadRequestException("Danh sách ghế không được để trống.");
+        }
+        if (seatIds.size() > MAX_SEATS_PER_BOOKING) {
+            throw new BadRequestException("Không thể đặt quá " + MAX_SEATS_PER_BOOKING + " ghế trong một lần đặt vé.");
+        }
+        if (uniqueSeatIds.size() != seatIds.size()) {
+            throw new BadRequestException("Danh sách ghế không được chứa ghế trùng lặp.");
+        }
+    }
+
+    /**
+     * Xác thực trạng thái và thời gian khả dụng của suất chiếu cùng sự tồn tại của phim.
+     */
+    private void validateShowtimeForBooking(Showtime showtime, LocalDateTime now) {
+        if (showtime.getStatus() != ShowtimeStatus.SCHEDULED) {
+            if (showtime.getStatus() == ShowtimeStatus.CANCELLED) {
+                throw new BadRequestException("Lịch chiếu đã bị hủy.");
+            }
+            if (showtime.getStatus() == ShowtimeStatus.FINISHED) {
+                throw new BadRequestException("Lịch chiếu đã kết thúc.");
+            }
+            throw new BadRequestException("Lịch chiếu hiện không khả dụng để đặt vé.");
+        }
+
+        if (showtime.getStartTime().isBefore(now)) {
+            throw new BadRequestException("Lịch chiếu đã bắt đầu hoặc đã qua.");
+        }
+
+        if (showtime.getEndTime() != null && (now.isAfter(showtime.getEndTime()) || now.isEqual(showtime.getEndTime()))) {
+            throw new BadRequestException("Lịch chiếu đã kết thúc.");
+        }
+
+        Movie movie = showtime.getMovie();
+        if (movie == null || movie.getDeletedAt() != null) {
+            throw new BadRequestException("Phim của lịch chiếu này không khả dụng.");
+        }
+    }
+
+    /**
+     * Xác thực trạng thái hoạt động của phòng chiếu và rạp chiếu phim.
+     */
+    private void validateAuditoriumAndCinema(Auditorium auditorium) {
+        if (auditorium == null || auditorium.getStatus() != AuditoriumStatus.ACTIVE || auditorium.getDeletedAt() != null) {
+            throw new ConflictException("Phòng chiếu hiện không hoạt động hoặc đang bảo trì.");
+        }
+
+        Cinema cinema = auditorium.getCinema();
+        if (cinema == null || cinema.getStatus() != CinemaStatus.ACTIVE || cinema.getDeletedAt() != null) {
+            throw new ConflictException("Rạp chiếu phim hiện không hoạt động.");
+        }
+    }
+
+    /**
+     * Xác thực toàn bộ ghế yêu cầu: phải tồn tại đầy đủ, thuộc đúng phòng chiếu và đang hoạt động (không bị BROKEN).
+     */
+    private void validateSeatsForShowtime(List<Seat> seats, Set<String> uniqueSeatIds, Auditorium auditorium) {
+        if (seats.size() != uniqueSeatIds.size()) {
+            throw new ResourceNotFoundException("Một hoặc nhiều ghế không tồn tại.");
+        }
+
+        for (Seat seat : seats) {
+            if (!seat.getAuditorium().getId().equals(auditorium.getId())) {
+                throw new BadRequestException("Ghế " + seat.getSeatCode() + " không thuộc phòng chiếu của lịch chiếu này.");
+            }
+            if (seat.getStatus() != SeatStatus.ACTIVE) {
+                throw new BadRequestException("Ghế " + seat.getSeatCode() + " đang gặp sự cố (BROKEN) và không thể đặt.");
+            }
+        }
+    }
+
+    /**
+     * Tìm kiếm đơn đặt vé đang chờ thanh toán của người dùng có cùng tập ghế trong suất chiếu để đảm bảo tính Idempotent.
+     */
+    private Optional<Booking> findIdempotentActiveBooking(String userId, String showtimeId, Set<String> uniqueSeatIds, LocalDateTime now) {
+        List<Booking> activeUserBookings = bookingRepository.findActiveBookingsByUserAndShowtime(userId, showtimeId, now);
+        for (Booking activeB : activeUserBookings) {
+            List<SeatHold> userHolds = seatHoldRepository.findByBookingId(activeB.getId());
+            Set<String> userHeldSeatIds = userHolds.stream().map(h -> h.getSeat().getId()).collect(Collectors.toSet());
+            if (userHeldSeatIds.equals(uniqueSeatIds)) {
+                return Optional.of(activeB);
+            }
+        }
+        return Optional.empty();
     }
 
     /**
@@ -1604,7 +1668,7 @@ public class BookingServiceImpl implements BookingService {
             }
 
             if (orphanAfter > orphanBefore) {
-                throw new BadRequestException("Không thể đặt vé: Lựa chọn ghế để lại ghế trống đơn lẻ (ghế cô lập) tại hàng " + rowLabel + ". Vui lòng chọn ghế liền kề.");
+                throw new BadRequestException("Vui lòng chọn lại ghế. Lựa chọn hiện tại để lại một ghế trống đơn lẻ khó bán tại hàng " + rowLabel + ".");
             }
         }
     }
@@ -1633,5 +1697,16 @@ public class BookingServiceImpl implements BookingService {
         }
 
         return orphanCount;
+    }
+
+    @Override
+    @Transactional
+    public int expirePastTickets(LocalDateTime now) {
+        LocalDateTime cutoff = now != null ? now : LocalDateTime.now();
+        int count = ticketRepository.expirePastTickets(cutoff);
+        if (count > 0) {
+            log.info("Batch expired {} past tickets as of {}", count, cutoff);
+        }
+        return count;
     }
 }

@@ -17,11 +17,41 @@ export function formatCurrency(amount: number | string | null | undefined): stri
   }).format(numeric)
 }
 
+export function formatCompactCurrency(amount: number | string | null | undefined): string {
+  if (amount === null || amount === undefined || amount === '') {
+    return '0 ₫'
+  }
+  const numeric = typeof amount === 'string' ? parseFloat(amount.replace(/,/g, '')) : amount
+  if (isNaN(numeric) || numeric === 0) {
+    return '0 ₫'
+  }
+  const sign = numeric < 0 ? '-' : ''
+  const abs = Math.abs(numeric)
+
+  if (abs >= 1_000_000_000) {
+    const val = abs / 1_000_000_000
+    const formatted = val >= 10 ? val.toFixed(1).replace(/\.0$/, '') : val.toFixed(2).replace(/\.?0+$/, '')
+    return `${sign}${formatted.replace('.', ',')} tỷ ₫`
+  }
+  if (abs >= 1_000_000) {
+    const val = abs / 1_000_000
+    const formatted = val >= 10 ? val.toFixed(1).replace(/\.0$/, '') : val.toFixed(2).replace(/\.?0+$/, '')
+    return `${sign}${formatted.replace('.', ',')} tr ₫`
+  }
+  if (abs >= 1_000) {
+    const val = abs / 1_000
+    const formatted = val >= 10 ? val.toFixed(0) : val.toFixed(1).replace(/\.0$/, '')
+    return `${sign}${formatted.replace('.', ',')} k ₫`
+  }
+  return `${sign}${Math.round(abs)} ₫`
+}
+
 export function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return ''
   try {
     const d = new Date(dateStr)
     return new Intl.DateTimeFormat('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -36,6 +66,7 @@ export function formatDateTime(dateStr: string | null | undefined): string {
   try {
     const d = new Date(dateStr)
     return new Intl.DateTimeFormat('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
       hour: '2-digit',
       minute: '2-digit',
       day: '2-digit',
@@ -47,14 +78,44 @@ export function formatDateTime(dateStr: string | null | undefined): string {
   }
 }
 
+/**
+ * Formats a date string into standard system format: dd/MM/yyyy HH:mm
+ * Uses Asia/Ho_Chi_Minh timezone consistently.
+ */
+export function formatStandardDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return ''
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return dateStr
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(d)
+    const map: Record<string, string> = {}
+    parts.forEach((p) => {
+      map[p.type] = p.value
+    })
+    return `${map.day}/${map.month}/${map.year} ${map.hour}:${map.minute}`
+  } catch {
+    return dateStr
+  }
+}
+
 export function formatTime(timeStr: string | null | undefined): string {
   if (!timeStr) return ''
   try {
     if (timeStr.includes('T')) {
       const d = new Date(timeStr)
       return new Intl.DateTimeFormat('vi-VN', {
+        timeZone: 'Asia/Ho_Chi_Minh',
         hour: '2-digit',
         minute: '2-digit',
+        hour12: false,
       }).format(d)
     }
     return timeStr.substring(0, 5)
@@ -93,6 +154,32 @@ export function formatDuration(minutes: number | null | undefined, locale?: 'vi'
   return `${hours}${hourUnit} ${mins}${minUnit}`
 }
 
+export const LANGUAGE_NAME_MAP: Record<string, { vi: string; en: string }> = {
+  vi: { vi: 'Tiếng Việt', en: 'Vietnamese' },
+  en: { vi: 'Tiếng Anh', en: 'English' },
+  ja: { vi: 'Tiếng Nhật', en: 'Japanese' },
+  ko: { vi: 'Tiếng Hàn', en: 'Korean' },
+  zh: { vi: 'Tiếng Trung', en: 'Chinese' },
+  fr: { vi: 'Tiếng Pháp', en: 'French' },
+  es: { vi: 'Tiếng Tây Ban Nha', en: 'Spanish' },
+  th: { vi: 'Tiếng Thái', en: 'Thai' },
+  de: { vi: 'Tiếng Đức', en: 'German' },
+  ru: { vi: 'Tiếng Nga', en: 'Russian' },
+  it: { vi: 'Tiếng Ý', en: 'Italian' },
+  hi: { vi: 'Tiếng Hindi', en: 'Hindi' },
+}
+
+export function formatLanguage(lang?: string | null, locale?: 'vi' | 'en' | string): string {
+  if (!lang) return ''
+  const trimmed = lang.trim()
+  const lower = trimmed.toLowerCase()
+  const isEn = (locale || getActiveLocale()) === 'en'
+  if (LANGUAGE_NAME_MAP[lower]) {
+    return isEn ? LANGUAGE_NAME_MAP[lower].en : LANGUAGE_NAME_MAP[lower].vi
+  }
+  return trimmed
+}
+
 export function formatStatus(status: string | null | undefined, locale?: 'vi' | 'en' | string): string {
   if (!status) return ''
   const effectiveLocale = locale || getActiveLocale()
@@ -119,6 +206,8 @@ export function formatStatus(status: string | null | undefined, locale?: 'vi' | 
     SUCCESS: 'Thành công',
     FAILED: 'Thất bại',
     PENDING: 'Đang xử lý',
+    DRAFT: 'Bản nháp',
+    PAUSED: 'Tạm dừng',
   }
   const mapEn: Record<string, string> = {
     ACTIVE: 'Active',
@@ -142,6 +231,8 @@ export function formatStatus(status: string | null | undefined, locale?: 'vi' | 
     SUCCESS: 'Success',
     FAILED: 'Failed',
     PENDING: 'Pending',
+    DRAFT: 'Draft',
+    PAUSED: 'Paused',
   }
   const map = isEn ? mapEn : mapVi
   return map[status] || status
@@ -157,6 +248,20 @@ export function formatPercent(val: number | string | null | undefined): string {
   const num = Number(val)
   if (num === 0) return '0%'
   return `${Number(num.toFixed(1))}%`
+}
+
+export function formatRole(role: string | null | undefined, locale?: 'vi' | 'en' | string): string {
+  if (!role) return ''
+  const effectiveLocale = locale || getActiveLocale()
+  const isEn = effectiveLocale === 'en'
+  const normalized = role.replace(/^ROLE_/, '').toUpperCase()
+  if (normalized === 'ADMIN') {
+    return isEn ? 'Administrator' : 'Quản trị viên'
+  }
+  if (normalized === 'CUSTOMER') {
+    return isEn ? 'Customer' : 'Khách hàng'
+  }
+  return role
 }
 
 export { getErrorMessage, getApiErrorMessage } from './error'

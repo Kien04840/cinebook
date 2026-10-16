@@ -17,6 +17,8 @@ import com.cinebook.enums.ShowtimeStatus;
 import com.cinebook.exception.BadRequestException;
 import com.cinebook.exception.ConflictException;
 import com.cinebook.exception.ResourceNotFoundException;
+import com.cinebook.entity.Booking;
+import com.cinebook.enums.BookingStatus;
 import com.cinebook.mapper.AuditoriumMapper;
 import com.cinebook.mapper.CinemaMapper;
 import com.cinebook.mapper.GenreMapper;
@@ -27,7 +29,9 @@ import com.cinebook.repository.AuditoriumRepository;
 import com.cinebook.repository.BookingRepository;
 import com.cinebook.repository.CinemaRepository;
 import com.cinebook.repository.MovieRepository;
+import com.cinebook.repository.SeatHoldRepository;
 import com.cinebook.repository.ShowtimeRepository;
+import com.cinebook.repository.TicketRepository;
 import com.cinebook.service.impl.ShowtimeServiceImpl;
 import com.cinebook.service.scheduling.SchedulingValidationService;
 import org.junit.jupiter.api.BeforeEach;
@@ -74,6 +78,12 @@ class ShowtimeServiceTest {
 
     @Mock
     private BookingRepository bookingRepository;
+
+    @Mock
+    private TicketRepository ticketRepository;
+
+    @Mock
+    private SeatHoldRepository seatHoldRepository;
 
     @Mock
     private PricingService pricingService;
@@ -129,8 +139,8 @@ class ShowtimeServiceTest {
         sampleShowtime.setFormat(ShowtimeFormat.IMAX);
         sampleShowtime.setLanguage("English");
         sampleShowtime.setSubtitle("Vietnamese");
-        sampleShowtime.setStartTime(LocalDateTime.of(2026, 9, 1, 10, 0));
-        sampleShowtime.setEndTime(LocalDateTime.of(2026, 9, 1, 12, 28));
+        sampleShowtime.setStartTime(LocalDateTime.now().plusDays(1).withHour(10).withMinute(0));
+        sampleShowtime.setEndTime(LocalDateTime.now().plusDays(1).withHour(12).withMinute(28));
         sampleShowtime.setBasePrice(new BigDecimal("120000.00"));
         sampleShowtime.setStatus(ShowtimeStatus.SCHEDULED);
         sampleShowtime.setCreatedAt(LocalDateTime.now());
@@ -285,12 +295,13 @@ class ShowtimeServiceTest {
 
     @Test
     void createShowtime_Reject_Overlap() {
+        LocalDateTime start = sampleShowtime.getStartTime().plusMinutes(30);
         CreateShowtimeRequest request = CreateShowtimeRequest.builder()
                 .movieId("mov-1")
                 .auditoriumId("aud-1")
                 .format(ShowtimeFormat.IMAX)
                 .language("English")
-                .startTime(LocalDateTime.of(2026, 9, 1, 10, 30))
+                .startTime(start)
                 .basePrice(new BigDecimal("120000.00"))
                 .build();
 
@@ -332,6 +343,22 @@ class ShowtimeServiceTest {
     @Test
     void getPublicShowtimeDetail_AuditoriumMaintenance_ThrowsNotFound() {
         sampleAuditorium.setStatus(AuditoriumStatus.MAINTENANCE);
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+
+        assertThrows(ResourceNotFoundException.class, () -> showtimeService.getPublicShowtimeDetail("st-1"));
+    }
+
+    @Test
+    void getPublicShowtimeDetail_PastOrStartedShowtime_ThrowsNotFound() {
+        sampleShowtime.setStartTime(LocalDateTime.now().minusMinutes(10));
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+
+        assertThrows(ResourceNotFoundException.class, () -> showtimeService.getPublicShowtimeDetail("st-1"));
+    }
+
+    @Test
+    void getPublicShowtimeDetail_CancelledShowtime_ThrowsNotFound() {
+        sampleShowtime.setStatus(ShowtimeStatus.CANCELLED);
         when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
 
         assertThrows(ResourceNotFoundException.class, () -> showtimeService.getPublicShowtimeDetail("st-1"));
@@ -389,26 +416,79 @@ class ShowtimeServiceTest {
     }
 
     @Test
+    void updateShowtime_Reject_WhenCancelledOrFinished() {
+        sampleShowtime.setStatus(ShowtimeStatus.CANCELLED);
+        UpdateShowtimeRequest request = UpdateShowtimeRequest.builder()
+                .movieId("mov-1")
+                .auditoriumId("aud-1")
+                .startTime(LocalDateTime.of(2026, 9, 1, 14, 0))
+                .basePrice(new BigDecimal("120000.00"))
+                .build();
+
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> showtimeService.updateShowtime("st-1", request));
+        assertTrue(ex.getMessage().contains("Không thể chỉnh sửa suất chiếu đã hủy hoặc đã kết thúc"));
+        verify(showtimeRepository, never()).save(any());
+    }
+
+    @Test
     void deleteShowtime_PhysicalDelete_WhenNoBookings() {
         when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(ticketRepository.hasPaidOrUsedTickets("st-1")).thenReturn(false);
+        when(bookingRepository.existsByShowtimeIdAndBookingStatusIn(eq("st-1"), any())).thenReturn(false);
         when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(false);
 
         showtimeService.deleteShowtime("st-1");
 
+        verify(seatHoldRepository).deleteByShowtimeId("st-1");
         ((org.springframework.data.repository.CrudRepository<Showtime, String>) verify(showtimeRepository)).delete(sampleShowtime);
         verify(showtimeRepository, never()).save(any());
     }
 
     @Test
-    void deleteShowtime_CancelStatus_WhenHasBookings() {
+    void deleteShowtime_CancelStatus_WhenHasUnpaidBookings() {
         when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(ticketRepository.hasPaidOrUsedTickets("st-1")).thenReturn(false);
+        when(bookingRepository.existsByShowtimeIdAndBookingStatusIn(eq("st-1"), any())).thenReturn(false);
         when(bookingRepository.existsByShowtimeId("st-1")).thenReturn(true);
+
+        Booking unpaidBooking = new Booking();
+        unpaidBooking.setBookingStatus(BookingStatus.PENDING_PAYMENT);
+        when(bookingRepository.findByShowtimeIdAndBookingStatusIn(eq("st-1"), any())).thenReturn(List.of(unpaidBooking));
 
         showtimeService.deleteShowtime("st-1");
 
         assertEquals(ShowtimeStatus.CANCELLED, sampleShowtime.getStatus());
+        assertEquals(BookingStatus.CANCELLED, unpaidBooking.getBookingStatus());
+        assertEquals("Suất chiếu đã bị hủy", unpaidBooking.getCancelledReason());
+        verify(bookingRepository).saveAll(anyList());
+        verify(seatHoldRepository).deleteByShowtimeId("st-1");
         verify(showtimeRepository).save(sampleShowtime);
         ((org.springframework.data.repository.CrudRepository<Showtime, String>) verify(showtimeRepository, never())).delete(any());
+    }
+
+    @Test
+    void deleteShowtime_Rejects_WhenHasPaidTickets() {
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(ticketRepository.hasPaidOrUsedTickets("st-1")).thenReturn(true);
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> showtimeService.deleteShowtime("st-1"));
+        assertTrue(ex.getMessage().contains("Không thể xóa suất chiếu vì đã có vé đã thanh toán."));
+        ((org.springframework.data.repository.CrudRepository<Showtime, String>) verify(showtimeRepository, never())).delete(any());
+        verify(showtimeRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteShowtime_Rejects_WhenHasPaidBookings() {
+        when(showtimeRepository.findById("st-1")).thenReturn(Optional.of(sampleShowtime));
+        when(ticketRepository.hasPaidOrUsedTickets("st-1")).thenReturn(false);
+        when(bookingRepository.existsByShowtimeIdAndBookingStatusIn(eq("st-1"), any())).thenReturn(true);
+
+        BadRequestException ex = assertThrows(BadRequestException.class, () -> showtimeService.deleteShowtime("st-1"));
+        assertTrue(ex.getMessage().contains("Không thể xóa suất chiếu vì đã có vé đã thanh toán."));
+        ((org.springframework.data.repository.CrudRepository<Showtime, String>) verify(showtimeRepository, never())).delete(any());
+        verify(showtimeRepository, never()).save(any());
     }
 
     // ==========================================

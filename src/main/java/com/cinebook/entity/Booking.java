@@ -24,6 +24,10 @@ import java.util.UUID;
         @Index(
             name = "idx_bookings_showtime_status",
             columnList = "showtime_id, booking_status"
+        ),
+        @Index(
+            name = "idx_bookings_created_status",
+            columnList = "created_at, booking_status"
         )
     }
 )
@@ -164,5 +168,55 @@ private String cancelledReason;
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
+    }
+
+    public void setBookingFoods(List<BookingFood> bookingFoods) {
+        if (this.bookingFoods == null) {
+            this.bookingFoods = new ArrayList<>();
+        } else {
+            this.bookingFoods.clear();
+        }
+        if (bookingFoods != null) {
+            this.bookingFoods.addAll(bookingFoods);
+        }
+    }
+
+    public void addBookingFood(BookingFood bf) {
+        if (bf != null) {
+            bf.setBooking(this);
+            if (this.bookingFoods == null) {
+                this.bookingFoods = new ArrayList<>();
+            }
+            this.bookingFoods.add(bf);
+        }
+    }
+
+    public void removeBookingFood(BookingFood bf) {
+        if (bf != null && this.bookingFoods != null) {
+            bf.setBooking(null);
+            this.bookingFoods.remove(bf);
+        }
+    }
+
+    public void setTickets(List<Ticket> tickets) {
+        if (this.tickets == null) {
+            this.tickets = new ArrayList<>();
+        } else {
+            this.tickets.clear();
+        }
+        if (tickets != null) {
+            this.tickets.addAll(tickets);
+        }
+    }
+
+    public void setSeatHolds(List<SeatHold> seatHolds) {
+        if (this.seatHolds == null) {
+            this.seatHolds = new ArrayList<>();
+        } else {
+            this.seatHolds.clear();
+        }
+        if (seatHolds != null) {
+            this.seatHolds.addAll(seatHolds);
+        }
     }
 }
